@@ -3,6 +3,7 @@ import 'package:dream_cast/core/settings/app_settings.dart';
 import 'package:dream_cast/core/settings/settings_providers.dart';
 import 'package:dream_cast/features/profile/data/profile_providers.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -17,11 +18,19 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   final _controller = PageController();
   final _profileController = TextEditingController();
   int _page = 0;
+  bool _finishing = false;
+  bool _savingProfile = false;
+  final _profileFieldFocus = FocusNode(debugLabel: 'TV profile name');
+  final _profileSaveFocus = FocusNode(debugLabel: 'TV save profile');
+  final _finishFocus = FocusNode(debugLabel: 'TV finish onboarding');
 
   @override
   void dispose() {
     _controller.dispose();
     _profileController.dispose();
+    _profileFieldFocus.dispose();
+    _profileSaveFocus.dispose();
+    _finishFocus.dispose();
     super.dispose();
   }
 
@@ -31,8 +40,14 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       _WelcomePage(onNext: _next),
       _ThemePage(onNext: _next),
       _AccentPage(onNext: _next),
-      _ProfilePage(controller: _profileController, onNext: _saveProfileAndNext),
-      _PermissionPage(onFinish: _finish),
+      _ProfilePage(
+        controller: _profileController,
+        fieldFocus: _profileFieldFocus,
+        saveFocus: _profileSaveFocus,
+        saving: _savingProfile,
+        onNext: _saveProfileAndNext,
+      ),
+      _PermissionPage(finishFocus: _finishFocus, onFinish: _finish),
     ];
     final theme = Theme.of(context);
 
@@ -87,7 +102,16 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               child: PageView(
                 controller: _controller,
                 physics: const ClampingScrollPhysics(),
-                onPageChanged: (value) => setState(() => _page = value),
+                onPageChanged: (value) {
+                  setState(() => _page = value);
+                  if (value == 3 || value == 4) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!mounted || _page != value) return;
+                      (value == 3 ? _profileFieldFocus : _finishFocus)
+                          .requestFocus();
+                    });
+                  }
+                },
                 children: pages,
               ),
             ),
@@ -105,22 +129,46 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   }
 
   Future<void> _saveProfileAndNext() async {
+    if (_savingProfile) return;
     final name = _profileController.text.trim();
     if (name.length < 2) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Введите имя длиной не меньше двух символов.'),
-        ),
+        const SnackBar(content: Text('Введите имя длиной не меньше двух символов.')),
       );
+      _profileFieldFocus.requestFocus();
       return;
     }
-    await ref.read(activeProfileProvider.notifier).save(name);
-    _next();
+    setState(() => _savingProfile = true);
+    try {
+      await ref.read(activeProfileProvider.notifier).save(name);
+      if (!mounted) return;
+      FocusManager.instance.primaryFocus?.unfocus();
+      _next();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Не удалось сохранить профиль: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _savingProfile = false);
+    }
   }
 
   Future<void> _finish() async {
-    await ref.read(appSettingsProvider.notifier).completeOnboarding();
-    if (mounted) context.go('/home');
+    if (_finishing) return;
+    _finishing = true;
+    try {
+      await ref.read(appSettingsProvider.notifier).completeOnboarding();
+      if (mounted) context.go('/home');
+    } catch (error) {
+      _finishing = false;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Не удалось сохранить настройки: $error')),
+        );
+      }
+    }
   }
 }
 
@@ -309,9 +357,18 @@ class _AccentPage extends ConsumerWidget {
 }
 
 class _ProfilePage extends StatelessWidget {
-  const _ProfilePage({required this.controller, required this.onNext});
+  const _ProfilePage({
+    required this.controller,
+    required this.fieldFocus,
+    required this.saveFocus,
+    required this.saving,
+    required this.onNext,
+  });
 
   final TextEditingController controller;
+  final FocusNode fieldFocus;
+  final FocusNode saveFocus;
+  final bool saving;
   final VoidCallback onNext;
 
   @override
@@ -326,23 +383,47 @@ class _ProfilePage extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          TextField(
-            controller: controller,
-            textInputAction: TextInputAction.done,
-            decoration: InputDecoration(
-              labelText: 'Имя профиля',
-              hintText: 'Например rurin1x',
-              border: const OutlineInputBorder(),
-              enabledBorder: OutlineInputBorder(
-                borderSide: BorderSide(color: theme.colorScheme.outline),
+          // The TextField is directly focusable with a TV remote. Pressing
+          // OK explicitly requests the Android on-screen keyboard.
+          Focus(
+            canRequestFocus: false,
+            onKeyEvent: (node, event) {
+              if (event is KeyDownEvent &&
+                  (event.logicalKey == LogicalKeyboardKey.select ||
+                      event.logicalKey == LogicalKeyboardKey.enter ||
+                      event.logicalKey == LogicalKeyboardKey.numpadEnter)) {
+                fieldFocus.requestFocus();
+                SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+                return KeyEventResult.handled;
+              }
+              if (event is KeyDownEvent &&
+                  event.logicalKey == LogicalKeyboardKey.arrowDown) {
+                saveFocus.requestFocus();
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            },
+            child: TextField(
+              controller: controller,
+              focusNode: fieldFocus,
+              textInputAction: TextInputAction.done,
+              decoration: InputDecoration(
+                labelText: 'Имя профиля',
+                hintText: 'Например TV',
+                helperText: 'Нажмите OK для ввода имени, затем вниз для сохранения',
+                border: const OutlineInputBorder(),
+                enabledBorder: OutlineInputBorder(
+                  borderSide: BorderSide(color: theme.colorScheme.outline),
+                ),
               ),
+              onSubmitted: (_) => onNext(),
             ),
-            onSubmitted: (_) => onNext(),
           ),
           const SizedBox(height: 24),
           FilledButton(
-            onPressed: onNext,
-            child: const Text('Сохранить профиль'),
+            focusNode: saveFocus,
+            onPressed: saving ? null : onNext,
+            child: Text(saving ? 'Сохранение…' : 'Сохранить профиль'),
           ),
         ],
       ),
@@ -351,8 +432,9 @@ class _ProfilePage extends StatelessWidget {
 }
 
 class _PermissionPage extends StatelessWidget {
-  const _PermissionPage({required this.onFinish});
+  const _PermissionPage({required this.finishFocus, required this.onFinish});
 
+  final FocusNode finishFocus;
   final VoidCallback onFinish;
 
   @override
@@ -379,6 +461,8 @@ class _PermissionPage extends StatelessWidget {
           Align(
             alignment: Alignment.centerLeft,
             child: FilledButton.icon(
+              focusNode: finishFocus,
+              autofocus: true,
               onPressed: onFinish,
               icon: const Icon(Icons.check),
               label: const Text('Готово'),
