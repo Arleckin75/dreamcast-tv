@@ -3,7 +3,6 @@ import 'package:dream_cast/core/settings/app_settings.dart';
 import 'package:dream_cast/core/settings/settings_providers.dart';
 import 'package:dream_cast/features/profile/data/profile_providers.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -16,21 +15,12 @@ class OnboardingScreen extends ConsumerStatefulWidget {
 
 class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   final _controller = PageController();
-  final _profileController = TextEditingController();
   int _page = 0;
   bool _finishing = false;
-  bool _savingProfile = false;
-  final _profileFieldFocus = FocusNode(debugLabel: 'TV profile name');
-  final _profileSaveFocus = FocusNode(debugLabel: 'TV save profile');
-  final _finishFocus = FocusNode(debugLabel: 'TV finish onboarding');
 
   @override
   void dispose() {
     _controller.dispose();
-    _profileController.dispose();
-    _profileFieldFocus.dispose();
-    _profileSaveFocus.dispose();
-    _finishFocus.dispose();
     super.dispose();
   }
 
@@ -40,14 +30,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       _WelcomePage(onNext: _next),
       _ThemePage(onNext: _next),
       _AccentPage(onNext: _next),
-      _ProfilePage(
-        controller: _profileController,
-        fieldFocus: _profileFieldFocus,
-        saveFocus: _profileSaveFocus,
-        saving: _savingProfile,
-        onNext: _saveProfileAndNext,
-      ),
-      _PermissionPage(finishFocus: _finishFocus, onFinish: _finish),
     ];
     final theme = Theme.of(context);
 
@@ -104,13 +86,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                 physics: const ClampingScrollPhysics(),
                 onPageChanged: (value) {
                   setState(() => _page = value);
-                  if (value == 3 || value == 4) {
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (!mounted || _page != value) return;
-                      (value == 3 ? _profileFieldFocus : _finishFocus)
-                          .requestFocus();
-                    });
-                  }
+
                 },
                 children: pages,
               ),
@@ -122,43 +98,28 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   }
 
   void _next() {
+    // The TV setup contains three steps. Completing the last step creates
+    // a local profile if needed and opens the catalog without text input.
+    if (_page == 2) {
+      _finish();
+      return;
+    }
     _controller.nextPage(
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeOutCubic,
     );
   }
 
-  Future<void> _saveProfileAndNext() async {
-    if (_savingProfile) return;
-    final name = _profileController.text.trim();
-    if (name.length < 2) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Введите имя длиной не меньше двух символов.')),
-      );
-      _profileFieldFocus.requestFocus();
-      return;
-    }
-    setState(() => _savingProfile = true);
-    try {
-      await ref.read(activeProfileProvider.notifier).save(name);
-      if (!mounted) return;
-      FocusManager.instance.primaryFocus?.unfocus();
-      _next();
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Не удалось сохранить профиль: $error')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _savingProfile = false);
-    }
-  }
-
   Future<void> _finish() async {
     if (_finishing) return;
     _finishing = true;
     try {
+      // Preserve an existing profile (including bookmarks and watch history).
+      // On a fresh TV install, create it automatically with no keyboard.
+      final existing = await ref.read(profileRepositoryProvider).activeProfile();
+      if (existing == null) {
+        await ref.read(activeProfileProvider.notifier).save('TV');
+      }
       await ref.read(appSettingsProvider.notifier).completeOnboarding();
       if (mounted) context.go('/home');
     } catch (error) {
@@ -350,124 +311,6 @@ class _AccentPage extends ConsumerWidget {
           ),
           const SizedBox(height: 24),
           FilledButton(onPressed: onNext, child: const Text('Продолжить')),
-        ],
-      ),
-    );
-  }
-}
-
-class _ProfilePage extends StatelessWidget {
-  const _ProfilePage({
-    required this.controller,
-    required this.fieldFocus,
-    required this.saveFocus,
-    required this.saving,
-    required this.onNext,
-  });
-
-  final TextEditingController controller;
-  final FocusNode fieldFocus;
-  final FocusNode saveFocus;
-  final bool saving;
-  final VoidCallback onNext;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return _OnboardingPageShell(
-      icon: Icons.person_outline,
-      title: 'Профиль на устройстве',
-      message:
-          'Профиль нужен для истории, закладок и продолжения просмотра. Эти данные остаются локально и не требуют входа в аккаунт.',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // The TextField is directly focusable with a TV remote. Pressing
-          // OK explicitly requests the Android on-screen keyboard.
-          Focus(
-            canRequestFocus: false,
-            onKeyEvent: (node, event) {
-              if (event is KeyDownEvent &&
-                  (event.logicalKey == LogicalKeyboardKey.select ||
-                      event.logicalKey == LogicalKeyboardKey.enter ||
-                      event.logicalKey == LogicalKeyboardKey.numpadEnter)) {
-                fieldFocus.requestFocus();
-                SystemChannels.textInput.invokeMethod<void>('TextInput.show');
-                return KeyEventResult.handled;
-              }
-              if (event is KeyDownEvent &&
-                  event.logicalKey == LogicalKeyboardKey.arrowDown) {
-                saveFocus.requestFocus();
-                return KeyEventResult.handled;
-              }
-              return KeyEventResult.ignored;
-            },
-            child: TextField(
-              controller: controller,
-              focusNode: fieldFocus,
-              textInputAction: TextInputAction.done,
-              decoration: InputDecoration(
-                labelText: 'Имя профиля',
-                hintText: 'Например TV',
-                helperText: 'Нажмите OK для ввода имени, затем вниз для сохранения',
-                border: const OutlineInputBorder(),
-                enabledBorder: OutlineInputBorder(
-                  borderSide: BorderSide(color: theme.colorScheme.outline),
-                ),
-              ),
-              onSubmitted: (_) => onNext(),
-            ),
-          ),
-          const SizedBox(height: 24),
-          FilledButton(
-            focusNode: saveFocus,
-            onPressed: saving ? null : onNext,
-            child: Text(saving ? 'Сохранение…' : 'Сохранить профиль'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PermissionPage extends StatelessWidget {
-  const _PermissionPage({required this.finishFocus, required this.onFinish});
-
-  final FocusNode finishFocus;
-  final VoidCallback onFinish;
-
-  @override
-  Widget build(BuildContext context) {
-    return _OnboardingPageShell(
-      icon: Icons.privacy_tip_outlined,
-      title: 'Данные и доступ',
-      message:
-          'Для работы нужны только сеть и локальное хранилище. Кэш, история и прогресс просмотра управляются в настройках приложения.',
-      child: Column(
-        children: [
-          const _PermissionItem(
-            icon: Icons.wifi_rounded,
-            title: 'Сеть',
-            subtitle: 'Загрузка релизов, страниц, постеров и видеопотоков.',
-          ),
-          const SizedBox(height: 10),
-          const _PermissionItem(
-            icon: Icons.storage_rounded,
-            title: 'Локальное хранилище',
-            subtitle: 'Кэш, профиль, закладки и продолжение просмотра.',
-          ),
-          const SizedBox(height: 24),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: FilledButton.icon(
-              focusNode: finishFocus,
-              autofocus: true,
-              onPressed: onFinish,
-              icon: const Icon(Icons.check),
-              label: const Text('Готово'),
-            ),
-          ),
         ],
       ),
     );
