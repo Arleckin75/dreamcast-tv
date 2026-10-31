@@ -27,6 +27,7 @@ class VideoPlayerScreen extends ConsumerStatefulWidget {
 }
 
 class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
+  static const _media3Probe = MethodChannel("dream_cast/media3_probe");
   VideoPlayerController? _controller;
   DreamStream? _currentStream;
   late PlaybackRequest _request;
@@ -204,6 +205,16 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     _diagLastSecondBucket = -1;
     _diag('open stream scheme=${stream.url.scheme} host=${stream.url.host} '
           'headers=${stream.headers.keys.join(",")} (URL/path omitted)');
+    // Debug-only secondary Media3 probe: discovers track formats without
+    // modifying the real playback controller or recording full stream URLs.
+    if (kDebugMode && stream.url.scheme.startsWith('http')) {
+      unawaited(_media3Probe.invokeMethod<void>('probe', {
+        'url': stream.url.toString(),
+        'headers': stream.headers,
+      }).catchError((Object error) {
+        _diag('track probe unavailable: ${error.runtimeType}');
+      }));
+    }
     _uiTimer?.cancel();
     _controlsHideTimer?.cancel();
     final old = _controller;

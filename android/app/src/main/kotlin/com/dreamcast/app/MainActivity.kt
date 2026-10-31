@@ -20,6 +20,8 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    private val trackProbeChannelName = "dream_cast/media3_probe"
+    private var trackProbeChannel: MethodChannel? = null
     private val rendererChannelName = "dream_cast/renderer_settings"
     private val rendererPrefsName = "dream_cast_renderer"
     private val impellerKey = "enable_impeller"
@@ -55,6 +57,28 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        trackProbeChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, trackProbeChannelName)
+        trackProbeChannel?.setMethodCallHandler { call, result ->
+            if (call.method == "probe") {
+                // Probe exists only in diagnostic builds; release contains no Media3 probe.
+                try {
+                    val probeClass = Class.forName("com.dreamcast.app.CosmosMedia3Probe")
+                    val start = probeClass.getMethod("probe", Context::class.java, String::class.java, Map::class.java)
+                    val uri = call.argument<String>("url")
+                    val headers = call.argument<Map<String, String>>("headers") ?: emptyMap()
+                    if (uri.isNullOrBlank()) result.error("NO_URL", "Missing stream URL", null)
+                    else {
+                        start.invoke(null, applicationContext, uri, headers)
+                        result.success(null)
+                    }
+                } catch (error: ClassNotFoundException) {
+                    result.success(null)
+                } catch (error: Exception) {
+                    android.util.Log.e("DCTV_TRACKS", "Could not start probe", error)
+                    result.error("PROBE_FAILED", error.javaClass.simpleName, null)
+                }
+            } else result.notImplemented()
+        }
         rendererChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, rendererChannelName)
         rendererChannel?.setMethodCallHandler { call, result ->
             val prefs = getSharedPreferences(rendererPrefsName, MODE_PRIVATE)
@@ -151,6 +175,8 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         backHandler.removeCallbacks(exitOnLongBack)
         navigationChannel = null
+        trackProbeChannel?.setMethodCallHandler(null)
+        trackProbeChannel = null
         rendererChannel?.setMethodCallHandler(null)
         rendererChannel = null
         super.onDestroy()
