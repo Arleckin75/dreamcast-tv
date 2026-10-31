@@ -237,20 +237,35 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
                   releaseId: '${_request.release.id}',
                   episodeId: _request.episode.id,
                 ))?.position : null);
-            final started = await _media3Probe.invokeMethod<bool>('playSoftwareAV1', {
+            // The native Activity returns the final watch position when it closes.
+            // Write through the regular repository so the Drift-based home carousel
+            // and episode progress indicators update, rather than only Android prefs.
+            await ref.read(playbackRepositoryProvider).saveDreamStreamSession(
+              release: _request.release,
+              episode: _request.episode,
+              stream: stream,
+            );
+            final nativeProgress = await _media3Probe.invokeMapMethod<String, dynamic>('playSoftwareAV1', {
               'url': stream.url.toString(),
               'headers': stream.headers,
               'positionMs': resumePosition?.inMilliseconds ?? 0,
               'episodeKey': '${_request.release.id}:${_request.episode.id}',
             });
             if (!mounted || _isClosing) return;
-            if (started == true) {
-              unawaited(ref.read(playbackRepositoryProvider).saveDreamStreamSession(
-                release: _request.release,
-                episode: _request.episode,
-                stream: stream,
-              ));
-              await _closePlayer();
+            if (nativeProgress != null) {
+              final positionMs = (nativeProgress['positionMs'] as num?)?.toInt() ?? 0;
+              final durationMs = (nativeProgress['durationMs'] as num?)?.toInt() ?? 0;
+              final completed = nativeProgress['completed'] == true;
+              if (durationMs > 0 || positionMs > 0 || completed) {
+                await ref.read(playbackRepositoryProvider).saveWatchProgress(
+                  release: _request.release,
+                  episode: _request.episode,
+                  position: Duration(milliseconds: completed && durationMs > 0 ? durationMs : positionMs),
+                  duration: durationMs > 0 ? Duration(milliseconds: durationMs) : null,
+                );
+                _diag('native progress synced to home: positionMs=$positionMs durationMs=$durationMs completed=$completed');
+              }
+              if (mounted) await _closePlayer();
               return;
             }
             _diag('software AV1 launch failed; using original selection');

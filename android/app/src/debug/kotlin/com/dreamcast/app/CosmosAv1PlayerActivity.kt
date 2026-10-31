@@ -30,7 +30,7 @@ object CosmosAv1Launcher {
         intent.putExtra("episodeKey", episodeKey)
         intent.putExtra("userAgent", headers.entries.firstOrNull { it.key.equals("user-agent", true) }?.value)
         intent.putExtra("referer", headers.entries.firstOrNull { it.key.equals("referer", true) }?.value)
-        activity.startActivity(intent)
+        activity.startActivityForResult(intent, 7192)
     }
 }
 
@@ -45,6 +45,7 @@ class CosmosAv1PlayerActivity : Activity() {
     private var videoSurface: SurfaceView? = null
     private var lastTimeMs = -1L
     private var episodeKey: String = ""
+    private var episodeCompleted = false
     private var resumeMs = 0L
     private var hasRestoredPosition = false
     private var lastPersistedMs = -1L
@@ -230,6 +231,7 @@ class CosmosAv1PlayerActivity : Activity() {
                         uiHandler.post { status.text = "Ошибка воспроизведения AV1. Нажмите Back."; reveal() }
                     }
                     MediaPlayer.Event.EndReached -> uiHandler.post {
+                        episodeCompleted = true
                         if (episodeKey.isNotBlank()) progressPrefs.edit().remove(episodeKey).apply()
                         finish()
                     }
@@ -294,6 +296,20 @@ class CosmosAv1PlayerActivity : Activity() {
     override fun onPause() {
         persistPosition(true)
         super.onPause()
+    }
+
+    override fun finish() {
+        val mp = player
+        val ms = if (episodeCompleted) 0L else runCatching { mp?.time ?: 0L }.getOrDefault(0L)
+        val duration = runCatching { mp?.length ?: 0L }.getOrDefault(0L)
+        persistPosition(true)
+        setResult(RESULT_OK, Intent().apply {
+            putExtra("positionMs", ms.coerceAtLeast(0L))
+            putExtra("durationMs", duration.coerceAtLeast(0L))
+            putExtra("completed", episodeCompleted)
+        })
+        Log.i("DCTV_PROGRESS", "return to Flutter positionMs=$ms durationMs=$duration completed=$episodeCompleted")
+        super.finish()
     }
 
     override fun onDestroy() {

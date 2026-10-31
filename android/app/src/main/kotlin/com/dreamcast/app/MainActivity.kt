@@ -20,6 +20,8 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    private val softwarePlayerRequestCode = 7192
+    private var pendingSoftwarePlayerResult: MethodChannel.Result? = null
     private val trackProbeChannelName = "dream_cast/media3_probe"
     private var trackProbeChannel: MethodChannel? = null
     private val rendererChannelName = "dream_cast/renderer_settings"
@@ -54,6 +56,22 @@ class MainActivity : FlutterActivity() {
     private var pipChannel: MethodChannel? = null
     private var pipEnabled = false
     private var pipAspectRatio = Rational(16, 9)
+
+    @Suppress("DEPRECATION")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == softwarePlayerRequestCode) {
+            val pending = pendingSoftwarePlayerResult
+            pendingSoftwarePlayerResult = null
+            pending?.success(if (resultCode == RESULT_OK && data != null) {
+                mapOf(
+                    "positionMs" to data.getLongExtra("positionMs", 0L),
+                    "durationMs" to data.getLongExtra("durationMs", 0L),
+                    "completed" to data.getBooleanExtra("completed", false)
+                )
+            } else null)
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -98,10 +116,18 @@ class MainActivity : FlutterActivity() {
                     val resumeMs = call.argument<Number>("positionMs")?.toLong() ?: 0L
                     val episodeKey = call.argument<String>("episodeKey").orEmpty()
                     if (uri.isNullOrBlank()) result.error("NO_URL", "No video URL", null)
-                    else { start.invoke(null, this, uri, headers, resumeMs, episodeKey); result.success(true) }
+                    else {
+                        if (pendingSoftwarePlayerResult != null) {
+                            result.error("PLAYER_BUSY", "Software player already running", null)
+                        } else {
+                            pendingSoftwarePlayerResult = result
+                            try { start.invoke(null, this, uri, headers, resumeMs, episodeKey) }
+                            catch (error: Exception) { pendingSoftwarePlayerResult = null; throw error }
+                        }
+                    }
                 } catch (error: Exception) {
                     android.util.Log.e("DCTV_AV1", "Software player could not launch", error)
-                    result.success(false)
+                    pendingSoftwarePlayerResult?.let { pendingSoftwarePlayerResult = null; it.success(null) } ?: result.success(null)
                 }
             } else result.notImplemented()
         }
