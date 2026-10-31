@@ -241,6 +241,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
               'url': stream.url.toString(),
               'headers': stream.headers,
               'positionMs': resumePosition?.inMilliseconds ?? 0,
+              'episodeKey': '${_request.release.id}:${_request.episode.id}',
             });
             if (!mounted || _isClosing) return;
             if (started == true) {
