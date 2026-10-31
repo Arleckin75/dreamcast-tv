@@ -230,7 +230,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
           } else if (choice == -1 && Platform.isAndroid) {
             // Debug-only: none of the supplied URLs has device-supported video.
             // Open the isolated LibVLC software decoder instead of silent audio-only playback.
-            // Use the lowest-variant selection inside LibVLC to reduce CPU pressure.
+            // Request the tested 720p fMP4 media playlist; do not use 1080p or 480p.
             _diag('no hardware-compatible source; launching software AV1 fallback');
             final resumePosition = preservePosition ??
                 (resume ? (await ref.read(playbackRepositoryProvider).getPosition(

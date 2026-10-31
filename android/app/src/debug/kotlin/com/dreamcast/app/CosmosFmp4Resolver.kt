@@ -9,7 +9,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
 
-/** Debug-only. Resolve an AV1 720p or 1080p fMP4 HLS media playlist, never print stream URLs. */
+/** Debug-only. Resolve a compatible AV1 fMP4 HLS media playlist, never print stream URLs. */
 object CosmosFmp4Resolver {
     private const val TAG = "DCTV_FMP4"
     private val executor = Executors.newSingleThreadExecutor { r ->

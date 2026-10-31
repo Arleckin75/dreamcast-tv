@@ -53,7 +53,7 @@ final class AppSettingsController extends Notifier<AppSettings> {
   static ThemeMode _themeModeFromString(String? value) {
     return ThemeMode.values.firstWhere(
       (mode) => mode.name == value,
-      orElse: () => ThemeMode.system,
+      orElse: () => ThemeMode.dark,
     );
   }
 
