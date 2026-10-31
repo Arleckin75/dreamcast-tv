@@ -20,6 +20,13 @@ class SettingsScreen extends ConsumerWidget {
 
     return AppScreen(
       title: 'Настройки',
+      leading: MediaQuery.sizeOf(context).width >= 720
+          ? IconButton(
+              tooltip: 'К каталогу',
+              onPressed: () => context.go('/home'),
+              icon: const Icon(Icons.arrow_back),
+            )
+          : null,
       child: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [

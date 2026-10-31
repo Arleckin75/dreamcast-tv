@@ -17,7 +17,16 @@ class LibraryScreen extends ConsumerWidget {
     final grouped = _groupByStatus(entries);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Библиотека')),
+      appBar: AppBar(
+        title: const Text('Библиотека'),
+        leading: MediaQuery.sizeOf(context).width >= 720
+            ? IconButton(
+                tooltip: 'К каталогу',
+                onPressed: () => context.go('/home'),
+                icon: const Icon(Icons.arrow_back),
+              )
+            : null,
+      ),
       body: entries.isEmpty
           ? const AppEmptyState(
               icon: Icons.collections_bookmark_outlined,

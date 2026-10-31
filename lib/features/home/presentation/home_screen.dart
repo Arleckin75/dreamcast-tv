@@ -52,6 +52,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       appBar: AppBar(
         title: const Text('Dream Cast'),
         actions: [
+          if (MediaQuery.sizeOf(context).width >= 720) ...[
+            IconButton(
+              tooltip: 'Библиотека',
+              onPressed: () => context.go('/library'),
+              icon: const Icon(Icons.collections_bookmark_outlined),
+            ),
+            IconButton(
+              tooltip: 'Календарь',
+              onPressed: () => context.go('/schedule'),
+              icon: const Icon(Icons.calendar_month_outlined),
+            ),
+            IconButton(
+              tooltip: 'Настройки',
+              onPressed: () => context.go('/settings'),
+              icon: const Icon(Icons.settings_outlined),
+            ),
+          ],
           IconButton(
             tooltip: 'Уведомления',
             onPressed: () => context.push('/notifications'),
