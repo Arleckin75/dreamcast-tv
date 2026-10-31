@@ -203,6 +203,40 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     _diagLoggedPlaying = false;
     _diagLoggedError = false;
     _diagLastSecondBucket = -1;
+    // Debug-only preflight: probe every distinct link supplied for this episode.
+    // Prefer a stream with a supported video track; retain the original when
+    // none is compatible or the diagnostic API is unavailable.
+    if (kDebugMode && stream.url.scheme.startsWith('http')) {
+      final candidates = <DreamStream>[];
+      final seen = <String>{};
+      for (final candidate in [stream, ..._request.streams]) {
+        if (candidate.type == DreamStreamType.audio ||
+            !candidate.url.scheme.startsWith('http')) continue;
+        if (seen.add(candidate.url.toString())) candidates.add(candidate);
+      }
+      if (candidates.isNotEmpty) {
+        try {
+          _diag('source preflight candidates=${candidates.length}');
+          final choice = await _media3Probe.invokeMethod<int>('selectCompatible', {
+            'candidates': [
+              for (final candidate in candidates)
+                {'url': candidate.url.toString(), 'headers': candidate.headers},
+            ],
+          }).timeout(const Duration(seconds: 35));
+          if (!mounted || _isClosing) return;
+          if (choice != null && choice >= 0 && choice < candidates.length) {
+            stream = candidates[choice];
+            _diag('selected compatible source index=$choice type=${stream.type.name}');
+          } else {
+            _diag('no supported video source found; using original selection');
+          }
+        } catch (error) {
+          _diag('source preflight unavailable: ${error.runtimeType}; using original');
+        }
+      }
+    }
+    if (!mounted || _isClosing) return;
+    _currentStream = stream;
     _diag('open stream scheme=${stream.url.scheme} host=${stream.url.host} '
           'headers=${stream.headers.keys.join(",")} (URL/path omitted)');
     // Debug-only secondary Media3 probe: discovers track formats without

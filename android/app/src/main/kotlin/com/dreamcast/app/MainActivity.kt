@@ -77,6 +77,18 @@ class MainActivity : FlutterActivity() {
                     android.util.Log.e("DCTV_TRACKS", "Could not start probe", error)
                     result.error("PROBE_FAILED", error.javaClass.simpleName, null)
                 }
+            } else if (call.method == "selectCompatible") {
+                try {
+                    val klass = Class.forName("com.dreamcast.app.CosmosMedia3Probe")
+                    val start = klass.getMethod("selectCompatible", Context::class.java, List::class.java, MethodChannel.Result::class.java)
+                    val candidates = call.argument<List<Map<String, Any>>>("candidates") ?: emptyList()
+                    start.invoke(null, applicationContext, candidates, result)
+                } catch (error: ClassNotFoundException) {
+                    result.success(null) // Release: preserve existing stream selection.
+                } catch (error: Exception) {
+                    android.util.Log.e("DCTV_TRACKS", "Source selection probe failed", error)
+                    result.success(null) // Never block playback on diagnostics.
+                }
             } else result.notImplemented()
         }
         rendererChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, rendererChannelName)
