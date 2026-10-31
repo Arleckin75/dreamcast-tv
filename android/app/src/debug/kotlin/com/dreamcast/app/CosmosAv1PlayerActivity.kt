@@ -71,6 +71,11 @@ class CosmosAv1PlayerActivity : Activity() {
         if (url.isNullOrBlank() || !url.startsWith("https://") && !url.startsWith("http://")) {
             finish(); return
         }
+        CosmosHlsDiagnostic.inspect(
+            url,
+            intent.getStringExtra("userAgent"),
+            intent.getStringExtra("referer")
+        )
         val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         val surface = SurfaceView(this)
         surface.holder.addCallback(object : SurfaceHolder.Callback {
