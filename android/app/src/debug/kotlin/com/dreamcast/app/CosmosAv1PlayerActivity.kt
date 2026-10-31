@@ -102,6 +102,19 @@ class CosmosAv1PlayerActivity : Activity() {
         root.addView(status, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
         message = status
         setContentView(root)
+        Cosmos480pResolver.resolve(url, intent.getStringExtra("userAgent"), intent.getStringExtra("referer")) { direct480 ->
+            if (isFinishing || isDestroyed) return@resolve
+            if (direct480 == null) {
+                Log.e("DCTV_480P", "forced 480p fMP4 unavailable; playback not started")
+                status.text = "Диагностика: AV1 480p fMP4 не найден. Смотрите DCTV_480P."
+            } else {
+                startVlc480p(direct480, status, surface)
+            }
+        }
+    }
+
+    private fun startVlc480p(url: String, status: TextView, surface: SurfaceView) {
+        Log.i("DCTV_480P", "starting LibVLC with forced 480p fMP4 media playlist")
         try {
             val vlc = LibVLC(this, arrayListOf("--no-video-title-show", "--network-caching=1200", "--avcodec-hw=none", "--verbose=2"))
             engine = vlc
@@ -145,7 +158,7 @@ class CosmosAv1PlayerActivity : Activity() {
             val savedMs = intent.getLongExtra("positionMs", 0L)
             if (savedMs > 5000L) uiHandler.postDelayed({ runCatching { mp.time = savedMs } }, 1800L)
             reveal()
-            Log.i("DCTV_AV1", "Launched software fallback, stream URL withheld")
+            Log.i("DCTV_480P", "launched; videoTracks=${mp.videoTracksCount} selectedVideo=${mp.videoTrack} (initial)")
         } catch (e: Throwable) {
             Log.e("DCTV_AV1", "Failed to start LibVLC", e)
             status.text = "Не удалось запустить AV1: ${e.javaClass.simpleName}. Нажмите Back."
