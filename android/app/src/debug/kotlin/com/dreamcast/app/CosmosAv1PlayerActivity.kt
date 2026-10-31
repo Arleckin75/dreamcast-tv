@@ -246,7 +246,6 @@ class CosmosAv1PlayerActivity : Activity() {
                 if (p != null && p.isSeekable) p.time = p.time + 10000
                 reveal(); return true
             }
-            KeyEvent.KEYCODE_DPAD_DOWN -> { start720p(url); reveal(); return true }
             KeyEvent.KEYCODE_BACK -> { finish(); return true }
         }
         return super.onKeyDown(keyCode, event)
