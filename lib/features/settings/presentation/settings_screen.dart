@@ -78,7 +78,7 @@ class SettingsScreen extends ConsumerWidget {
           SettingsTile(
             icon: Icons.info_outline,
             title: 'О приложении',
-            subtitle: 'Разработчики, исходный код и GPLv3',
+            subtitle: 'Информация о приложении, исходный код и GPLv3',
             onTap: () => context.push('/settings/about'),
           ),
           const SizedBox(height: 26),
