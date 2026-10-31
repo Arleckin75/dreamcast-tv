@@ -9,6 +9,7 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-24.04
+    environment: release-signing
     steps:
       - uses: actions/checkout@v4
       - name: Set up Java 17
