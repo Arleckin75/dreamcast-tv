@@ -35,14 +35,6 @@ class _ReleaseDetailScreenState extends ConsumerState<ReleaseDetailScreen> {
     final detailState = ref.watch(releaseDetailProvider(widget.release));
 
     return Scaffold(
-      floatingActionButton: detailState.maybeWhen(
-        data: (data) => FloatingActionButton.extended(
-          onPressed: () => _showEpisodeList(context, data.value),
-          icon: const Icon(Icons.play_arrow),
-          label: const Text('Смотреть'),
-        ),
-        orElse: () => null,
-      ),
       body: detailState.when(
         loading: () => _DetailSkeleton(release: widget.release),
         error: (error, stackTrace) => CustomScrollView(
@@ -69,6 +61,7 @@ class _ReleaseDetailScreenState extends ConsumerState<ReleaseDetailScreen> {
                   release: widget.release,
                   detail: detail,
                   expanded: _descriptionExpanded,
+                  onWatch: () => _showEpisodeList(context, detail),
                   onToggleDescription: () {
                     setState(
                       () => _descriptionExpanded = !_descriptionExpanded,
@@ -157,12 +150,14 @@ class _DetailBody extends StatelessWidget {
     required this.detail,
     required this.expanded,
     required this.onToggleDescription,
+    required this.onWatch,
   });
 
   final DreamRelease release;
   final DreamReleaseDetail detail;
   final bool expanded;
   final VoidCallback onToggleDescription;
+  final VoidCallback onWatch;
 
   @override
   Widget build(BuildContext context) {
@@ -236,17 +231,33 @@ class _DetailBody extends StatelessWidget {
                           ),
                       ],
                     ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: FilledButton.icon(
+                            autofocus: true,
+                            onPressed: onWatch,
+                            icon: const Icon(Icons.play_circle_outline),
+                            label: const Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text('Смотреть'),
+                            ),
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size(0, 52),
+                              alignment: Alignment.centerLeft,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _BookmarkStatusButton(release: release),
+                        const SizedBox(width: 8),
+                        _EpisodeNotificationButton(release: release),
+                      ],
+                    ),
                   ],
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(child: _BookmarkStatusButton(release: release)),
-              const SizedBox(width: 10),
-              _EpisodeNotificationButton(release: release),
             ],
           ),
           if (description?.trim().isNotEmpty == true) ...[
@@ -286,7 +297,6 @@ class _BookmarkStatusButton extends ConsumerWidget {
     final releaseId = release.id;
     final status = ref.watch(releaseBookmarkProvider(releaseId));
     final controller = ref.read(releaseBookmarkProvider(releaseId).notifier);
-    final label = status?.label ?? 'Добавить в закладки';
 
     return PopupMenuButton<Object>(
       tooltip: 'Закладки',
@@ -327,37 +337,15 @@ class _BookmarkStatusButton extends ConsumerWidget {
         ),
       ],
       child: Material(
-        color: theme.colorScheme.secondaryContainer,
-        borderRadius: BorderRadius.circular(18),
+        color: theme.colorScheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(12),
         clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-            child: Row(
-              children: [
-                Icon(
-                  status == null ? Icons.bookmark_add_outlined : Icons.bookmark,
-                  color: theme.colorScheme.onSecondaryContainer,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      color: theme.colorScheme.onSecondaryContainer,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Icon(
-                  Icons.keyboard_arrow_down,
-                  color: theme.colorScheme.onSecondaryContainer,
-                ),
-              ],
-            ),
+        child: SizedBox(
+          width: 52,
+          height: 52,
+          child: Icon(
+            status == null ? Icons.bookmark_border : Icons.bookmark,
+            color: theme.colorScheme.onSurface,
           ),
         ),
       ),
@@ -385,13 +373,13 @@ class _EpisodeNotificationButton extends ConsumerWidget {
         color: enabled
             ? theme.colorScheme.primaryContainer
             : theme.colorScheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(12),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: () => _toggle(context, ref, enabled),
           child: SizedBox(
-            width: 56,
-            height: 50,
+            width: 52,
+            height: 52,
             child: Icon(
               enabled
                   ? Icons.notifications_active
