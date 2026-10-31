@@ -20,6 +20,13 @@ class SettingsScreen extends ConsumerWidget {
 
     return AppScreen(
       title: 'Настройки',
+      leading: MediaQuery.sizeOf(context).width >= 720
+          ? IconButton(
+              tooltip: 'К каталогу',
+              onPressed: () => context.go('/home'),
+              icon: const Icon(Icons.arrow_back),
+            )
+          : null,
       child: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [
@@ -71,7 +78,7 @@ class SettingsScreen extends ConsumerWidget {
           SettingsTile(
             icon: Icons.info_outline,
             title: 'О приложении',
-            subtitle: 'Разработчики',
+            subtitle: 'Информация о приложении, исходный код и GPLv3',
             onTap: () => context.push('/settings/about'),
           ),
           const SizedBox(height: 26),

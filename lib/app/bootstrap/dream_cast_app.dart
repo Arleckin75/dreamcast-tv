@@ -7,6 +7,7 @@ import 'package:dream_cast/core/settings/settings_providers.dart';
 import 'package:dream_cast/features/notifications/data/episode_notification_history_providers.dart';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -32,11 +33,53 @@ class DreamCastApp extends StatelessWidget {
   }
 }
 
-class _DreamCastMaterialApp extends ConsumerWidget {
+class _DreamCastMaterialApp extends ConsumerStatefulWidget {
   const _DreamCastMaterialApp();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_DreamCastMaterialApp> createState() => _DreamCastMaterialAppState();
+}
+
+class _DreamCastMaterialAppState extends ConsumerState<_DreamCastMaterialApp> {
+  static const _tvNavigation = MethodChannel('dream_cast/tv_navigation');
+  bool _handlingBack = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _tvNavigation.setMethodCallHandler((call) async {
+      if (call.method == 'shortBack') await _handleShortBack();
+    });
+  }
+
+  Future<void> _handleShortBack() async {
+    if (_handlingBack || !mounted) return;
+    _handlingBack = true;
+    try {
+      final router = ref.read(appRouterProvider);
+      if (router.canPop()) {
+        // Use the router's popRoute so PopScope (notably the video player)
+        // can save playback state before leaving the screen.
+        final handled = await router.routerDelegate.popRoute();
+        if (handled) return;
+      }
+      if (router.routeInformationProvider.value.uri.path != '/home') {
+        router.go('/home');
+      }
+      // Back on /home intentionally does nothing.
+    } finally {
+      _handlingBack = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    _tvNavigation.setMethodCallHandler(null);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final router = ref.watch(appRouterProvider);
     final settings = ref.watch(appSettingsProvider);
 

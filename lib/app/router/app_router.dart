@@ -3,7 +3,6 @@ import 'package:dream_cast/app/widgets/adaptive_app_shell.dart';
 import 'package:dream_cast/features/home/presentation/home_screen.dart';
 import 'package:dream_cast/features/library/presentation/library_screen.dart';
 import 'package:dream_cast/features/notifications/presentation/notification_history_screen.dart';
-import 'package:dream_cast/features/onboarding/presentation/onboarding_screen.dart';
 import 'package:dream_cast/features/onboarding/presentation/splash_screen.dart';
 import 'package:dream_cast/features/player/domain/playback_request.dart';
 import 'package:dream_cast/features/player/presentation/player_placeholder_screen.dart';
@@ -36,13 +35,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/',
         pageBuilder: (context, state) =>
             _fadeThroughPage(key: state.pageKey, child: const SplashScreen()),
-      ),
-      GoRoute(
-        path: '/onboarding',
-        pageBuilder: (context, state) => _sharedAxisPage(
-          key: state.pageKey,
-          child: const OnboardingScreen(),
-        ),
       ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) {

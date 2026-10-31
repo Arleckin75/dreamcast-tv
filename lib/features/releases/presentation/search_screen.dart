@@ -5,6 +5,7 @@ import 'package:dream_cast/features/releases/presentation/release_list_providers
 import 'package:dream_cast/features/releases/presentation/widgets/release_card.dart';
 import 'package:dream_cast/features/releases/presentation/widgets/stale_cache_banner.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -17,11 +18,44 @@ class SearchScreen extends ConsumerStatefulWidget {
 
 class _SearchScreenState extends ConsumerState<SearchScreen> {
   final _controller = TextEditingController();
-  final _focusNode = FocusNode();
+  late final FocusNode _focusNode;
+  late final FocusNode _firstResultFocusNode;
+
+  KeyEventResult _handleSearchKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent ||
+        event.logicalKey != LogicalKeyboardKey.arrowDown) {
+      return KeyEventResult.ignored;
+    }
+    if (!_firstResultFocusNode.canRequestFocus ||
+        _firstResultFocusNode.context == null) {
+      return KeyEventResult.ignored;
+    }
+    // Remove the Android TV IME before transferring D-pad focus to results.
+    SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+    _firstResultFocusNode.requestFocus();
+    return KeyEventResult.handled;
+  }
+
+  KeyEventResult _handleFirstResultKey(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.arrowUp) {
+      _focusNode.requestFocus();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
 
   @override
   void initState() {
     super.initState();
+    _focusNode = FocusNode(
+      debugLabel: 'search-input',
+      onKeyEvent: _handleSearchKey,
+    );
+    _firstResultFocusNode = FocusNode(
+      debugLabel: 'first-search-result',
+      onKeyEvent: _handleFirstResultKey,
+    );
     _controller.addListener(() {
       ref.read(searchReleasesProvider.notifier).setQuery(_controller.text);
     });
@@ -34,6 +68,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   void dispose() {
     _controller.dispose();
     _focusNode.dispose();
+    _firstResultFocusNode.dispose();
     super.dispose();
   }
 
@@ -71,6 +106,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         data: (data) => _SearchBody(
           data: data,
           onOpenRelease: _openRelease,
+          firstResultFocusNode: _firstResultFocusNode,
           onHistoryTap: (query) {
             _controller.text = query;
             _controller.selection = TextSelection.collapsed(
@@ -95,12 +131,14 @@ class _SearchBody extends StatelessWidget {
   const _SearchBody({
     required this.data,
     required this.onOpenRelease,
+    required this.firstResultFocusNode,
     required this.onHistoryTap,
     required this.onHistoryRemove,
   });
 
   final SearchState data;
   final ValueChanged<DreamRelease> onOpenRelease;
+  final FocusNode firstResultFocusNode;
   final ValueChanged<String> onHistoryTap;
   final ValueChanged<String> onHistoryRemove;
 
@@ -183,6 +221,7 @@ class _SearchBody extends StatelessWidget {
               final release = data.items[index];
               return ReleaseCard(
                 release: release,
+                focusNode: index == 0 ? firstResultFocusNode : null,
                 onTap: () => onOpenRelease(release),
               );
             },

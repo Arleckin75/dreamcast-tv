@@ -5,11 +5,25 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
 import android.util.Rational
+import android.os.Handler
+import android.os.Looper
+import android.view.KeyEvent
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    private val navigationChannelName = "dream_cast/tv_navigation"
+    private var navigationChannel: MethodChannel? = null
+    private val backHandler = Handler(Looper.getMainLooper())
+    private var backIsHeld = false
+    private var backLongTriggered = false
+    private val exitOnLongBack = Runnable {
+        if (backIsHeld) {
+            backLongTriggered = true
+            finish()
+        }
+    }
     private val pipChannelName = "dream_cast/player_pip"
     private var pipChannel: MethodChannel? = null
     private var pipEnabled = false
@@ -17,6 +31,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        navigationChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, navigationChannelName)
         pipChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, pipChannelName)
         pipChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
@@ -34,6 +49,41 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    // Android TV KEYCODE_BACK is handled at the Activity boundary, before Flutter
+    // can turn a short press into an exit from the root shell route.
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.keyCode != KeyEvent.KEYCODE_BACK) return super.dispatchKeyEvent(event)
+        when (event.action) {
+            KeyEvent.ACTION_DOWN -> {
+                if (event.repeatCount == 0 && !backIsHeld) {
+                    backIsHeld = true
+                    backLongTriggered = false
+                    backHandler.postDelayed(exitOnLongBack, 1500L)
+                }
+                return true
+            }
+            KeyEvent.ACTION_UP -> {
+                backHandler.removeCallbacks(exitOnLongBack)
+                val shouldNavigateBack = backIsHeld && !backLongTriggered && !event.isCanceled
+                backIsHeld = false
+                if (shouldNavigateBack) navigationChannel?.invokeMethod("shortBack", null)
+                return true
+            }
+        }
+        return true
+    }
+
+    @Deprecated("Handled for Android versions dispatching Back via the Activity callback")
+    override fun onBackPressed() {
+        navigationChannel?.invokeMethod("shortBack", null)
+    }
+
+    override fun onDestroy() {
+        backHandler.removeCallbacks(exitOnLongBack)
+        navigationChannel = null
+        super.onDestroy()
     }
 
     override fun onUserLeaveHint() {

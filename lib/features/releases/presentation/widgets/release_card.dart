@@ -4,16 +4,18 @@ import 'package:dream_cast/features/releases/presentation/widgets/release_poster
 import 'package:flutter/material.dart';
 
 class ReleaseCard extends StatelessWidget {
-  const ReleaseCard({required this.release, required this.onTap, super.key});
+  const ReleaseCard({required this.release, required this.onTap, this.focusNode, super.key});
 
   final DreamRelease release;
   final VoidCallback onTap;
+  final FocusNode? focusNode;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     return InkWell(
+      focusNode: focusNode,
       onTap: onTap,
       autofocus: false,
       focusColor: theme.colorScheme.primary.withValues(alpha: 0.24),

@@ -81,6 +81,7 @@ flutter:
 
   assets:
     - assets/developers/
+    - assets/licenses/GPL-3.0.txt
 
   # To add assets to your application, add an assets section, like this:
   #   - images/a_dot_burr.jpeg

@@ -5,6 +5,7 @@ class AppScreen extends StatelessWidget {
     required this.title,
     required this.child,
     this.actions,
+    this.leading,
     this.floatingActionButton,
     super.key,
   });
@@ -12,12 +13,13 @@ class AppScreen extends StatelessWidget {
   final String title;
   final Widget child;
   final List<Widget>? actions;
+  final Widget? leading;
   final Widget? floatingActionButton;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(title), actions: actions),
+      appBar: AppBar(title: Text(title), leading: leading, actions: actions),
       floatingActionButton: floatingActionButton,
       body: SafeArea(top: false, child: child),
     );

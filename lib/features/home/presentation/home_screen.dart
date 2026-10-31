@@ -14,7 +14,6 @@ import 'package:dream_cast/features/releases/presentation/widgets/stale_cache_ba
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -53,6 +52,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         title: const Text('Dream Cast'),
         actions: [
           IconButton(
+            tooltip: 'Поиск',
+            onPressed: () => context.push('/search'),
+            icon: const Icon(Icons.search),
+          ),
+          if (MediaQuery.sizeOf(context).width >= 720) ...[
+            IconButton(
+              tooltip: 'Библиотека',
+              onPressed: () => context.go('/library'),
+              icon: const Icon(Icons.collections_bookmark_outlined),
+            ),
+            IconButton(
+              tooltip: 'Календарь',
+              onPressed: () => context.go('/schedule'),
+              icon: const Icon(Icons.calendar_month_outlined),
+            ),
+          ],
+          IconButton(
             tooltip: 'Уведомления',
             onPressed: () => context.push('/notifications'),
             icon: Badge(
@@ -63,21 +79,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               child: const Icon(Icons.notifications_none_outlined),
             ),
           ),
-          IconButton(
-            tooltip: 'Сетка релизов',
-            onPressed: _showGridSettings,
-            icon: const Icon(Icons.grid_view),
-          ),
-          IconButton(
-            tooltip: 'Поиск',
-            onPressed: () => context.push('/search'),
-            icon: const Icon(Icons.search),
-          ),
+          if (MediaQuery.sizeOf(context).width >= 720)
+            IconButton(
+              tooltip: 'Настройки',
+              onPressed: () => context.go('/settings'),
+              icon: const Icon(Icons.settings_outlined),
+            ),
         ],
       ),
       body: Column(
         children: [
-          const _SupportBanner(),
           Expanded(
             child: state.when(
               loading: () => const ReleaseGridSkeleton(),
@@ -162,137 +173,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   void _openRelease(DreamRelease release) {
     context.push('/release/${release.id}', extra: release);
-  }
-
-  void _showGridSettings() {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => const _GridSettingsSheet(),
-    );
-  }
-}
-
-class _SupportBanner extends ConsumerWidget {
-  const _SupportBanner();
-
-  static final _sourceUrl = Uri.parse(
-    'https://github.com/rurin1x/dreamcast-app',
-  );
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final prefs = ref.watch(appUiPreferencesProvider);
-    if (prefs.isSupportBannerHidden) return const SizedBox.shrink();
-
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-      child: Material(
-        color: theme.colorScheme.secondaryContainer,
-        borderRadius: BorderRadius.circular(12),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => _openSource(context),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 10, 6, 10),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.code_rounded,
-                  color: theme.colorScheme.onSecondaryContainer,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Приложение имеет открытый исходный код и распространяется по лицензии GPLv3. Исходный код можно посмотреть на GitHub. Нажмите на уведомление для просмотра.',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onSecondaryContainer,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Закрыть',
-                  onPressed: () => ref
-                      .read(appUiPreferencesProvider.notifier)
-                      .hideSupportBanner(),
-                  icon: const Icon(Icons.close),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _openSource(BuildContext context) async {
-    final opened = await launchUrl(
-      _sourceUrl,
-      mode: LaunchMode.externalApplication,
-    );
-    if (!opened && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Не удалось открыть GitHub.')),
-      );
-    }
-  }
-}
-
-class _GridSettingsSheet extends ConsumerWidget {
-  const _GridSettingsSheet();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final columns = ref.watch(appUiPreferencesProvider).homeGridColumns;
-    final controller = ref.read(appUiPreferencesProvider.notifier);
-    final theme = Theme.of(context);
-
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Сетка релизов',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Выберите, сколько карточек показывать в одной строке.',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 16),
-            SegmentedButton<int>(
-              segments: const [
-                ButtonSegment(
-                  value: 3,
-                  icon: Icon(Icons.view_column_outlined),
-                  label: Text('3'),
-                ),
-                ButtonSegment(
-                  value: 4,
-                  icon: Icon(Icons.grid_view),
-                  label: Text('4'),
-                ),
-              ],
-              selected: {columns},
-              onSelectionChanged: (selection) {
-                controller.setHomeGridColumns(selection.first);
-                Navigator.pop(context);
-              },
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }
 

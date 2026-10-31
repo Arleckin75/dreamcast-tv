@@ -18,7 +18,16 @@ class ScheduleScreen extends ConsumerWidget {
     final state = ref.watch(releaseScheduleProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Календарь')),
+      appBar: AppBar(
+        title: const Text('Календарь'),
+        leading: MediaQuery.sizeOf(context).width >= 720
+            ? IconButton(
+                tooltip: 'К каталогу',
+                onPressed: () => context.go('/home'),
+                icon: const Icon(Icons.arrow_back),
+              )
+            : null,
+      ),
       body: state.when(
         loading: () => const ReleaseGridSkeleton(),
         error: (error, stackTrace) => AppErrorView(
