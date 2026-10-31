@@ -51,6 +51,11 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            // Install alongside the signed v0.6.0 Release without overwriting its data.
+            applicationIdSuffix = ".diagnostic"
+            versionNameSuffix = "-cosmos-diagnostic"
+        }
         release {
             signingConfig = if (hasReleaseKeystore) {
                 signingConfigs.getByName("release")

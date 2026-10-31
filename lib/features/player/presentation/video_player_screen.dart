@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show FontFeature, ImageFilter;
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 
 import 'package:dream_cast/core/database/database_providers.dart';
 import 'package:dream_cast/features/player/data/player_providers.dart';
@@ -44,6 +45,15 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   bool? _seekFeedbackBackward;
   Alignment _seekFeedbackAlignment = Alignment.centerRight;
   Object? _error;
+  bool _diagLoggedInitialized = false;
+  bool _diagLoggedPlaying = false;
+  bool _diagLoggedError = false;
+  int _diagLastSecondBucket = -1;
+
+  void _diag(String message) {
+    if (kDebugMode) debugPrint('DCTV_DIAG: $message');
+  }
+
 
   @override
   void initState() {
@@ -188,6 +198,12 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       _completionHandled = false;
     });
 
+    _diagLoggedInitialized = false;
+    _diagLoggedPlaying = false;
+    _diagLoggedError = false;
+    _diagLastSecondBucket = -1;
+    _diag('open stream scheme=${stream.url.scheme} host=${stream.url.host} '
+          'headers=${stream.headers.keys.join(",")} (URL/path omitted)');
     _uiTimer?.cancel();
     _controlsHideTimer?.cancel();
     final old = _controller;
@@ -220,6 +236,10 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
             ),
       );
       await controller.initialize();
+      _diag('initialize completed size=${controller.value.size} '
+            'aspect=${controller.value.aspectRatio} '
+            'duration=${controller.value.duration} '
+            'hasError=${controller.value.hasError}');
       await PlayerPipService.setEnabled(
         enabled: true,
         aspectRatio: controller.value.aspectRatio,
@@ -241,6 +261,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         await controller.seekTo(resumePosition);
       }
       await controller.play();
+      _diag('play requested successfully; playback state will be sampled');
       _startProgressTimer();
       _startUiTimer();
       _scheduleControlsAutoHide();
@@ -249,6 +270,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         setState(() => _isInitializing = false);
       }
     } catch (error) {
+      _diag('initialize/play exception: $error');
       if (mounted) {
         setState(() {
           _error = error;
@@ -281,6 +303,10 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     final controller = _controller;
     if (controller == null || !mounted) return;
     if (controller.value.hasError) {
+      if (!_diagLoggedError) {
+        _diagLoggedError = true;
+        _diag('controller ERROR: ${controller.value.errorDescription}');
+      }
       setState(
         () => _error =
             controller.value.errorDescription ?? 'Ошибка воспроизведения',
@@ -288,6 +314,24 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       return;
     }
 
+    final value = controller.value;
+    if (value.isInitialized && !_diagLoggedInitialized) {
+      _diagLoggedInitialized = true;
+      _diag('controller initialized: size=${value.size} duration=${value.duration}');
+    }
+    if (value.isPlaying && !_diagLoggedPlaying) {
+      _diagLoggedPlaying = true;
+      _diag('controller entered isPlaying=true');
+    }
+    if (value.isInitialized) {
+      final bucket = value.position.inSeconds ~/ 5;
+      if (bucket != _diagLastSecondBucket) {
+        _diagLastSecondBucket = bucket;
+        _diag('sample position=${value.position} size=${value.size} '
+              'isPlaying=${value.isPlaying} isBuffering=${value.isBuffering} '
+              'hasError=${value.hasError}');
+      }
+    }
     final duration = controller.value.duration;
     final position = controller.value.position;
     if (!_completionHandled &&

@@ -1,5 +1,11 @@
 package com.dreamcast.app
 
+import android.app.AlarmManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.os.Process
+import android.os.SystemClock
 import android.app.PictureInPictureParams
 import android.content.pm.PackageManager
 import android.content.res.Configuration
@@ -9,10 +15,28 @@ import android.os.Handler
 import android.os.Looper
 import android.view.KeyEvent
 import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterShellArgs
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    private val rendererChannelName = "dream_cast/renderer_settings"
+    private val rendererPrefsName = "dream_cast_renderer"
+    private val impellerKey = "enable_impeller"
+    private var rendererChannel: MethodChannel? = null
+
+    // Impeller is selected before Flutter Engine initialization. It cannot be
+    // changed for an already running engine; the setting applies on next launch.
+    @Suppress("DEPRECATION")
+    override fun getFlutterShellArgs(): FlutterShellArgs {
+        val args = super.getFlutterShellArgs()
+        val enabled = getSharedPreferences(rendererPrefsName, MODE_PRIVATE)
+            .getBoolean(impellerKey, false) // Diagnostic default: Skia.
+        args.add("--enable-impeller=$enabled")
+        android.util.Log.i("DCTV_RENDERER", "Launching with Impeller enabled=$enabled")
+        return args
+    }
+
     private val navigationChannelName = "dream_cast/tv_navigation"
     private var navigationChannel: MethodChannel? = null
     private val backHandler = Handler(Looper.getMainLooper())
@@ -31,6 +55,28 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        rendererChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, rendererChannelName)
+        rendererChannel?.setMethodCallHandler { call, result ->
+            val prefs = getSharedPreferences(rendererPrefsName, MODE_PRIVATE)
+            when (call.method) {
+                "getImpellerEnabled" -> result.success(prefs.getBoolean(impellerKey, false))
+                "restartForRendererChange" -> {
+                    result.success(null)
+                    Handler(Looper.getMainLooper()).post { restartApplication() }
+                }
+                "setImpellerEnabled" -> {
+                    val enabled = call.argument<Boolean>("enabled")
+                    if (enabled == null) {
+                        result.error("BAD_ARGUMENT", "enabled must be a boolean", null)
+                    } else {
+                        val saved = prefs.edit().putBoolean(impellerKey, enabled).commit()
+                        if (saved) result.success(null)
+                        else result.error("SAVE_FAILED", "Could not persist renderer setting", null)
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
         navigationChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, navigationChannelName)
         pipChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, pipChannelName)
         pipChannel?.setMethodCallHandler { call, result ->
@@ -49,6 +95,28 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    /** Recreate the entire process: FlutterShellArgs are only read at engine startup. */
+    private fun restartApplication() {
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+            ?: Intent(this, MainActivity::class.java)
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+            (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+        val restartIntent = PendingIntent.getActivity(this, 17301, launchIntent, flags)
+        val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val triggerAt = SystemClock.elapsedRealtime() + 1000L
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
+            // Exact alarm permission is not guaranteed on Android 12+.
+            alarmManager.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, restartIntent)
+        } else {
+            alarmManager.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, restartIntent)
+        }
+        android.util.Log.i("DCTV_RENDERER", "Restart scheduled for Impeller change")
+        finishAffinity()
+        Process.killProcess(Process.myPid())
     }
 
     // Android TV KEYCODE_BACK is handled at the Activity boundary, before Flutter
@@ -83,6 +151,8 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         backHandler.removeCallbacks(exitOnLongBack)
         navigationChannel = null
+        rendererChannel?.setMethodCallHandler(null)
+        rendererChannel = null
         super.onDestroy()
     }
 
