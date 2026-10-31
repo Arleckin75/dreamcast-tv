@@ -435,7 +435,6 @@ class _EpisodeListSheet extends ConsumerStatefulWidget {
 }
 
 class _EpisodeListSheetState extends ConsumerState<_EpisodeListSheet> {
-  bool _ascending = true;
 
   @override
   Widget build(BuildContext context) {
@@ -460,36 +459,7 @@ class _EpisodeListSheetState extends ConsumerState<_EpisodeListSheet> {
                       ),
                     ),
                   ),
-                  SegmentedButton<bool>(
-                    showSelectedIcon: false,
-                    segments: const [
-                      ButtonSegment(
-                        value: true,
-                        tooltip: 'По возрастанию',
-                        icon: Icon(Icons.arrow_downward, size: 18),
-                      ),
-                      ButtonSegment(
-                        value: false,
-                        tooltip: 'По убыванию',
-                        icon: Icon(Icons.arrow_upward, size: 18),
-                      ),
-                    ],
-                    selected: {_ascending},
-                    onSelectionChanged: (value) {
-                      setState(() => _ascending = value.first);
-                    },
-                  ),
-                  const SizedBox(width: 8),
-                  state.maybeWhen(
-                    data: (data) => IconButton.filledTonal(
-                      tooltip: 'Скачать все',
-                      onPressed: data.value.isEmpty
-                          ? null
-                          : () => _downloadAllEpisodes(context, data.value),
-                      icon: const Icon(Icons.download_for_offline_outlined),
-                    ),
-                    orElse: () => const SizedBox.shrink(),
-                  ),
+
                 ],
               ),
             ),
@@ -521,7 +491,7 @@ class _EpisodeListSheetState extends ConsumerState<_EpisodeListSheet> {
                               : data.value)
                           .toList()
                         ..sort((a, b) => a.ordinal.compareTo(b.ordinal));
-                  final visible = _ascending ? queue : queue.reversed.toList();
+                  final visible = queue;
 
                   return Column(
                     children: [
@@ -552,37 +522,7 @@ class _EpisodeListSheetState extends ConsumerState<_EpisodeListSheet> {
     );
   }
 
-  Future<void> _downloadAllEpisodes(
-    BuildContext context,
-    List<DreamEpisode> episodes,
-  ) async {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Добавляем ${episodes.length} серий в загрузки...'),
-      ),
-    );
 
-    final requests = <DreamEpisodeDownloadRequest>[];
-    for (final episode in episodes) {
-      try {
-        final streamsData = await ref.read(
-          episodeStreamsProvider(episode).future,
-        );
-        final stream = pickDownloadStream(streamsData.value);
-        if (stream == null) continue;
-        requests.add(
-          DreamEpisodeDownloadRequest(episode: episode, stream: stream),
-        );
-      } catch (_) {
-        // Ошибка одной серии не должна останавливать всю очередь.
-      }
-    }
-
-    if (requests.isEmpty) return;
-    await ref
-        .read(downloadServiceProvider)
-        .startBatchDownload(release: widget.detail.release, requests: requests);
-  }
 }
 
 class _OfflineEpisodesEmptyState extends StatelessWidget {
