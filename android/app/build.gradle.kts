@@ -84,10 +84,10 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
-    // Debug-only, read-only stream diagnostics (same Media3 version as video_player_android).
-    debugImplementation("androidx.media3:media3-exoplayer:1.9.2")
-    debugImplementation("androidx.media3:media3-exoplayer-hls:1.9.2")
-    debugImplementation("androidx.media3:media3-exoplayer-dash:1.9.2")
-    // Diagnostic-only AV1 software fallback, prebuilt native codec libraries.
-    debugImplementation("org.videolan.android:libvlc-all:3.7.7")
+    // Device video-track compatibility selection (same Media3 version as video_player_android).
+    implementation("androidx.media3:media3-exoplayer:1.9.2")
+    implementation("androidx.media3:media3-exoplayer-hls:1.9.2")
+    implementation("androidx.media3:media3-exoplayer-dash:1.9.2")
+    // LibVLC software AV1 fallback for devices without a supported hardware decoder.
+    implementation("org.videolan.android:libvlc-all:3.7.7")
 }

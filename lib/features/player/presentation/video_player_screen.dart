@@ -204,10 +204,9 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     _diagLoggedPlaying = false;
     _diagLoggedError = false;
     _diagLastSecondBucket = -1;
-    // Debug-only preflight: probe every distinct link supplied for this episode.
-    // Prefer a stream with a supported video track; retain the original when
-    // none is compatible or the diagnostic API is unavailable.
-    if (kDebugMode && stream.url.scheme.startsWith('http')) {
+    // Preflight: inspect candidate video tracks and choose a supported source.
+    // Fall back to LibVLC if no hardware-compatible video track is available.
+    if (Platform.isAndroid && stream.url.scheme.startsWith('http')) {
       final candidates = <DreamStream>[];
       final seen = <String>{};
       for (final candidate in [stream, ..._request.streams]) {
@@ -229,7 +228,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
             stream = candidates[choice];
             _diag('selected compatible source index=$choice type=${stream.type.name}');
           } else if (choice == -1 && Platform.isAndroid) {
-            // Debug-only: none of the supplied URLs has device-supported video.
+            // None of the supplied URLs has device-supported video.
             // Open the isolated LibVLC software decoder instead of silent audio-only playback.
             // Request the user-selected 720p/1080p fMP4 playlist; default to 720p.
             _diag('no hardware-compatible source; launching software AV1 fallback');
@@ -285,16 +284,6 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     _currentStream = stream;
     _diag('open stream scheme=${stream.url.scheme} host=${stream.url.host} '
           'headers=${stream.headers.keys.join(",")} (URL/path omitted)');
-    // Debug-only secondary Media3 probe: discovers track formats without
-    // modifying the real playback controller or recording full stream URLs.
-    if (kDebugMode && stream.url.scheme.startsWith('http')) {
-      unawaited(_media3Probe.invokeMethod<void>('probe', {
-        'url': stream.url.toString(),
-        'headers': stream.headers,
-      }).catchError((Object error) {
-        _diag('track probe unavailable: ${error.runtimeType}');
-      }));
-    }
     _uiTimer?.cancel();
     _controlsHideTimer?.cancel();
     final old = _controller;

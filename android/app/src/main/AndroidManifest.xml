@@ -16,6 +16,9 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:banner="@drawable/tv_banner"
         android:usesCleartextTraffic="true">
+        <activity android:name=".CosmosAv1PlayerActivity"
+            android:exported="false" android:screenOrientation="landscape"
+            android:theme="@android:style/Theme.Material.NoActionBar" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
