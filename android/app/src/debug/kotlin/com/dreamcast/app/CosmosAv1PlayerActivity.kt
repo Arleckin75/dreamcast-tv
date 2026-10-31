@@ -41,6 +41,15 @@ class CosmosAv1PlayerActivity : Activity() {
     private var uiVisible = true
     private var voutCount = -1
     private var surfaceReady = false
+    private var videoSurface: SurfaceView? = null
+    private var lastTimeMs = -1L
+    private var activeHeight = 480
+    private var pendingHeight = 480
+    private var requestSerial = 0
+    private var masterPlaylistUrl: String? = null
+    private var userAgent: String? = null
+    private var referer: String? = null
+    private var stagnantSamples = 0
     private var diagnosticTicks = 0
     private val diagnosticSampler = object : Runnable {
         override fun run() {
@@ -49,8 +58,12 @@ class CosmosAv1PlayerActivity : Activity() {
                 val videoTracks = mp.videoTracksCount
                 val selectedVideo = mp.videoTrack
                 val size = mp.vlcVout
-                Log.i("DCTV_AV1", "sample tick=$diagnosticTicks playing=${mp.isPlaying} " +
-                    "timeMs=${mp.time} videoTracks=$videoTracks selectedVideo=$selectedVideo " +
+                val clockMs = mp.time
+                if (clockMs == lastTimeMs && mp.isPlaying) stagnantSamples++ else stagnantSamples = 0
+                lastTimeMs = clockMs
+                Log.i("DCTV_AV1", "sample height=$activeHeight tick=$diagnosticTicks playing=${mp.isPlaying} " +
+                    "timeMs=$clockMs position=${mp.position} lengthMs=${mp.length} seekable=${mp.isSeekable} " +
+                    "stagnantSamples=$stagnantSamples videoTracks=$videoTracks selectedVideo=$selectedVideo " +
                     "voutEvents=$voutCount surfaceReady=$surfaceReady " +
                     "viewsAttached=${size.areViewsAttached()}")
             } catch (e: Exception) {
@@ -71,20 +84,25 @@ class CosmosAv1PlayerActivity : Activity() {
         if (url.isNullOrBlank() || !url.startsWith("https://") && !url.startsWith("http://")) {
             finish(); return
         }
-        CosmosHlsDiagnostic.inspect(
-            url,
-            intent.getStringExtra("userAgent"),
-            intent.getStringExtra("referer")
-        )
+        masterPlaylistUrl = url
+        userAgent = intent.getStringExtra("userAgent")
+        referer = intent.getStringExtra("referer")
+        CosmosHlsDiagnostic.inspect(url, userAgent, referer)
         val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         val surface = SurfaceView(this)
+        videoSurface = surface
+        surface.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            syncVlcWindowSize("layout")
+        }
         surface.holder.addCallback(object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
                 surfaceReady = true
                 Log.i("DCTV_AV1", "surfaceCreated valid=${holder.surface?.isValid}")
+                syncVlcWindowSize("surfaceCreated")
             }
             override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
                 Log.i("DCTV_AV1", "surfaceChanged width=$width height=$height format=$format")
+                syncVlcWindowSize("surfaceChanged", width, height)
             }
             override fun surfaceDestroyed(holder: SurfaceHolder) {
                 surfaceReady = false
@@ -93,7 +111,7 @@ class CosmosAv1PlayerActivity : Activity() {
         })
         root.addView(surface, FrameLayout.LayoutParams(-1, -1))
         val status = TextView(this).apply {
-            text = "AV1 · программное декодирование | OK: пауза | ◀ ▶: ±10 сек | Back: выход"
+            text = "AV1 480p | ↑ 720p | ↓ 480p | OK: пауза | ◀ ▶: ±10 сек | Back: выход"
             setTextColor(Color.WHITE)
             setBackgroundColor(0x99000000.toInt())
             textSize = 16f
@@ -102,19 +120,46 @@ class CosmosAv1PlayerActivity : Activity() {
         root.addView(status, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
         message = status
         setContentView(root)
-        Cosmos480pResolver.resolve(url, intent.getStringExtra("userAgent"), intent.getStringExtra("referer")) { direct480 ->
-            if (isFinishing || isDestroyed) return@resolve
-            if (direct480 == null) {
-                Log.e("DCTV_480P", "forced 480p fMP4 unavailable; playback not started")
-                status.text = "Диагностика: AV1 480p fMP4 не найден. Смотрите DCTV_480P."
+        selectQuality(480)
+    }
+
+    private fun selectQuality(height: Int) {
+        val master = masterPlaylistUrl ?: return
+        if (pendingHeight == height && player != null) return
+        val serial = ++requestSerial
+        pendingHeight = height
+        Log.i("DCTV_QUALITY", "requested height=$height (direct fMP4)")
+        message?.apply { visibility = View.VISIBLE; text = "Проверка AV1 ${height}p fMP4…" }
+        Cosmos480pResolver.resolve(master, userAgent, referer, height) { direct ->
+            if (isFinishing || isDestroyed || serial != requestSerial) return@resolve
+            if (direct == null) {
+                Log.w("DCTV_QUALITY", "unavailable height=$height; keeping current player height=$activeHeight")
+                message?.text = "AV1 ${height}p fMP4 недоступен. Текущий режим: ${activeHeight}p | ↑ 720p, ↓ 480p"
+                reveal()
             } else {
-                startVlc480p(direct480, status, surface)
+                releasePlayer()
+                activeHeight = height
+                startVlc480p(direct, message ?: return@resolve, videoSurface ?: return@resolve)
             }
         }
     }
 
+    private fun releasePlayer() {
+        uiHandler.removeCallbacks(diagnosticSampler)
+        player?.let { mp ->
+            runCatching { mp.setEventListener(null) }
+            runCatching { mp.stop() }
+            runCatching { mp.vlcVout.detachViews() }
+            runCatching { mp.release() }
+        }
+        player = null
+        engine?.release()
+        engine = null
+        voutCount = -1
+    }
+
     private fun startVlc480p(url: String, status: TextView, surface: SurfaceView) {
-        Log.i("DCTV_480P", "starting LibVLC with forced 480p fMP4 media playlist")
+        Log.i("DCTV_QUALITY", "starting LibVLC with forced ${activeHeight}p fMP4 media playlist")
         try {
             val vlc = LibVLC(this, arrayListOf("--no-video-title-show", "--network-caching=1200", "--avcodec-hw=none", "--verbose=2"))
             engine = vlc
@@ -122,6 +167,9 @@ class CosmosAv1PlayerActivity : Activity() {
             player = mp
             mp.vlcVout.setVideoView(surface)
             mp.vlcVout.attachViews()
+            mp.setAspectRatio(null)
+            mp.setScale(0f)
+            syncVlcWindowSize("attached")
             Log.i("DCTV_AV1", "vlcVout attached=${mp.vlcVout.areViewsAttached()} softwareDecode=true")
             val media = Media(vlc, Uri.parse(url))
             media.setHWDecoderEnabled(false, false)
@@ -136,6 +184,7 @@ class CosmosAv1PlayerActivity : Activity() {
                     MediaPlayer.Event.Vout -> {
                         voutCount = event.voutCount
                         Log.i("DCTV_AV1", "Vout event count=$voutCount surfaceReady=$surfaceReady")
+                        uiHandler.post { syncVlcWindowSize("vout") }
                     }
                     MediaPlayer.Event.ESAdded -> Log.i("DCTV_AV1", "ESAdded event")
                     MediaPlayer.Event.ESSelected -> Log.i("DCTV_AV1", "ESSelected event")
@@ -143,7 +192,7 @@ class CosmosAv1PlayerActivity : Activity() {
                     MediaPlayer.Event.Buffering -> Log.i("DCTV_AV1", "Buffering event")
                     MediaPlayer.Event.Playing -> {
                         Log.i("DCTV_AV1", "LibVLC playing; software decode requested")
-                        uiHandler.post { status.text = "AV1 · программный режим | OK: пауза | ◀ ▶: ±10 сек | Back: выход" }
+                        uiHandler.post { status.text = "AV1 ${activeHeight}p · программный режим | ↑ 720p | ↓ 480p | OK: пауза | ◀ ▶: ±10 сек | Back: выход" }
                     }
                     MediaPlayer.Event.EncounteredError -> {
                         Log.e("DCTV_AV1", "LibVLC playback error")
@@ -154,15 +203,31 @@ class CosmosAv1PlayerActivity : Activity() {
             }
             mp.play()
             diagnosticTicks = 0
+            lastTimeMs = -1L
+            stagnantSamples = 0
             uiHandler.postDelayed(diagnosticSampler, 3000L)
             val savedMs = intent.getLongExtra("positionMs", 0L)
             if (savedMs > 5000L) uiHandler.postDelayed({ runCatching { mp.time = savedMs } }, 1800L)
             reveal()
-            Log.i("DCTV_480P", "launched; videoTracks=${mp.videoTracksCount} selectedVideo=${mp.videoTrack} (initial)")
+            Log.i("DCTV_QUALITY", "height=$activeHeight launched; videoTracks=${mp.videoTracksCount} selectedVideo=${mp.videoTrack} (initial)")
         } catch (e: Throwable) {
             Log.e("DCTV_AV1", "Failed to start LibVLC", e)
             status.text = "Не удалось запустить AV1: ${e.javaClass.simpleName}. Нажмите Back."
         }
+    }
+
+    private fun syncVlcWindowSize(reason: String, widthOverride: Int = 0, heightOverride: Int = 0) {
+        val mp = player ?: return
+        val view = videoSurface ?: return
+        val w = if (widthOverride > 0) widthOverride else view.width
+        val h = if (heightOverride > 0) heightOverride else view.height
+        if (w <= 0 || h <= 0 || !mp.vlcVout.areViewsAttached()) return
+        runCatching {
+            mp.vlcVout.setWindowSize(w, h)
+            mp.setAspectRatio(null)
+            mp.setScale(0f)
+            Log.i("DCTV_LAYOUT", "windowSize=${w}x${h} reason=$reason scale=auto aspect=source")
+        }.onFailure { Log.w("DCTV_LAYOUT", "sizing failed reason=$reason type=${it.javaClass.simpleName}") }
     }
 
     private fun reveal() {
@@ -188,7 +253,8 @@ class CosmosAv1PlayerActivity : Activity() {
                 if (p != null && p.isSeekable) p.time = p.time + 10000
                 reveal(); return true
             }
-            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> { reveal(); return true }
+            KeyEvent.KEYCODE_DPAD_UP -> { selectQuality(720); reveal(); return true }
+            KeyEvent.KEYCODE_DPAD_DOWN -> { selectQuality(480); reveal(); return true }
             KeyEvent.KEYCODE_BACK -> { finish(); return true }
         }
         return super.onKeyDown(keyCode, event)
@@ -197,14 +263,9 @@ class CosmosAv1PlayerActivity : Activity() {
     override fun onDestroy() {
         uiHandler.removeCallbacks(hideUi)
         uiHandler.removeCallbacks(diagnosticSampler)
-        player?.let { mp ->
-            runCatching { mp.stop() }
-            runCatching { mp.vlcVout.detachViews() }
-            runCatching { mp.release() }
-        }
-        engine?.release()
-        player = null
-        engine = null
+        requestSerial++
+        releasePlayer()
+        videoSurface = null
         super.onDestroy()
     }
 }

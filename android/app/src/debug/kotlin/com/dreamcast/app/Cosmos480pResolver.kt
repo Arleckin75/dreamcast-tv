@@ -16,12 +16,12 @@ object Cosmos480pResolver {
         Thread(r, "dctv-480p-resolver").apply { isDaemon = true }
     }
     private val ui = Handler(Looper.getMainLooper())
-    private val resolution = Regex("(?:^|,)RESOLUTION=854x480(?:,|$)")
+    private fun resolution(height: Int) = Regex("(?:^|,)RESOLUTION=\\d+x${height}(?:,|$)")
     private val codecs = Regex("CODECS=\"([^\"]+)\"")
 
-    fun resolve(masterUrl: String, agent: String?, referer: String?, result: (String?) -> Unit) {
+    fun resolve(masterUrl: String, agent: String?, referer: String?, height: Int, result: (String?) -> Unit) {
         executor.execute {
-            val selected = try { find480p(masterUrl, agent, referer) }
+            val selected = try { findVariant(masterUrl, agent, referer, height) }
             catch (e: Exception) {
                 Log.e(TAG, "resolution failed kind=${e.javaClass.simpleName}")
                 null
@@ -59,21 +59,21 @@ object Cosmos480pResolver {
         } finally { conn.disconnect() }
     }
 
-    private fun find480p(url: String, agent: String?, referer: String?): String? {
+    private fun findVariant(url: String, agent: String?, referer: String?, height: Int): String? {
         val lines = fetch(url, agent, referer).lines().map { it.trim() }
         if (lines.none { it.startsWith("#EXT-X-STREAM-INF:") }) {
             Log.w(TAG, "source is not master playlist; cannot select 480p")
             return null
         }
         val candidates = lines.mapIndexedNotNull { i, s ->
-            if (!s.startsWith("#EXT-X-STREAM-INF:") || !resolution.containsMatchIn(s)) return@mapIndexedNotNull null
+            if (!s.startsWith("#EXT-X-STREAM-INF:") || !resolution(height).containsMatchIn(s)) return@mapIndexedNotNull null
             val codec = codecs.find(s)?.groupValues?.getOrNull(1).orEmpty()
             if (!codec.split(',').any { it.trim().startsWith("av01") }) return@mapIndexedNotNull null
             val relative = lines.getOrNull(i + 1).orEmpty()
             if (relative.isBlank() || relative.startsWith('#')) return@mapIndexedNotNull null
             URL(URL(url), relative).toString()
         }
-        Log.i(TAG, "av1_480p_candidates=${candidates.size}")
+        Log.i(TAG, "height=$height av1_candidates=${candidates.size}")
         for (candidate in candidates) {
             val media = fetch(candidate, agent, referer).lines().map { it.trim() }
             val segments = media.filter { it.isNotBlank() && !it.startsWith('#') }
@@ -83,13 +83,13 @@ object Cosmos480pResolver {
                 Uri.parse(it).path.orEmpty().lowercase().endsWith(".m4s") ||
                 Uri.parse(it).path.orEmpty().lowercase().endsWith(".mp4")
             }
-            Log.i(TAG, "candidate_480p mediaSegments=${segments.size} initMap=$map extensions=$extensions fmp4=$fmp4")
+            Log.i(TAG, "height=$height candidate mediaSegments=${segments.size} initMap=$map extensions=$extensions fmp4=$fmp4")
             if (fmp4) {
-                Log.i(TAG, "selected AV1 480p fMP4 direct media playlist (URL redacted)")
+                Log.i(TAG, "selected AV1 ${height}p fMP4 direct media playlist (URL redacted)")
                 return candidate
             }
         }
-        Log.w(TAG, "no AV1 480p fMP4 variant found; refusing master fallback")
+        Log.w(TAG, "no AV1 ${height}p fMP4 variant found; refusing master fallback")
         return null
     }
 }
