@@ -24,8 +24,6 @@ class EpisodeListScreen extends ConsumerStatefulWidget {
 }
 
 class _EpisodeListScreenState extends ConsumerState<EpisodeListScreen> {
-  bool _ascending = true;
-
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(releaseEpisodesProvider(widget.detail));
@@ -57,19 +55,11 @@ class _EpisodeListScreenState extends ConsumerState<EpisodeListScreen> {
                       : data.value)
                   .toList()
                 ..sort((a, b) => a.ordinal.compareTo(b.ordinal));
-          final visible = _ascending ? queue : queue.reversed.toList();
+          final visible = queue;
 
           return Column(
             children: [
               if (data.isStale) const StaleCacheBanner(),
-              _EpisodeToolbar(
-                ascending: _ascending,
-                episodes: queue,
-                onSortChanged: (value) => setState(() => _ascending = value),
-                onDownloadAll: queue.isEmpty
-                    ? null
-                    : () => _downloadAllEpisodes(context, queue),
-              ),
               Expanded(
                 child: visible.isEmpty && offlineOnly
                     ? const _OfflineEpisodesEmptyState()
@@ -90,96 +80,6 @@ class _EpisodeListScreenState extends ConsumerState<EpisodeListScreen> {
             ],
           );
         },
-      ),
-    );
-  }
-
-  Future<void> _downloadAllEpisodes(
-    BuildContext context,
-    List<DreamEpisode> episodes,
-  ) async {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Добавляем ${episodes.length} серий в загрузки...'),
-      ),
-    );
-
-    final requests = <DreamEpisodeDownloadRequest>[];
-    for (final episode in episodes) {
-      try {
-        final streamsData = await ref.read(
-          episodeStreamsProvider(episode).future,
-        );
-        final stream = pickDownloadStream(streamsData.value);
-        if (stream == null) continue;
-        requests.add(
-          DreamEpisodeDownloadRequest(episode: episode, stream: stream),
-        );
-      } catch (_) {
-        // Ошибка одной серии не должна останавливать очередь целиком.
-      }
-    }
-
-    if (requests.isEmpty) return;
-    await ref
-        .read(downloadServiceProvider)
-        .startBatchDownload(release: widget.detail.release, requests: requests);
-  }
-}
-
-class _EpisodeToolbar extends StatelessWidget {
-  const _EpisodeToolbar({
-    required this.ascending,
-    required this.episodes,
-    required this.onSortChanged,
-    required this.onDownloadAll,
-  });
-
-  final bool ascending;
-  final List<DreamEpisode> episodes;
-  final ValueChanged<bool> onSortChanged;
-  final VoidCallback? onDownloadAll;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-      child: Row(
-        children: [
-          Text(
-            '${episodes.length} сер.',
-            style: theme.textTheme.labelLarge?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const Spacer(),
-          SegmentedButton<bool>(
-            showSelectedIcon: false,
-            segments: const [
-              ButtonSegment(
-                value: true,
-                tooltip: 'По возрастанию',
-                icon: Icon(Icons.arrow_downward, size: 18),
-              ),
-              ButtonSegment(
-                value: false,
-                tooltip: 'По убыванию',
-                icon: Icon(Icons.arrow_upward, size: 18),
-              ),
-            ],
-            selected: {ascending},
-            onSelectionChanged: (value) => onSortChanged(value.first),
-          ),
-          const SizedBox(width: 8),
-          IconButton.filledTonal(
-            tooltip: 'Скачать все',
-            onPressed: onDownloadAll,
-            icon: const Icon(Icons.download_for_offline_outlined),
-          ),
-        ],
       ),
     );
   }

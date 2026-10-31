@@ -4,7 +4,6 @@ import 'package:dream_cast/app/widgets/settings_tile.dart';
 import 'package:dream_cast/core/settings/app_settings.dart';
 import 'package:dream_cast/core/settings/settings_providers.dart';
 import 'package:dream_cast/features/player/data/stream_preference_providers.dart';
-import 'package:dream_cast/features/settings/presentation/impeller_settings_tile.dart';
 import 'package:dream_cast/features/profile/data/profile_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -76,7 +75,6 @@ class SettingsScreen extends ConsumerWidget {
             subtitle: 'Технология потока: ${streamTechnology.label}',
             onTap: () => _showStreamTechnologySheet(context, ref),
           ),
-          const ImpellerSettingsTile(),
           SettingsTile(
             icon: Icons.info_outline,
             title: 'О приложении',
