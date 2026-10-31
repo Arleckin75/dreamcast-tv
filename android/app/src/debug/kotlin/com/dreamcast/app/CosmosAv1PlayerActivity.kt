@@ -43,8 +43,8 @@ class CosmosAv1PlayerActivity : Activity() {
     private var surfaceReady = false
     private var videoSurface: SurfaceView? = null
     private var lastTimeMs = -1L
-    private var activeHeight = 480
-    private var pendingHeight = 480
+    private var activeHeight = 720
+    private var pendingHeight = 720
     private var requestSerial = 0
     private var masterPlaylistUrl: String? = null
     private var userAgent: String? = null
@@ -111,7 +111,7 @@ class CosmosAv1PlayerActivity : Activity() {
         })
         root.addView(surface, FrameLayout.LayoutParams(-1, -1))
         val status = TextView(this).apply {
-            text = "AV1 480p | ↑ 720p | ↓ 480p | OK: пауза | ◀ ▶: ±10 сек | Back: выход"
+            text = "AV1 720p | ↑ 1080p | ↓ 720p | OK: пауза | ◀ ▶: ±10 сек | Back: выход"
             setTextColor(Color.WHITE)
             setBackgroundColor(0x99000000.toInt())
             textSize = 16f
@@ -120,7 +120,7 @@ class CosmosAv1PlayerActivity : Activity() {
         root.addView(status, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
         message = status
         setContentView(root)
-        selectQuality(480)
+        selectQuality(720)
     }
 
     private fun selectQuality(height: Int) {
@@ -130,16 +130,16 @@ class CosmosAv1PlayerActivity : Activity() {
         pendingHeight = height
         Log.i("DCTV_QUALITY", "requested height=$height (direct fMP4)")
         message?.apply { visibility = View.VISIBLE; text = "Проверка AV1 ${height}p fMP4…" }
-        Cosmos480pResolver.resolve(master, userAgent, referer, height) { direct ->
+        CosmosFmp4Resolver.resolve(master, userAgent, referer, height) { direct ->
             if (isFinishing || isDestroyed || serial != requestSerial) return@resolve
             if (direct == null) {
                 Log.w("DCTV_QUALITY", "unavailable height=$height; keeping current player height=$activeHeight")
-                message?.text = "AV1 ${height}p fMP4 недоступен. Текущий режим: ${activeHeight}p | ↑ 720p, ↓ 480p"
+                message?.text = "AV1 ${height}p fMP4 недоступен. Текущий режим: ${activeHeight}p | ↑ 1080p, ↓ 720p"
                 reveal()
             } else {
                 releasePlayer()
                 activeHeight = height
-                startVlc480p(direct, message ?: return@resolve, videoSurface ?: return@resolve)
+                startVlcFmp4(direct, message ?: return@resolve, videoSurface ?: return@resolve)
             }
         }
     }
@@ -158,7 +158,7 @@ class CosmosAv1PlayerActivity : Activity() {
         voutCount = -1
     }
 
-    private fun startVlc480p(url: String, status: TextView, surface: SurfaceView) {
+    private fun startVlcFmp4(url: String, status: TextView, surface: SurfaceView) {
         Log.i("DCTV_QUALITY", "starting LibVLC with forced ${activeHeight}p fMP4 media playlist")
         try {
             val vlc = LibVLC(this, arrayListOf("--no-video-title-show", "--network-caching=1200", "--avcodec-hw=none", "--verbose=2"))
@@ -192,7 +192,7 @@ class CosmosAv1PlayerActivity : Activity() {
                     MediaPlayer.Event.Buffering -> Log.i("DCTV_AV1", "Buffering event")
                     MediaPlayer.Event.Playing -> {
                         Log.i("DCTV_AV1", "LibVLC playing; software decode requested")
-                        uiHandler.post { status.text = "AV1 ${activeHeight}p · программный режим | ↑ 720p | ↓ 480p | OK: пауза | ◀ ▶: ±10 сек | Back: выход" }
+                        uiHandler.post { status.text = "AV1 ${activeHeight}p · программный режим | ↑ 1080p | ↓ 720p | OK: пауза | ◀ ▶: ±10 сек | Back: выход" }
                     }
                     MediaPlayer.Event.EncounteredError -> {
                         Log.e("DCTV_AV1", "LibVLC playback error")
@@ -253,8 +253,8 @@ class CosmosAv1PlayerActivity : Activity() {
                 if (p != null && p.isSeekable) p.time = p.time + 10000
                 reveal(); return true
             }
-            KeyEvent.KEYCODE_DPAD_UP -> { selectQuality(720); reveal(); return true }
-            KeyEvent.KEYCODE_DPAD_DOWN -> { selectQuality(480); reveal(); return true }
+            KeyEvent.KEYCODE_DPAD_UP -> { selectQuality(1080); reveal(); return true }
+            KeyEvent.KEYCODE_DPAD_DOWN -> { selectQuality(720); reveal(); return true }
             KeyEvent.KEYCODE_BACK -> { finish(); return true }
         }
         return super.onKeyDown(keyCode, event)
