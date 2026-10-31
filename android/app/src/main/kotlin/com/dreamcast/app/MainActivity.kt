@@ -110,18 +110,19 @@ class MainActivity : FlutterActivity() {
             } else if (call.method == "playSoftwareAV1") {
                 try {
                     val launcher = Class.forName("com.dreamcast.app.CosmosAv1Launcher")
-                    val start = launcher.getMethod("launch", android.app.Activity::class.java, String::class.java, Map::class.java, Long::class.javaPrimitiveType, String::class.java)
+                    val start = launcher.getMethod("launch", android.app.Activity::class.java, String::class.java, Map::class.java, Long::class.javaPrimitiveType, String::class.java, Int::class.javaPrimitiveType)
                     val uri = call.argument<String>("url")
                     val headers = call.argument<Map<String, String>>("headers") ?: emptyMap()
                     val resumeMs = call.argument<Number>("positionMs")?.toLong() ?: 0L
                     val episodeKey = call.argument<String>("episodeKey").orEmpty()
+                    val quality = if (call.argument<Int>("quality") == 1080) 1080 else 720
                     if (uri.isNullOrBlank()) result.error("NO_URL", "No video URL", null)
                     else {
                         if (pendingSoftwarePlayerResult != null) {
                             result.error("PLAYER_BUSY", "Software player already running", null)
                         } else {
                             pendingSoftwarePlayerResult = result
-                            try { start.invoke(null, this, uri, headers, resumeMs, episodeKey) }
+                            try { start.invoke(null, this, uri, headers, resumeMs, episodeKey, quality) }
                             catch (error: Exception) { pendingSoftwarePlayerResult = null; throw error }
                         }
                     }

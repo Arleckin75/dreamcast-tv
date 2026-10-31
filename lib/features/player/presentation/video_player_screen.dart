@@ -16,6 +16,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class VideoPlayerScreen extends ConsumerStatefulWidget {
   const VideoPlayerScreen({required this.request, super.key});
@@ -230,7 +231,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
           } else if (choice == -1 && Platform.isAndroid) {
             // Debug-only: none of the supplied URLs has device-supported video.
             // Open the isolated LibVLC software decoder instead of silent audio-only playback.
-            // Request the tested 720p fMP4 media playlist; do not use 1080p or 480p.
+            // Request the user-selected 720p/1080p fMP4 playlist; default to 720p.
             _diag('no hardware-compatible source; launching software AV1 fallback');
             final resumePosition = preservePosition ??
                 (resume ? (await ref.read(playbackRepositoryProvider).getPosition(
@@ -245,11 +246,14 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
               episode: _request.episode,
               stream: stream,
             );
+            final qualityPrefs = await SharedPreferences.getInstance();
+            final requestedQuality = qualityPrefs.getInt('software_av1_quality') == 1080 ? 1080 : 720;
             final nativeProgress = await _media3Probe.invokeMapMethod<String, dynamic>('playSoftwareAV1', {
               'url': stream.url.toString(),
               'headers': stream.headers,
               'positionMs': resumePosition?.inMilliseconds ?? 0,
               'episodeKey': '${_request.release.id}:${_request.episode.id}',
+              'quality': requestedQuality,
             });
             if (!mounted || _isClosing) return;
             if (nativeProgress != null) {

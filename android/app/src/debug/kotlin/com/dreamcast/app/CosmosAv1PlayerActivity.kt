@@ -23,11 +23,12 @@ import org.videolan.libvlc.MediaPlayer
 /** Debug-only automatic AV1 software fallback. Separate Activity avoids modifying
  * video_player_android's Media3 player on compatible TVs. */
 object CosmosAv1Launcher {
-    @JvmStatic fun launch(activity: Activity, url: String, headers: Map<String, String>, positionMs: Long, episodeKey: String) {
+    @JvmStatic fun launch(activity: Activity, url: String, headers: Map<String, String>, positionMs: Long, episodeKey: String, quality: Int) {
         val intent = Intent(activity, CosmosAv1PlayerActivity::class.java)
         intent.putExtra("url", url)
         intent.putExtra("positionMs", positionMs)
         intent.putExtra("episodeKey", episodeKey)
+        intent.putExtra("quality", if (quality == 1080) 1080 else 720)
         intent.putExtra("userAgent", headers.entries.firstOrNull { it.key.equals("user-agent", true) }?.value)
         intent.putExtra("referer", headers.entries.firstOrNull { it.key.equals("referer", true) }?.value)
         activity.startActivityForResult(intent, 7192)
@@ -71,7 +72,7 @@ class CosmosAv1PlayerActivity : Activity() {
             .onFailure { Log.w("DCTV_PROGRESS", "restore failed: ${it.javaClass.simpleName}") }
     }
 
-    private val activeHeight = 720
+    private var activeHeight = 720
     private var requestSerial = 0
         private var userAgent: String? = null
     private var referer: String? = null
@@ -115,6 +116,7 @@ class CosmosAv1PlayerActivity : Activity() {
                 userAgent = intent.getStringExtra("userAgent")
         referer = intent.getStringExtra("referer")
         episodeKey = intent.getStringExtra("episodeKey").orEmpty()
+        activeHeight = if (intent.getIntExtra("quality", 720) == 1080) 1080 else 720
         resumeMs = intent.getLongExtra("positionMs", 0L)
         if (episodeKey.isNotBlank()) {
             val storedMs = progressPrefs.getLong(episodeKey, 0L)
@@ -145,7 +147,7 @@ class CosmosAv1PlayerActivity : Activity() {
         })
         root.addView(surface, FrameLayout.LayoutParams(-1, -1))
         val status = TextView(this).apply {
-            text = "AV1 720p · программный режим | OK: пауза | ◀ ▶: ±10 сек | Back: выход"
+            text = "AV1 ${activeHeight}p · программный режим | OK: пауза | ◀ ▶: ±10 сек | Back: выход"
             setTextColor(Color.WHITE)
             setBackgroundColor(0x99000000.toInt())
             textSize = 16f
@@ -154,19 +156,19 @@ class CosmosAv1PlayerActivity : Activity() {
         root.addView(status, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
         message = status
         setContentView(root)
-        start720p(url)
+        startSelectedQuality(url)
     }
 
-    /** Software AV1 fallback is deliberately limited to the tested 720p fMP4 variant. */
-    private fun start720p(master: String) {
+    /** Software AV1 fallback uses the preselected 720p or 1080p fMP4 variant. */
+    private fun startSelectedQuality(master: String) {
         val serial = ++requestSerial
-        Log.i("DCTV_QUALITY", "automatic fallback: requested AV1 720p fMP4")
-        message?.apply { visibility = View.VISIBLE; text = "Проверка AV1 720p fMP4…" }
-        CosmosFmp4Resolver.resolve(master, userAgent, referer, 720) { direct ->
+        Log.i("DCTV_QUALITY", "automatic fallback: requested AV1 ${activeHeight}p fMP4")
+        message?.apply { visibility = View.VISIBLE; text = "Проверка AV1 ${activeHeight}p fMP4…" }
+        CosmosFmp4Resolver.resolve(master, userAgent, referer, activeHeight) { direct ->
             if (isFinishing || isDestroyed || serial != requestSerial) return@resolve
             if (direct == null) {
-                Log.e("DCTV_QUALITY", "AV1 720p fMP4 unavailable; no lower or higher quality fallback")
-                message?.text = "AV1 720p fMP4 недоступен. Нажмите Back."
+                Log.e("DCTV_QUALITY", "AV1 ${activeHeight}p fMP4 unavailable; no other quality fallback")
+                message?.text = "AV1 ${activeHeight}p fMP4 недоступен. Нажмите Back."
                 reveal()
             } else {
                 startVlcFmp4(direct, message ?: return@resolve, videoSurface ?: return@resolve)
@@ -224,7 +226,7 @@ class CosmosAv1PlayerActivity : Activity() {
                     MediaPlayer.Event.Playing -> {
                         Log.i("DCTV_AV1", "LibVLC playing; software decode requested")
                         uiHandler.post { restorePosition(mp) }
-                        uiHandler.post { status.text = "AV1 720p · программный режим | OK: пауза | ◀ ▶: ±10 сек | Back: выход" }
+                        uiHandler.post { status.text = "AV1 ${activeHeight}p · программный режим | OK: пауза | ◀ ▶: ±10 сек | Back: выход" }
                     }
                     MediaPlayer.Event.EncounteredError -> {
                         Log.e("DCTV_AV1", "LibVLC playback error")

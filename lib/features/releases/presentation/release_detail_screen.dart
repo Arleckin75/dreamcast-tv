@@ -15,6 +15,7 @@ import 'package:dream_cast/features/releases/presentation/widgets/metadata_chip.
 import 'package:dream_cast/features/releases/presentation/widgets/release_poster.dart';
 import 'package:dream_cast/features/releases/presentation/widgets/stale_cache_banner.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class ReleaseDetailScreen extends ConsumerStatefulWidget {
@@ -435,6 +436,25 @@ class _EpisodeListSheet extends ConsumerStatefulWidget {
 }
 
 class _EpisodeListSheetState extends ConsumerState<_EpisodeListSheet> {
+  int _selectedQuality = 720;
+
+  @override
+  void initState() {
+    super.initState();
+    SharedPreferences.getInstance().then((prefs) {
+      if (!mounted) return;
+      final value = prefs.getInt('software_av1_quality') ?? 720;
+      setState(() => _selectedQuality = value == 1080 ? 1080 : 720);
+    });
+  }
+
+  void _changeQuality(int quality) {
+    setState(() => _selectedQuality = quality);
+    SharedPreferences.getInstance().then(
+      (prefs) => prefs.setInt('software_av1_quality', quality),
+    );
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -458,6 +478,15 @@ class _EpisodeListSheetState extends ConsumerState<_EpisodeListSheet> {
                         fontWeight: FontWeight.w800,
                       ),
                     ),
+                  ),
+                  SegmentedButton<int>(
+                    showSelectedIcon: false,
+                    segments: const [
+                      ButtonSegment(value: 720, label: Text('720p')),
+                      ButtonSegment(value: 1080, label: Text('1080p')),
+                    ],
+                    selected: {_selectedQuality},
+                    onSelectionChanged: (values) => _changeQuality(values.first),
                   ),
 
                 ],
