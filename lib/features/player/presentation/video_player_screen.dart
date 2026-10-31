@@ -227,6 +227,32 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
           if (choice != null && choice >= 0 && choice < candidates.length) {
             stream = candidates[choice];
             _diag('selected compatible source index=$choice type=${stream.type.name}');
+          } else if (choice == -1 && Platform.isAndroid) {
+            // Debug-only: none of the supplied URLs has device-supported video.
+            // Open the isolated LibVLC software decoder instead of silent audio-only playback.
+            // Use the lowest-variant selection inside LibVLC to reduce CPU pressure.
+            _diag('no hardware-compatible source; launching software AV1 fallback');
+            final resumePosition = preservePosition ??
+                (resume ? (await ref.read(playbackRepositoryProvider).getPosition(
+                  releaseId: '${_request.release.id}',
+                  episodeId: _request.episode.id,
+                ))?.position : null);
+            final started = await _media3Probe.invokeMethod<bool>('playSoftwareAV1', {
+              'url': stream.url.toString(),
+              'headers': stream.headers,
+              'positionMs': resumePosition?.inMilliseconds ?? 0,
+            });
+            if (!mounted || _isClosing) return;
+            if (started == true) {
+              unawaited(ref.read(playbackRepositoryProvider).saveDreamStreamSession(
+                release: _request.release,
+                episode: _request.episode,
+                stream: stream,
+              ));
+              await _closePlayer();
+              return;
+            }
+            _diag('software AV1 launch failed; using original selection');
           } else {
             _diag('no supported video source found; using original selection');
           }

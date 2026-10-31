@@ -89,6 +89,19 @@ class MainActivity : FlutterActivity() {
                     android.util.Log.e("DCTV_TRACKS", "Source selection probe failed", error)
                     result.success(null) // Never block playback on diagnostics.
                 }
+            } else if (call.method == "playSoftwareAV1") {
+                try {
+                    val launcher = Class.forName("com.dreamcast.app.CosmosAv1Launcher")
+                    val start = launcher.getMethod("launch", android.app.Activity::class.java, String::class.java, Map::class.java, Long::class.javaPrimitiveType)
+                    val uri = call.argument<String>("url")
+                    val headers = call.argument<Map<String, String>>("headers") ?: emptyMap()
+                    val resumeMs = call.argument<Number>("positionMs")?.toLong() ?: 0L
+                    if (uri.isNullOrBlank()) result.error("NO_URL", "No video URL", null)
+                    else { start.invoke(null, this, uri, headers, resumeMs); result.success(true) }
+                } catch (error: Exception) {
+                    android.util.Log.e("DCTV_AV1", "Software player could not launch", error)
+                    result.success(false)
+                }
             } else result.notImplemented()
         }
         rendererChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, rendererChannelName)

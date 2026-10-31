@@ -88,4 +88,6 @@ dependencies {
     debugImplementation("androidx.media3:media3-exoplayer:1.9.2")
     debugImplementation("androidx.media3:media3-exoplayer-hls:1.9.2")
     debugImplementation("androidx.media3:media3-exoplayer-dash:1.9.2")
+    // Diagnostic-only AV1 software fallback, prebuilt native codec libraries.
+    debugImplementation("org.videolan.android:libvlc-all:3.7.7")
 }
