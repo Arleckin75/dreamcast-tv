@@ -36,6 +36,7 @@ object CosmosAv1Launcher {
 
 class CosmosAv1PlayerActivity : Activity() {
     private var backExitRequested = false
+    private var shutdownStarted = false
     private var engine: LibVLC? = null
     private var player: MediaPlayer? = null
     private var message: TextView? = null
@@ -160,14 +161,16 @@ class CosmosAv1PlayerActivity : Activity() {
 
     private fun releasePlayer() {
         uiHandler.removeCallbacks(progressSaver)
-        player?.let { mp ->
-            runCatching { mp.setEventListener(null) }
-            runCatching { mp.stop() }
-            runCatching { mp.vlcVout.detachViews() }
-            runCatching { mp.release() }
-        }
+        val mp = player
         player = null
-        engine?.release()
+        mp?.let {
+            runCatching { it.setEventListener(null) }
+            // Stop while the SurfaceView is still attached to the window.
+            if (!shutdownStarted) runCatching { it.stop() }
+            runCatching { it.vlcVout.detachViews() }
+            runCatching { it.release() }
+        }
+        engine?.let { runCatching { it.release() } }
         engine = null
         voutCount = -1
     }
@@ -270,8 +273,30 @@ class CosmosAv1PlayerActivity : Activity() {
     private fun exitToEpisodes() {
         if (backExitRequested || isFinishing || isDestroyed) return
         backExitRequested = true
-        Log.i("DCTV_AV1", "Back pressed; returning to episodes")
-        finish()
+        Log.i("DCTV_AV1", "Back pressed; stopping VLC before surface teardown")
+        // Returning to Flutter destroys SurfaceView. The Cosmos Mali driver can
+        // crash AWindowHandler if that happens while VLC is still rendering.
+        val mp = player
+        if (mp == null) {
+            finish()
+            return
+        }
+        uiHandler.removeCallbacks(progressSaver)
+        uiHandler.removeCallbacks(hideUi)
+        persistPosition(true)
+        runCatching { mp.setEventListener(null) }
+        shutdownStarted = true
+        runCatching { mp.stop() }
+            .onFailure { Log.w("DCTV_AV1", "VLC stop failed", it) }
+        Log.i("DCTV_AV1", "VLC stop requested; delaying surface detach")
+        // Give VLC's asynchronous vout/AWindowHandler thread time to quiesce
+        // before detaching the view and finishing the Android Activity.
+        uiHandler.postDelayed({
+            if (isFinishing || isDestroyed) return@postDelayed
+            Log.i("DCTV_AV1", "Releasing VLC views before Activity.finish")
+            releasePlayer()
+            finish()
+        }, 700L)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
