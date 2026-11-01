@@ -1,108 +1,48 @@
 <p align="center">
-  <img src="icon.png" width="96" height="96" alt="Dream Cast app icon">
+  <img src="icon.png" width="96" height="96" alt="Dream Cast TV icon">
 </p>
 
-<h1 align="center">Dream Cast</h1>
+<h1 align="center">Dream Cast TV</h1>
 
-<p align="center">
-  Современный Android-клиент для просмотра аниме в озвучке Dream Cast.
-</p>
+<p align="center">Неофициальная модификация открытого Android-клиента Dream Cast для Android TV и Google TV.</p>
 
-<p align="center">
-  <img alt="Flutter" src="https://img.shields.io/badge/Flutter-3.x-02569B?style=flat-square&logo=flutter&logoColor=white">
-  <img alt="Android" src="https://img.shields.io/badge/Android-Material%203-3DDC84?style=flat-square&logo=android&logoColor=white">
-  <img alt="License" src="https://img.shields.io/badge/License-GPLv3-blue?style=flat-square">
-</p>
+> **Статус:** v0.7.0 — исходники перенесены в `main`, Debug-сборка проверена на Cosmos TV и приставке с аппаратной поддержкой AV1. Проверка Release APK проводится отдельно. Проект не является официальным приложением Dream Cast и не связан с администрацией сервиса.
 
----
-<br>
-<p align="center">
-  <a href="https://github.com/rurin1x/dreamcast-app/releases/latest">
-    <img alt="Download APK" src="https://img.shields.io/badge/Download-APK-2ea44f?style=for-the-badge&logo=android&logoColor=white">
-  </a>
-</p>
+## Возможности
 
+- Каталог аниме с постерами и описаниями, открытие карточек и выбор эпизодов.
+- Поиск с обновлением результатов во время ввода.
+- Библиотека, календарь релизов и уведомления.
+- Воспроизведение видео и звука, пауза и перемотка.
+- Автоматический выбор движка воспроизведения: ExoPlayer на устройствах с аппаратной поддержкой AV1; резервное программное воспроизведение через LibVLC при её отсутствии.
+- Выбор качества 720p / 1080p в окне серий перед запуском видео. Для программного декодирования AV1 на Cosmos TV рекомендовано 720p (1080p может тормозить).
+- Локальный профиль `TV`, закладки, сохранение позиции серии и раздел «Продолжить просмотр» на главном экране.
+- Интерфейс для телевизора с верхней панелью навигации и тёмной темой по умолчанию; первый запуск без мастера настройки.
 
+Доступность видео зависит от сайта Dream Cast, сети и прав на соответствующий контент.
 
+## Управление пультом
 
-## ⚠️ Региональные ограничения
+| Кнопка | Действие |
+| --- | --- |
+| Стрелки D-pad | Перемещение между элементами; в плеере влево/вправо — перемотка |
+| OK / Select | Открыть выбранный элемент; в плеере — воспроизведение/пауза |
+| Back (коротко) | Назад на предыдущий экран; при открытой клавиатуре — сначала закрыть её |
+| Back (удержание около 1,5 с) | Выход из приложения, если устройство передаёт удержание приложению |
 
-Dream Cast может быть недоступен в некоторых странах и сетях из-за ограничений провайдеров.
+В поиске после закрытия клавиатуры стрелка вниз переводит фокус к результатам. При возврате из карточки сохраняется введённый запрос.
 
-Подтверждённые проблемы доступа:
-**Россия,** Austria, Belgium, Canada, China, Czech Republic, Denmark, Estonia, France, Germany, Greece, Hong Kong, Hungary, India, Ireland, Italy, Japan, Luxembourg, Malta, Portugal, Romania, Slovakia, Slovenia, Spain, United Kingdom, United States Minor Outlying Islands и United States.
+## Установка
 
-Если приложение не загружает релизы или видео — попробуйте использовать VPN (Финляндия или Нидерланды).
+Опубликованные версии доступны на странице [Releases этого репозитория](https://github.com/Arleckin75/dreamcast-tv/releases). Наличие исходников v0.7.0 в `main` само по себе не означает, что подписанный Release APK v0.7.0 уже опубликован.
 
+Если на странице Releases нет APK, артефакты тестовых сборок могут быть доступны владельцу репозитория в [GitHub Actions](https://github.com/Arleckin75/dreamcast-tv/actions) после успешного запуска workflow. Для загрузки артефактов могут потребоваться вход в GitHub и соответствующие права доступа.
 
+APK устанавливается вручную на совместимое устройство Android TV / Google TV. Release APK, подписанный другим сертификатом, нельзя установить поверх Debug APK с тем же идентификатором приложения; удаление старой версии может удалить локальные данные.
 
-## Скриншоты
+## Сборка из исходников
 
-<p align="center">
-  <img src="screenshots/home.jpg" width="30%">
-  <img src="screenshots/detail.jpg" width="30%">
-  <img src="screenshots/s_view.jpg" width="30%">
-
-  
-</p>
-<p align="center">
-    <img src="screenshots/library.jpg" width="30%">
-    <img src="screenshots/calendar.jpg" width="30%">
-    <img src="screenshots/settings.jpg" width="30%">
-</p>
-
-<p align="center">
-  <img src="screenshots/player.jpg" width="90%">
-</p>
-
-## Что умеет
-
-- Просмотр серий в озвучке Dream Cast
-- Постеры, описания и метаданные
-- Поиск по тайтлам
-- Закладки и библиотека
-- Сохранение прогресса просмотра
-- Поддержка HLS и DASH
-- Picture-in-Picture
-- Календарь релизов
-- Уведомления о новых сериях
-- Локальный кэш
-
-
-
-
-## Внутри
-
-Приложение не использует WebView.
-Все данные обрабатываются напрямую через парсер и локальный слой приложения:
-
-```text
-Dream Cast
-→ Dio
-→ HTML/API parser
-→ PlayerJS decoder
-→ Repository
-→ Drift cache
-→ Riverpod providers
-→ Flutter UI
-```
-
-Основные технологии:
-
-- Flutter / Dart
-- Riverpod
-- GoRouter
-- Dio
-- Drift
-- Material 3
-- dynamic_color
-- video_player
-- Workmanager
-- flutter_local_notifications
-
-## Сборка
-
-Нужны Flutter SDK и Android Studio с Android SDK.
+Требуются Flutter SDK, Android SDK и совместимая версия JDK.
 
 ```bash
 flutter pub get
@@ -111,47 +51,46 @@ flutter test
 flutter build apk --debug
 ```
 
-Для релизной сборки:
+Для Release требуется собственный Android signing key и корректная конфигурация подписи. **Не коммитьте** `.jks`, `.keystore`, `android/key.properties` или пароли.
 
 ```bash
 flutter build apk --release
 ```
 
+### GitHub Actions
 
+- `build-tv-apk.yml` — тестовый Debug APK.
+- `build-tv-release.yml` — вручную запускаемая Release-сборка с подписью через Environment `release-signing` (в задаче должно быть указано `environment: release-signing`).
 
-## Структура
+Для подписи используются Environment Secrets (только имена, не значения):
 
-```text
-lib/
-  app/          запуск приложения, роутер, тема
-  core/         база данных, сеть, настройки, логирование
-  features/
-    home/       главная страница
-    library/    закладки и библиотека
-    notifications/
-    onboarding/
-    player/
-    profile/
-    releases/   парсинг, репозитории и экраны тайтлов
-    schedule/
-    settings/
-```
+| Secret | Назначение |
+| --- | --- |
+| `TV_RELEASE_KEYSTORE_BASE64` | Base64-представление ключевого хранилища |
+| `TV_RELEASE_STORE_PASSWORD` | Пароль хранилища |
+| `TV_RELEASE_KEY_PASSWORD` | Пароль ключа |
+| `TV_RELEASE_KEY_ALIAS` | Alias ключа |
 
-## Лицензия
+Публикация исходников не требует публикации ключа. Доступ к подписывающим workflow должен оставаться ограниченным доверенными участниками.
 
-Проект распространяется по лицензии GPLv3.
+## Происхождение, авторство и лицензия
 
-Некоторые идеи парсинга вдохновлены проектом [anicli-api](https://github.com/vypivshiy/anicli-api) (MIT License).
+Dream Cast TV — модификация проекта [rurin1x/dreamcast-app](https://github.com/rurin1x/dreamcast-app). Оригинальная реализация создана **rurin1x**; изменения для Android TV развиваются в [Arleckin75/dreamcast-tv](https://github.com/Arleckin75/dreamcast-tv).
 
-Реализация для приложения переписана на Dart.
+Приложение распространяется на условиях **GNU General Public License v3.0**. Полный текст находится в файле [LICENSE](LICENSE). При распространении модифицированных версий необходимо соблюдать условия применимых лицензий и сохранять необходимые сведения об авторских правах.
 
-## Благодарности
+В оригинальном проекте отмечено использование идей парсинга из [vypivshiy/anicli-api](https://github.com/vypivshiy/anicli-api) (MIT License); реализация клиента выполнена на Dart. Сторонние зависимости и ресурсы могут иметь собственные условия использования.
 
-Спасибо Dream Cast за прекрасную озвучку, open-source сообществу за инструменты.
-Спасибо людям, которые тестировали приложение и помогали находить проблемы на ранних этапах разработки.
+**Отказ от аффилиации:** приложение является независимым клиентом. Название, логотип и медиаматериалы Dream Cast принадлежат соответствующим правообладателям. Исходный код приложения и доступность видеоконтента не предоставляют автоматически права на распространение чужих изображений, логотипов или видео.
 
----
+## Основные технологии
 
-<p align="center">
-  Dream Cast · GPLv3 · 2026
-</p>
+Flutter / Dart, Riverpod, GoRouter, Dio, Drift, Media3 / ExoPlayer и LibVLC (резервное программное воспроизведение AV1). Данные каталога извлекаются через сетевой слой и парсер приложения, без встроенного WebView.
+
+## Разработка
+
+- `main` — исходники v0.7.0 после слияния проверенной ветки разработки; Release APK проверяется отдельно.
+- `develop` — ветка дальнейшей разработки Android TV.
+- `stable-v0.5` — сохранённая резервная ветка v0.5.
+
+Перед выпуском APK рекомендуется выполнять сборку, проверку навигации пультом и тестирование на реальном Android TV.
