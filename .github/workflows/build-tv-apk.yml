@@ -103,8 +103,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          APK="$(find build/app/outputs/flutter-apk -maxdepth 1 -type f -name '*${{ matrix.flavor }}*debug.apk' -print -quit)"
-          if [[ -z "$APK" ]]; then
+          APK="build/app/outputs/flutter-apk/app-${{ matrix.flavor }}-debug.apk"
+          # Flutter lowercases flavor names in generated APK filenames.
+          APK="$(printf '%s' "$APK" | tr '[:upper:]' '[:lower:]')"
+          if [[ ! -s "$APK" ]]; then
             echo '::error::Flavor APK not found:'
             ls -lah build/app/outputs/flutter-apk || true
             exit 1
