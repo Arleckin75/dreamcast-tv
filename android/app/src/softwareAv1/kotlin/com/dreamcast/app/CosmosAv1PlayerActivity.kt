@@ -35,6 +35,7 @@ object CosmosAv1Launcher {
 }
 
 class CosmosAv1PlayerActivity : Activity() {
+    private var backExitRequested = false
     private var engine: LibVLC? = null
     private var player: MediaPlayer? = null
     private var message: TextView? = null
@@ -249,6 +250,30 @@ class CosmosAv1PlayerActivity : Activity() {
         uiHandler.postDelayed(hideUi, 6000)
     }
 
+    // Consume BOTH DOWN and UP in this Activity. Finishing on DOWN can send the
+    // matching UP to the resumed Flutter MainActivity, triggering an extra Back.
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.keyCode == KeyEvent.KEYCODE_BACK) {
+            if (event.action == KeyEvent.ACTION_UP && !event.isCanceled && !backExitRequested) {
+                exitToEpisodes()
+            }
+            return true
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    @Deprecated("Support legacy Android TV Back dispatch")
+    override fun onBackPressed() {
+        exitToEpisodes()
+    }
+
+    private fun exitToEpisodes() {
+        if (backExitRequested || isFinishing || isDestroyed) return
+        backExitRequested = true
+        Log.i("DCTV_AV1", "Back pressed; returning to episodes")
+        finish()
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         val p = player
         when (keyCode) {
@@ -265,7 +290,6 @@ class CosmosAv1PlayerActivity : Activity() {
                 if (p != null && p.isSeekable) { p.time = p.time + 10000; uiHandler.postDelayed({ persistPosition(true) }, 500L) }
                 reveal(); return true
             }
-            KeyEvent.KEYCODE_BACK -> { finish(); return true }
         }
         return super.onKeyDown(keyCode, event)
     }
@@ -276,6 +300,7 @@ class CosmosAv1PlayerActivity : Activity() {
     }
 
     override fun finish() {
+        if (isFinishing) return
         val mp = player
         val ms = if (episodeCompleted) 0L else runCatching { mp?.time ?: 0L }.getOrDefault(0L)
         val duration = runCatching { mp?.length ?: 0L }.getOrDefault(0L)
