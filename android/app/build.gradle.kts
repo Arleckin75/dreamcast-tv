@@ -41,7 +41,14 @@ android {
 
     flavorDimensions += "av1"
     productFlavors {
-        create("softwareAv1") { dimension = "av1" }
+        create("softwareAv1") {
+            dimension = "av1"
+            // Real Android TV devices: 32-bit ARM (Cosmos) and 64-bit ARM.
+            // Exclude x86/x86_64 native binaries from the software player APK.
+            ndk {
+                abiFilters += setOf("armeabi-v7a", "arm64-v8a")
+            }
+        }
         create("hardwareAv1") { dimension = "av1" }
     }
 
