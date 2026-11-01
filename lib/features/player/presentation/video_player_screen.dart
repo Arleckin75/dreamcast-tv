@@ -29,6 +29,7 @@ class VideoPlayerScreen extends ConsumerStatefulWidget {
 
 class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   static const _media3Probe = MethodChannel("dream_cast/media3_probe");
+  static const _av1Variant = String.fromEnvironment('AV1_PLAYER', defaultValue: 'hardware');
   VideoPlayerController? _controller;
   DreamStream? _currentStream;
   late PlaybackRequest _request;
@@ -204,34 +205,13 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     _diagLoggedPlaying = false;
     _diagLoggedError = false;
     _diagLastSecondBucket = -1;
-    // Preflight: inspect candidate video tracks and choose a supported source.
-    // Fall back to LibVLC if no hardware-compatible video track is available.
-    if (Platform.isAndroid && stream.url.scheme.startsWith('http')) {
-      final candidates = <DreamStream>[];
-      final seen = <String>{};
-      for (final candidate in [stream, ..._request.streams]) {
-        if (candidate.type == DreamStreamType.audio ||
-            !candidate.url.scheme.startsWith('http')) continue;
-        if (seen.add(candidate.url.toString())) candidates.add(candidate);
+    // Player backend is selected at compile time. Never switch engines at runtime.
+    if (_av1Variant == 'software') {
+      if (!Platform.isAndroid || stream.url.isScheme('file')) {
+        if (mounted) setState(() { _error = StateError('LibVLC requires an Android network stream'); _isInitializing = false; });
+        return;
       }
-      if (candidates.isNotEmpty) {
-        try {
-          _diag('source preflight candidates=${candidates.length}');
-          final choice = await _media3Probe.invokeMethod<int>('selectCompatible', {
-            'candidates': [
-              for (final candidate in candidates)
-                {'url': candidate.url.toString(), 'headers': candidate.headers},
-            ],
-          }).timeout(const Duration(seconds: 35));
-          if (!mounted || _isClosing) return;
-          if (choice != null && choice >= 0 && choice < candidates.length) {
-            stream = candidates[choice];
-            _diag('selected compatible source index=$choice type=${stream.type.name}');
-          } else if (choice == -1 && Platform.isAndroid) {
-            // None of the supplied URLs has device-supported video.
-            // Open the isolated LibVLC software decoder instead of silent audio-only playback.
-            // Request the user-selected 720p/1080p fMP4 playlist; default to 720p.
-            _diag('no hardware-compatible source; launching software AV1 fallback');
+      try {
             final resumePosition = preservePosition ??
                 (resume ? (await ref.read(playbackRepositoryProvider).getPosition(
                   releaseId: '${_request.release.id}',
@@ -246,7 +226,8 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
               stream: stream,
             );
             final qualityPrefs = await SharedPreferences.getInstance();
-            final requestedQuality = qualityPrefs.getInt('software_av1_quality') == 1080 ? 1080 : 720;
+            final selectedQuality = qualityPrefs.getInt('software_av1_quality') ?? 0;
+            final requestedQuality = selectedQuality == 0 ? 720 : selectedQuality;
             final nativeProgress = await _media3Probe.invokeMapMethod<String, dynamic>('playSoftwareAV1', {
               'url': stream.url.toString(),
               'headers': stream.headers,
@@ -271,15 +252,13 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
               if (mounted) await _closePlayer();
               return;
             }
-            _diag('software AV1 launch failed; using original selection');
-          } else {
-            _diag('no supported video source found; using original selection');
-          }
-        } catch (error) {
-          _diag('source preflight unavailable: ${error.runtimeType}; using original');
-        }
+        if (mounted) setState(() { _error = StateError('Не удалось запустить LibVLC'); _isInitializing = false; });
+      } catch (error) {
+        if (mounted) setState(() { _error = error; _isInitializing = false; });
       }
+      return;
     }
+    // hardwareAv1: ExoPlayer only, never attempt LibVLC fallback.
     if (!mounted || _isClosing) return;
     _currentStream = stream;
     _diag('open stream scheme=${stream.url.scheme} host=${stream.url.host} '

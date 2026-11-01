@@ -436,15 +436,15 @@ class _EpisodeListSheet extends ConsumerStatefulWidget {
 }
 
 class _EpisodeListSheetState extends ConsumerState<_EpisodeListSheet> {
-  int _selectedQuality = 720;
+  int _selectedQuality = 0;
 
   @override
   void initState() {
     super.initState();
     SharedPreferences.getInstance().then((prefs) {
       if (!mounted) return;
-      final value = prefs.getInt('software_av1_quality') ?? 720;
-      setState(() => _selectedQuality = value == 1080 ? 1080 : 720);
+      final value = prefs.getInt('software_av1_quality') ?? 0;
+      setState(() => _selectedQuality = {0, 480, 720, 1080}.contains(value) ? value : 0);
     });
   }
 
@@ -482,6 +482,8 @@ class _EpisodeListSheetState extends ConsumerState<_EpisodeListSheet> {
                   SegmentedButton<int>(
                     showSelectedIcon: false,
                     segments: const [
+                      ButtonSegment(value: 0, label: Text('Auto')),
+                      ButtonSegment(value: 480, label: Text('480p')),
                       ButtonSegment(value: 720, label: Text('720p')),
                       ButtonSegment(value: 1080, label: Text('1080p')),
                     ],
