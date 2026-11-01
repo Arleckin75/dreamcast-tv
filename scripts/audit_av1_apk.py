@@ -27,7 +27,9 @@ def run():
     exo_deps = re.findall(r'(?im)^\s*[+\|\\ -]*[+\\-]---\s+(?:androidx\.media3:media3-exoplayer[^\s]*|com\.google\.android\.exoplayer:exoplayer[^\s]*)', dep)
     # Simpler fallback detects if Gradle output formatting changes.
     if not vlc_deps:
-        vlc_deps = re.findall(r'(?im)org\.videolan:libvlc[^\s]*', dep)
+        vlc_deps = re.findall(r'(?im)org\.videolan(?:\.android)?:libvlc[^\s]*', dep)
+    if not vlc_deps:
+        vlc_deps = re.findall(r"(?im)org\.videolan(?:\.android)?:[^\s]+libvlc[^\s]*", dep)
     if not exo_deps:
         exo_deps = re.findall(r'(?im)(?:androidx\.media3:media3-exoplayer[^\s]*|com\.google\.android\.exoplayer:exoplayer[^\s]*)', dep)
     with zipfile.ZipFile(args.apk) as z:
