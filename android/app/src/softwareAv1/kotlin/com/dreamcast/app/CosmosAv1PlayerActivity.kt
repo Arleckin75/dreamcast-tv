@@ -37,6 +37,9 @@ object CosmosAv1Launcher {
 class CosmosAv1PlayerActivity : Activity() {
     private var backExitRequested = false
     private var shutdownStarted = false
+    // Capture playback progress before VLC.stop()/release() invalidate player.time.
+    private var exitPositionMs: Long? = null
+    private var exitDurationMs: Long? = null
     private var engine: LibVLC? = null
     private var player: MediaPlayer? = null
     private var message: TextView? = null
@@ -284,6 +287,13 @@ class CosmosAv1PlayerActivity : Activity() {
         uiHandler.removeCallbacks(progressSaver)
         uiHandler.removeCallbacks(hideUi)
         persistPosition(true)
+        // The delayed finish occurs AFTER releasePlayer() sets player=null.
+        // Keep the same position/duration for the Activity result sent to Flutter.
+        val currentMs = runCatching { mp.time }.getOrDefault(-1L)
+        val savedMs = if (episodeKey.isNotBlank()) progressPrefs.getLong(episodeKey, 0L) else 0L
+        exitPositionMs = if (episodeCompleted) 0L else if (currentMs >= 0L) currentMs else savedMs
+        exitDurationMs = runCatching { mp.length }.getOrDefault(0L).coerceAtLeast(0L)
+        Log.i("DCTV_PROGRESS", "captured before VLC stop positionMs=$exitPositionMs durationMs=$exitDurationMs")
         runCatching { mp.setEventListener(null) }
         shutdownStarted = true
         runCatching { mp.stop() }
@@ -327,9 +337,12 @@ class CosmosAv1PlayerActivity : Activity() {
     override fun finish() {
         if (isFinishing) return
         val mp = player
-        val ms = if (episodeCompleted) 0L else runCatching { mp?.time ?: 0L }.getOrDefault(0L)
-        val duration = runCatching { mp?.length ?: 0L }.getOrDefault(0L)
-        persistPosition(true)
+        val ms = if (episodeCompleted) 0L else exitPositionMs
+            ?: runCatching { mp?.time ?: 0L }.getOrDefault(0L)
+        val duration = exitDurationMs
+            ?: runCatching { mp?.length ?: 0L }.getOrDefault(0L)
+        // Only read the active player; after release there is nothing to persist.
+        if (mp != null) persistPosition(true)
         setResult(RESULT_OK, Intent().apply {
             putExtra("positionMs", ms.coerceAtLeast(0L))
             putExtra("durationMs", duration.coerceAtLeast(0L))
