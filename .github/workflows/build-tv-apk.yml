@@ -122,22 +122,21 @@ jobs:
           OUTPUT="dist/DreamCast-TV-v0.7.1-${{ matrix.variant }}-debug.apk"
           cp "$APK" "$OUTPUT"
           (cd dist && sha256sum "$(basename "$OUTPUT")" > "$(basename "$OUTPUT").sha256")
-      - name: Verify software APK excludes x86 ABIs
-        if: matrix.player == 'software'
+      - name: Verify packaged APK excludes x86 ABIs
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PYCODE'
           from pathlib import Path
           import zipfile
-          apk = Path('dist/DreamCast-TV-v0.7.1-software_AV1-debug.apk')
+          apk = Path('dist/DreamCast-TV-v0.7.1-${{ matrix.variant }}-debug.apk')
           with zipfile.ZipFile(apk) as z:
               native = [n for n in z.namelist() if n.startswith('lib/') and n.endswith('.so')]
               abis = sorted({n.split('/')[1] for n in native})
               print('Native ABIs:', ', '.join(abis))
               forbidden = {'x86', 'x86_64'} & set(abis)
               if forbidden:
-                  raise SystemExit('::error::Unexpected x86 libraries in software APK: ' + ', '.join(sorted(forbidden)))
+                  raise SystemExit('::error::Unexpected x86 libraries in AV1 APK: ' + ', '.join(sorted(forbidden)))
               required = {'armeabi-v7a', 'arm64-v8a'}
               if not required.issubset(abis):
                   raise SystemExit('::error::Required ARM ABIs missing: ' + ', '.join(sorted(required - set(abis))))

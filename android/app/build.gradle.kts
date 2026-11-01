@@ -39,6 +39,15 @@ android {
         versionName = flutter.versionName
     }
 
+    // Flutter may re-populate build-type ABI filters (including x86_64) for
+    // Debug builds. Explicitly exclude x86 native libraries at packaging time.
+    // Both TV flavors target physical ARM devices, not x86 emulators.
+    packaging {
+        jniLibs {
+            excludes += setOf("**/x86/**", "**/x86_64/**")
+        }
+    }
+
     flavorDimensions += "av1"
     productFlavors {
         create("softwareAv1") {
