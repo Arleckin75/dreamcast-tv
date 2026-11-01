@@ -91,6 +91,9 @@ jobs:
           done
           test -f android/app/src/softwareAv1/kotlin/com/dreamcast/app/MainActivity.kt
           test -f android/app/src/hardwareAv1/kotlin/com/dreamcast/app/MainActivity.kt
+      - name: Select LibVLC-only Flutter plugin (software_AV1)
+        if: matrix.player == 'software'
+        run: python3 scripts/prepare_software_av1.py
       - name: Get dependencies
         run: flutter pub get
       - name: Build Debug APK
@@ -151,18 +154,6 @@ jobs:
             --apk "dist/DreamCast-TV-v0.7.1-${{ matrix.variant }}-debug.apk" \
             --dependencies av1-runtime-dependencies.txt \
             --player "${{ matrix.player }}"
-      - name: Identify ExoPlayer dependency origin
-        if: always() && matrix.player == 'software'
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          chmod +x android/gradlew
-          (cd android && ./gradlew :app:dependencyInsight \
-            --configuration softwareAv1DebugRuntimeClasspath \
-            --dependency media3-exoplayer) > dist/exoplayer-dependency-origin.txt 2>&1 || true
-          echo '--- ExoPlayer dependency origin ---'
-          cat dist/exoplayer-dependency-origin.txt
       - name: Upload AV1 audit report
         if: always()
         uses: actions/upload-artifact@v4
@@ -171,7 +162,6 @@ jobs:
           path: |
             dist/av1-audit-*.txt
             av1-runtime-dependencies.txt
-            dist/exoplayer-dependency-origin.txt
           if-no-files-found: ignore
           retention-days: 14
       - name: Upload flavor Debug APK
