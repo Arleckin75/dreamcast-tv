@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show FontFeature, ImageFilter;
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 
 import 'package:dream_cast/core/database/database_providers.dart';
 import 'package:dream_cast/features/player/data/player_providers.dart';
@@ -15,6 +16,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class VideoPlayerScreen extends ConsumerStatefulWidget {
   const VideoPlayerScreen({required this.request, super.key});
@@ -26,6 +28,7 @@ class VideoPlayerScreen extends ConsumerStatefulWidget {
 }
 
 class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
+  static const _media3Probe = MethodChannel("dream_cast/media3_probe");
   VideoPlayerController? _controller;
   DreamStream? _currentStream;
   late PlaybackRequest _request;
@@ -44,6 +47,15 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   bool? _seekFeedbackBackward;
   Alignment _seekFeedbackAlignment = Alignment.centerRight;
   Object? _error;
+  bool _diagLoggedInitialized = false;
+  bool _diagLoggedPlaying = false;
+  bool _diagLoggedError = false;
+  int _diagLastSecondBucket = -1;
+
+  void _diag(String message) {
+    if (kDebugMode) debugPrint('DCTV_DIAG: $message');
+  }
+
 
   @override
   void initState() {
@@ -188,6 +200,90 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       _completionHandled = false;
     });
 
+    _diagLoggedInitialized = false;
+    _diagLoggedPlaying = false;
+    _diagLoggedError = false;
+    _diagLastSecondBucket = -1;
+    // Preflight: inspect candidate video tracks and choose a supported source.
+    // Fall back to LibVLC if no hardware-compatible video track is available.
+    if (Platform.isAndroid && stream.url.scheme.startsWith('http')) {
+      final candidates = <DreamStream>[];
+      final seen = <String>{};
+      for (final candidate in [stream, ..._request.streams]) {
+        if (candidate.type == DreamStreamType.audio ||
+            !candidate.url.scheme.startsWith('http')) continue;
+        if (seen.add(candidate.url.toString())) candidates.add(candidate);
+      }
+      if (candidates.isNotEmpty) {
+        try {
+          _diag('source preflight candidates=${candidates.length}');
+          final choice = await _media3Probe.invokeMethod<int>('selectCompatible', {
+            'candidates': [
+              for (final candidate in candidates)
+                {'url': candidate.url.toString(), 'headers': candidate.headers},
+            ],
+          }).timeout(const Duration(seconds: 35));
+          if (!mounted || _isClosing) return;
+          if (choice != null && choice >= 0 && choice < candidates.length) {
+            stream = candidates[choice];
+            _diag('selected compatible source index=$choice type=${stream.type.name}');
+          } else if (choice == -1 && Platform.isAndroid) {
+            // None of the supplied URLs has device-supported video.
+            // Open the isolated LibVLC software decoder instead of silent audio-only playback.
+            // Request the user-selected 720p/1080p fMP4 playlist; default to 720p.
+            _diag('no hardware-compatible source; launching software AV1 fallback');
+            final resumePosition = preservePosition ??
+                (resume ? (await ref.read(playbackRepositoryProvider).getPosition(
+                  releaseId: '${_request.release.id}',
+                  episodeId: _request.episode.id,
+                ))?.position : null);
+            // The native Activity returns the final watch position when it closes.
+            // Write through the regular repository so the Drift-based home carousel
+            // and episode progress indicators update, rather than only Android prefs.
+            await ref.read(playbackRepositoryProvider).saveDreamStreamSession(
+              release: _request.release,
+              episode: _request.episode,
+              stream: stream,
+            );
+            final qualityPrefs = await SharedPreferences.getInstance();
+            final requestedQuality = qualityPrefs.getInt('software_av1_quality') == 1080 ? 1080 : 720;
+            final nativeProgress = await _media3Probe.invokeMapMethod<String, dynamic>('playSoftwareAV1', {
+              'url': stream.url.toString(),
+              'headers': stream.headers,
+              'positionMs': resumePosition?.inMilliseconds ?? 0,
+              'episodeKey': '${_request.release.id}:${_request.episode.id}',
+              'quality': requestedQuality,
+            });
+            if (!mounted || _isClosing) return;
+            if (nativeProgress != null) {
+              final positionMs = (nativeProgress['positionMs'] as num?)?.toInt() ?? 0;
+              final durationMs = (nativeProgress['durationMs'] as num?)?.toInt() ?? 0;
+              final completed = nativeProgress['completed'] == true;
+              if (durationMs > 0 || positionMs > 0 || completed) {
+                await ref.read(playbackRepositoryProvider).saveWatchProgress(
+                  release: _request.release,
+                  episode: _request.episode,
+                  position: Duration(milliseconds: completed && durationMs > 0 ? durationMs : positionMs),
+                  duration: durationMs > 0 ? Duration(milliseconds: durationMs) : null,
+                );
+                _diag('native progress synced to home: positionMs=$positionMs durationMs=$durationMs completed=$completed');
+              }
+              if (mounted) await _closePlayer();
+              return;
+            }
+            _diag('software AV1 launch failed; using original selection');
+          } else {
+            _diag('no supported video source found; using original selection');
+          }
+        } catch (error) {
+          _diag('source preflight unavailable: ${error.runtimeType}; using original');
+        }
+      }
+    }
+    if (!mounted || _isClosing) return;
+    _currentStream = stream;
+    _diag('open stream scheme=${stream.url.scheme} host=${stream.url.host} '
+          'headers=${stream.headers.keys.join(",")} (URL/path omitted)');
     _uiTimer?.cancel();
     _controlsHideTimer?.cancel();
     final old = _controller;
@@ -220,6 +316,10 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
             ),
       );
       await controller.initialize();
+      _diag('initialize completed size=${controller.value.size} '
+            'aspect=${controller.value.aspectRatio} '
+            'duration=${controller.value.duration} '
+            'hasError=${controller.value.hasError}');
       await PlayerPipService.setEnabled(
         enabled: true,
         aspectRatio: controller.value.aspectRatio,
@@ -241,6 +341,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         await controller.seekTo(resumePosition);
       }
       await controller.play();
+      _diag('play requested successfully; playback state will be sampled');
       _startProgressTimer();
       _startUiTimer();
       _scheduleControlsAutoHide();
@@ -249,6 +350,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         setState(() => _isInitializing = false);
       }
     } catch (error) {
+      _diag('initialize/play exception: $error');
       if (mounted) {
         setState(() {
           _error = error;
@@ -281,6 +383,10 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     final controller = _controller;
     if (controller == null || !mounted) return;
     if (controller.value.hasError) {
+      if (!_diagLoggedError) {
+        _diagLoggedError = true;
+        _diag('controller ERROR: ${controller.value.errorDescription}');
+      }
       setState(
         () => _error =
             controller.value.errorDescription ?? 'Ошибка воспроизведения',
@@ -288,6 +394,24 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       return;
     }
 
+    final value = controller.value;
+    if (value.isInitialized && !_diagLoggedInitialized) {
+      _diagLoggedInitialized = true;
+      _diag('controller initialized: size=${value.size} duration=${value.duration}');
+    }
+    if (value.isPlaying && !_diagLoggedPlaying) {
+      _diagLoggedPlaying = true;
+      _diag('controller entered isPlaying=true');
+    }
+    if (value.isInitialized) {
+      final bucket = value.position.inSeconds ~/ 5;
+      if (bucket != _diagLastSecondBucket) {
+        _diagLastSecondBucket = bucket;
+        _diag('sample position=${value.position} size=${value.size} '
+              'isPlaying=${value.isPlaying} isBuffering=${value.isBuffering} '
+              'hasError=${value.hasError}');
+      }
+    }
     final duration = controller.value.duration;
     final position = controller.value.position;
     if (!_completionHandled &&

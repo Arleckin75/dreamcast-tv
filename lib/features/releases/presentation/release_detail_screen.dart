@@ -15,6 +15,7 @@ import 'package:dream_cast/features/releases/presentation/widgets/metadata_chip.
 import 'package:dream_cast/features/releases/presentation/widgets/release_poster.dart';
 import 'package:dream_cast/features/releases/presentation/widgets/stale_cache_banner.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class ReleaseDetailScreen extends ConsumerStatefulWidget {
@@ -35,14 +36,6 @@ class _ReleaseDetailScreenState extends ConsumerState<ReleaseDetailScreen> {
     final detailState = ref.watch(releaseDetailProvider(widget.release));
 
     return Scaffold(
-      floatingActionButton: detailState.maybeWhen(
-        data: (data) => FloatingActionButton.extended(
-          onPressed: () => _showEpisodeList(context, data.value),
-          icon: const Icon(Icons.play_arrow),
-          label: const Text('Смотреть'),
-        ),
-        orElse: () => null,
-      ),
       body: detailState.when(
         loading: () => _DetailSkeleton(release: widget.release),
         error: (error, stackTrace) => CustomScrollView(
@@ -69,6 +62,7 @@ class _ReleaseDetailScreenState extends ConsumerState<ReleaseDetailScreen> {
                   release: widget.release,
                   detail: detail,
                   expanded: _descriptionExpanded,
+                  onWatch: () => _showEpisodeList(context, detail),
                   onToggleDescription: () {
                     setState(
                       () => _descriptionExpanded = !_descriptionExpanded,
@@ -157,12 +151,14 @@ class _DetailBody extends StatelessWidget {
     required this.detail,
     required this.expanded,
     required this.onToggleDescription,
+    required this.onWatch,
   });
 
   final DreamRelease release;
   final DreamReleaseDetail detail;
   final bool expanded;
   final VoidCallback onToggleDescription;
+  final VoidCallback onWatch;
 
   @override
   Widget build(BuildContext context) {
@@ -236,17 +232,33 @@ class _DetailBody extends StatelessWidget {
                           ),
                       ],
                     ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: FilledButton.icon(
+                            autofocus: true,
+                            onPressed: onWatch,
+                            icon: const Icon(Icons.play_circle_outline),
+                            label: const Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text('Смотреть'),
+                            ),
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size(0, 52),
+                              alignment: Alignment.centerLeft,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _BookmarkStatusButton(release: release),
+                        const SizedBox(width: 8),
+                        _EpisodeNotificationButton(release: release),
+                      ],
+                    ),
                   ],
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(child: _BookmarkStatusButton(release: release)),
-              const SizedBox(width: 10),
-              _EpisodeNotificationButton(release: release),
             ],
           ),
           if (description?.trim().isNotEmpty == true) ...[
@@ -286,7 +298,6 @@ class _BookmarkStatusButton extends ConsumerWidget {
     final releaseId = release.id;
     final status = ref.watch(releaseBookmarkProvider(releaseId));
     final controller = ref.read(releaseBookmarkProvider(releaseId).notifier);
-    final label = status?.label ?? 'Добавить в закладки';
 
     return PopupMenuButton<Object>(
       tooltip: 'Закладки',
@@ -327,37 +338,15 @@ class _BookmarkStatusButton extends ConsumerWidget {
         ),
       ],
       child: Material(
-        color: theme.colorScheme.secondaryContainer,
-        borderRadius: BorderRadius.circular(18),
+        color: theme.colorScheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(12),
         clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-            child: Row(
-              children: [
-                Icon(
-                  status == null ? Icons.bookmark_add_outlined : Icons.bookmark,
-                  color: theme.colorScheme.onSecondaryContainer,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      color: theme.colorScheme.onSecondaryContainer,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Icon(
-                  Icons.keyboard_arrow_down,
-                  color: theme.colorScheme.onSecondaryContainer,
-                ),
-              ],
-            ),
+        child: SizedBox(
+          width: 52,
+          height: 52,
+          child: Icon(
+            status == null ? Icons.bookmark_border : Icons.bookmark,
+            color: theme.colorScheme.onSurface,
           ),
         ),
       ),
@@ -385,13 +374,13 @@ class _EpisodeNotificationButton extends ConsumerWidget {
         color: enabled
             ? theme.colorScheme.primaryContainer
             : theme.colorScheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(12),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: () => _toggle(context, ref, enabled),
           child: SizedBox(
-            width: 56,
-            height: 50,
+            width: 52,
+            height: 52,
             child: Icon(
               enabled
                   ? Icons.notifications_active
@@ -447,7 +436,25 @@ class _EpisodeListSheet extends ConsumerStatefulWidget {
 }
 
 class _EpisodeListSheetState extends ConsumerState<_EpisodeListSheet> {
-  bool _ascending = true;
+  int _selectedQuality = 720;
+
+  @override
+  void initState() {
+    super.initState();
+    SharedPreferences.getInstance().then((prefs) {
+      if (!mounted) return;
+      final value = prefs.getInt('software_av1_quality') ?? 720;
+      setState(() => _selectedQuality = value == 1080 ? 1080 : 720);
+    });
+  }
+
+  void _changeQuality(int quality) {
+    setState(() => _selectedQuality = quality);
+    SharedPreferences.getInstance().then(
+      (prefs) => prefs.setInt('software_av1_quality', quality),
+    );
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -472,36 +479,16 @@ class _EpisodeListSheetState extends ConsumerState<_EpisodeListSheet> {
                       ),
                     ),
                   ),
-                  SegmentedButton<bool>(
+                  SegmentedButton<int>(
                     showSelectedIcon: false,
                     segments: const [
-                      ButtonSegment(
-                        value: true,
-                        tooltip: 'По возрастанию',
-                        icon: Icon(Icons.arrow_downward, size: 18),
-                      ),
-                      ButtonSegment(
-                        value: false,
-                        tooltip: 'По убыванию',
-                        icon: Icon(Icons.arrow_upward, size: 18),
-                      ),
+                      ButtonSegment(value: 720, label: Text('720p')),
+                      ButtonSegment(value: 1080, label: Text('1080p')),
                     ],
-                    selected: {_ascending},
-                    onSelectionChanged: (value) {
-                      setState(() => _ascending = value.first);
-                    },
+                    selected: {_selectedQuality},
+                    onSelectionChanged: (values) => _changeQuality(values.first),
                   ),
-                  const SizedBox(width: 8),
-                  state.maybeWhen(
-                    data: (data) => IconButton.filledTonal(
-                      tooltip: 'Скачать все',
-                      onPressed: data.value.isEmpty
-                          ? null
-                          : () => _downloadAllEpisodes(context, data.value),
-                      icon: const Icon(Icons.download_for_offline_outlined),
-                    ),
-                    orElse: () => const SizedBox.shrink(),
-                  ),
+
                 ],
               ),
             ),
@@ -533,7 +520,7 @@ class _EpisodeListSheetState extends ConsumerState<_EpisodeListSheet> {
                               : data.value)
                           .toList()
                         ..sort((a, b) => a.ordinal.compareTo(b.ordinal));
-                  final visible = _ascending ? queue : queue.reversed.toList();
+                  final visible = queue;
 
                   return Column(
                     children: [
@@ -564,37 +551,7 @@ class _EpisodeListSheetState extends ConsumerState<_EpisodeListSheet> {
     );
   }
 
-  Future<void> _downloadAllEpisodes(
-    BuildContext context,
-    List<DreamEpisode> episodes,
-  ) async {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Добавляем ${episodes.length} серий в загрузки...'),
-      ),
-    );
 
-    final requests = <DreamEpisodeDownloadRequest>[];
-    for (final episode in episodes) {
-      try {
-        final streamsData = await ref.read(
-          episodeStreamsProvider(episode).future,
-        );
-        final stream = pickDownloadStream(streamsData.value);
-        if (stream == null) continue;
-        requests.add(
-          DreamEpisodeDownloadRequest(episode: episode, stream: stream),
-        );
-      } catch (_) {
-        // Ошибка одной серии не должна останавливать всю очередь.
-      }
-    }
-
-    if (requests.isEmpty) return;
-    await ref
-        .read(downloadServiceProvider)
-        .startBatchDownload(release: widget.detail.release, requests: requests);
-  }
 }
 
 class _OfflineEpisodesEmptyState extends StatelessWidget {

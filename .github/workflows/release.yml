@@ -1,0 +1,82 @@
+name: Build Dream Cast TV v0.7 Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Validate signing secrets
+        env:
+          KEYSTORE_B64: ${{ secrets.DCTV_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.DCTV_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.DCTV_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.DCTV_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$KEYSTORE_B64" || -z "$STORE_PASSWORD" || -z "$KEY_ALIAS" || -z "$KEY_PASSWORD" ]]; then
+            echo 'Missing DCTV signing secrets. See RELEASE_SIGNING_RU.md' >&2
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/dreamcast-release.jks"
+          test -s "$RUNNER_TEMP/dreamcast-release.jks"
+          {
+            echo "storeFile=$RUNNER_TEMP/dreamcast-release.jks"
+            echo "storePassword=$STORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > android/key.properties
+          chmod 600 android/key.properties "$RUNNER_TEMP/dreamcast-release.jks"
+          echo 'android/key.properties created with provided signing key'
+
+      - name: Flutter dependencies
+        run: flutter pub get
+
+      - name: Build signed Release APK (ARMv7 and ARM64)
+        run: |
+          set -euo pipefail
+          flutter build apk --release --target-platform android-arm,android-arm64 \
+            --build-name 0.7.0 --build-number "$((700000 + GITHUB_RUN_NUMBER))"
+
+      - name: Verify package ID and APK signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          test -s "$APK"
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          "$BUILD_TOOLS/aapt" dump badging "$APK" | grep "package: name='com.dreamcast.app'"
+          "$BUILD_TOOLS/apksigner" verify --verbose "$APK"
+          "$BUILD_TOOLS/apksigner" verify --print-certs "$APK" | grep 'Signer #1 certificate SHA-256 digest'
+          sha256sum "$APK" > "$APK.sha256"
+
+      - name: Upload signed Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: dreamcast-tv-v0.7-release
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/flutter-apk/app-release.apk.sha256
+          if-no-files-found: error
+          retention-days: 14
