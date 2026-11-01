@@ -114,6 +114,26 @@ jobs:
           OUTPUT="dist/DreamCast-TV-v0.7.1-${{ matrix.variant }}-debug.apk"
           cp "$APK" "$OUTPUT"
           (cd dist && sha256sum "$(basename "$OUTPUT")" > "$(basename "$OUTPUT").sha256")
+      - name: Audit packaged AV1 players
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x android/gradlew
+          (cd android && ./gradlew :app:dependencies --configuration "${{ matrix.flavor }}DebugRuntimeClasspath" > ../av1-runtime-dependencies.txt)
+          python3 scripts/audit_av1_apk.py \
+            --apk "dist/DreamCast-TV-v0.7.1-${{ matrix.variant }}-debug.apk" \
+            --dependencies av1-runtime-dependencies.txt \
+            --player "${{ matrix.player }}"
+      - name: Upload AV1 audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dreamcast-tv-v0.7.1-${{ matrix.variant }}-audit
+          path: |
+            dist/av1-audit-*.txt
+            av1-runtime-dependencies.txt
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Upload flavor Debug APK
         uses: actions/upload-artifact@v4
         with:
