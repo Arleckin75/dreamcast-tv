@@ -146,6 +146,10 @@ jobs:
             --apk "dist/DreamCast-TV-v0.7.1-${{ matrix.variant }}-debug.apk" \
             --dependencies av1-runtime-dependencies.txt \
             --player "${{ matrix.player }}"
+      - name: Inspect packaged LibVLC size and debug sections
+        if: matrix.player == 'software'
+        shell: pwsh
+        run: ./scripts/audit_libvlc_size.ps1 -Archive 'dist/DreamCast-TV-v0.7.1-${{ matrix.variant }}-debug.apk' -Report 'dist/libvlc-size-debug.json'
       - name: Upload AV1 audit report
         if: always()
         uses: actions/upload-artifact@v4
@@ -153,6 +157,7 @@ jobs:
           name: dreamcast-tv-v0.7.1-${{ matrix.variant }}-audit
           path: |
             dist/av1-audit-*.txt
+            dist/libvlc-size-*.json
             av1-runtime-dependencies.txt
           if-no-files-found: ignore
           retention-days: 14
@@ -310,6 +315,10 @@ jobs:
             --apk 'dist/DreamCast-TV-v0.7.1-${{ matrix.variant }}-release.apk' \
             --dependencies av1-runtime-dependencies.txt \
             --player '${{ matrix.player }}'
+      - name: Inspect packaged Release LibVLC size and debug sections
+        if: matrix.player == 'software'
+        shell: pwsh
+        run: ./scripts/audit_libvlc_size.ps1 -Archive 'dist/DreamCast-TV-v0.7.1-${{ matrix.variant }}-release.apk' -Report 'dist/libvlc-size-release.json'
       - name: Upload Release audit report
         if: always()
         uses: actions/upload-artifact@v4
@@ -319,6 +328,7 @@ jobs:
             dist/av1-audit-*.txt
             dist/signature-*.txt
             dist/manifest-*.txt
+            dist/libvlc-size-*.json
             av1-runtime-dependencies.txt
           if-no-files-found: ignore
           retention-days: 30
