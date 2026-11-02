@@ -17,6 +17,23 @@ Future<void> main(List<String> args) async {
   }
   final root = File.fromUri(Platform.script).parent.parent;
   Directory.current = root;
+  final libvlcTvVersion = File('third_party/libvlc_tv/versions.env')
+      .readAsLinesSync()
+      .singleWhere((line) => line.startsWith('TV_VERSION='))
+      .substring('TV_VERSION='.length)
+      .trim();
+  if (args[0] == 'software' &&
+      !File(
+        '.tools/libvlc-tv/maven/tv/dreamcast/libvlc/libvlc-tv/$libvlcTvVersion/libvlc-tv-$libvlcTvVersion.aar',
+      ).existsSync()) {
+    stderr.writeln(
+      'Reduced LibVLC is missing. Run Build reduced TV LibVLC in GitHub Actions '
+      'and extract the libvlc-tv-maven artifact into .tools/libvlc-tv/maven. '
+      'The full libvlc-all dependency is no longer used.',
+    );
+    exitCode = 1;
+    return;
+  }
   final sdk = File(
     Platform.resolvedExecutable,
   ).parent.parent.parent.parent.parent;

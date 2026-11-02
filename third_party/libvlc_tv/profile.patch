@@ -1,0 +1,108 @@
+diff --git a/buildsystem/compile-libvlc.sh b/buildsystem/compile-libvlc.sh
+index b67c1e6..e9d9b5c 100755
+--- a/buildsystem/compile-libvlc.sh
++++ b/buildsystem/compile-libvlc.sh
+@@ -293,15 +293,15 @@ VLC_CONTRIB_ARGS="\
+     --disable-dca \
+     --disable-goom \
+     --disable-chromaprint \
+-    --enable-lua \
++    --disable-lua \
+     --disable-sdl \
+     --disable-SDL_image \
+     --enable-zvbi \
+     --disable-kate \
+     --disable-caca \
+     --disable-mpcdec \
+-    --enable-upnp \
+-    --enable-gme \
++    --disable-upnp \
++    --disable-gme \
+     --disable-tremor \
+     --enable-vorbis \
+     --disable-sidplay2 \
+@@ -312,14 +312,14 @@ VLC_CONTRIB_ARGS="\
+     --disable-aribb24 \
+     --disable-aribb25 \
+     --enable-mpg123 \
+-    --enable-libdsm \
+-    --enable-smb2 \
+-    --enable-libarchive \
++    --disable-libdsm \
++    --disable-smb2 \
++    --disable-libarchive \
+     --disable-libmpeg2 \
+     --enable-soxr \
+-    --enable-nfs \
+-    --enable-microdns \
+-    --enable-fluidlite \
++    --disable-nfs \
++    --disable-microdns \
++    --disable-fluidlite \
+     --disable-mad \
+     --disable-vncclient \
+     --disable-vnc \
+@@ -351,17 +351,17 @@ VLC_CONFIGURE_ARGS="\
+     --disable-update-check \
+     --disable-vlm \
+     --disable-dbus \
+-    --enable-lua \
++    --disable-lua \
+     --disable-vcd \
+     --disable-v4l2 \
+-    --enable-bluray \
++    --disable-bluray \
+     --disable-linsys \
+     --disable-decklink \
+     --disable-libva \
+     --disable-dv1394 \
+-    --enable-mod \
++    --disable-mod \
+     --disable-sid \
+-    --enable-gme \
++    --disable-gme \
+     --disable-tremor \
+     --disable-mad \
+     --enable-mpg123 \
+@@ -369,7 +369,7 @@ VLC_CONFIGURE_ARGS="\
+     --disable-sdl-image \
+     --enable-zvbi \
+     --disable-fluidsynth \
+-    --enable-fluidlite \
++    --disable-fluidlite \
+     --disable-jack \
+     --disable-pulse \
+     --disable-alsa \
+@@ -387,12 +387,12 @@ VLC_CONFIGURE_ARGS="\
+     --enable-gles2 \
+     --disable-goom \
+     --disable-projectm \
+-    --enable-sout \
++    --disable-sout \
+     --enable-vorbis \
+     --disable-faad \
+     --disable-vnc \
+     --enable-jpeg \
+-    --enable-smb2 \
++    --disable-smb2 \
+ "
+ 
+ ########################
+@@ -505,7 +505,7 @@ case $AVLC_CONTRIB_LICENSE in
+     l)
+         # LGPL v3 + ad-clauses
+         VLC_CONTRIB_ARGS="$VLC_CONTRIB_ARGS --disable-gpl --enable-ad-clauses"
+-        VLC_CONFIGURE_ARGS="$VLC_CONFIGURE_ARGS --enable-live555"
++        VLC_CONFIGURE_ARGS="$VLC_CONFIGURE_ARGS --disable-live555"
+     ;;
+     a)
+         # LGPL v2.1 + ad-clauses
+@@ -513,7 +513,7 @@ case $AVLC_CONTRIB_LICENSE in
+     ;;
+     g|*)
+         # GPL v3
+-        VLC_CONFIGURE_ARGS="$VLC_CONFIGURE_ARGS --enable-live555 --enable-dvdread"
++        VLC_CONFIGURE_ARGS="$VLC_CONFIGURE_ARGS --disable-live555 --disable-dvdread"
+     ;;
+ esac
+ 

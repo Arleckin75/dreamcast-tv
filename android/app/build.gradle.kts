@@ -132,6 +132,18 @@ flutter {
     source = "../.."
 }
 
+repositories {
+    maven {
+        name = "dreamcastLibVlcTv"
+        url = uri(rootProject.file("../.tools/libvlc-tv/maven"))
+        content { includeGroup("tv.dreamcast.libvlc") }
+    }
+}
+
+val libvlcTvVersions = Properties().apply {
+    rootProject.file("../third_party/libvlc_tv/versions.env").inputStream().use { load(it) }
+}
+
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
     // Device video-track compatibility selection (same Media3 version as video_player_android).
@@ -139,5 +151,6 @@ dependencies {
     add("hardwareAv1Implementation", "androidx.media3:media3-exoplayer-hls:1.9.2")
     add("hardwareAv1Implementation", "androidx.media3:media3-exoplayer-dash:1.9.2")
     // LibVLC software AV1 fallback for devices without a supported hardware decoder.
-    add("softwareAv1Implementation", "org.videolan.android:libvlc-all:3.7.7")
+    // Produced by build-libvlc-tv.yml. No fallback to the unchanged full AAR.
+    add("softwareAv1Implementation", "tv.dreamcast.libvlc:libvlc-tv:${libvlcTvVersions.getProperty("TV_VERSION")}")
 }

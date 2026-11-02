@@ -15,20 +15,17 @@ $scriptPath = [IO.Path]::GetFullPath((Join-Path $sourceDirectory $relativeScript
 if (-not $scriptPath.StartsWith($sourceDirectory + [IO.Path]::DirectorySeparatorChar, [StringComparison]::Ordinal)) {
     throw 'Build script is outside the selected source directory'
 }
-$original = [IO.File]::ReadAllText($scriptPath)
-$patched = $original
-$features = @('lua', 'upnp', 'libdsm', 'smb2', 'nfs', 'microdns', 'libarchive', 'bluray', 'dvdread', 'live555', 'sout', 'mod', 'gme', 'fluidlite')
-foreach ($feature in $features) {
-    $pattern = '--enable-' + [regex]::Escape($feature) + '(?![A-Za-z0-9_-])'
-    if (-not [regex]::IsMatch($patched, $pattern)) { throw "Missing expected upstream flag for $feature" }
-    $patched = [regex]::Replace($patched, $pattern, "--disable-$feature")
-}
+$patchPath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../third_party/libvlc_tv/profile.patch'))
+& git -C $sourceDirectory apply --check $patchPath
+if ($LASTEXITCODE -ne 0) { throw 'TV profile patch does not match upstream sources' }
+& git -C $sourceDirectory apply $patchPath
+if ($LASTEXITCODE -ne 0) { throw 'Could not apply TV profile patch' }
+$patched = [IO.File]::ReadAllText($scriptPath)
 foreach ($required in @('--enable-avcodec', '--enable-avformat', '--enable-swscale', '--enable-opus', '--enable-opensles', '--enable-gles2', '--enable-libass')) {
     if (-not $patched.Contains($required)) { throw "Required playback feature missing: $required" }
 }
 if (-not $patched.Contains('export USE_FFMPEG=1')) { throw 'FFmpeg decoding must remain enabled' }
-[IO.File]::WriteAllText($scriptPath, $patched, [Text.UTF8Encoding]::new($false))
 Write-Output "Prepared experimental TV profile at $sourceDirectory"
-Write-Output "Disabled features: $($features -join ', ')"
+Write-Output "Applied shared profile: $patchPath"
 Write-Output 'AV1/audio decoders, HTTP/TLS, adaptive demux, MP4, seeking and Android outputs are not deliberately disabled.'
 Write-Output 'No AAR was built. Validate both ARM ABIs and playback before changing the app dependency.'
