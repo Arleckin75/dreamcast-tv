@@ -11,54 +11,18 @@ on:
         options:
           - debug
           - release
-      source_branch:
-        description: 'Source branch to build'
-        required: true
-        type: choice
-        default: develop
-        options:
-          - develop
-          - main
 
 permissions:
   contents: read
 
-jobs:
-  debug_v070:
-    name: Debug v0.7.0 (main)
-    if: inputs.source_branch == 'main' && inputs.build_mode == 'debug'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    steps:
-      - name: Checkout main
-        uses: actions/checkout@v4
-        with:
-          ref: main
-      - name: Set up Java 17
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-      - name: Get dependencies
-        run: flutter pub get
-      - name: Build v0.7.0 Debug APK
-        run: flutter build apk --debug
-      - name: Upload Debug APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: dreamcast-tv-v0.7.0-main-debug
-          path: build/app/outputs/flutter-apk/app-debug.apk
-          if-no-files-found: error
-          retention-days: 14
+concurrency:
+  group: dreamcast-tv-${{ github.ref }}-${{ inputs.build_mode }}
+  cancel-in-progress: false
 
+jobs:
   debug_v071:
     name: Debug v0.7.1 (${{ matrix.variant }})
-    if: inputs.source_branch == 'develop' && inputs.build_mode == 'debug'
+    if: inputs.build_mode == 'debug' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main')
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
@@ -72,10 +36,11 @@ jobs:
             flavor: hardwareAv1
             player: hardware
     steps:
-      - name: Checkout develop
+      - name: Checkout exact selected branch revision
         uses: actions/checkout@v4
         with:
-          ref: develop
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - name: Set up Java 17
         uses: actions/setup-java@v5
         with:
@@ -182,7 +147,7 @@ jobs:
 
   release_v071:
     name: Release v0.7.1 (${{ matrix.variant }})
-    if: inputs.source_branch == 'develop' && inputs.build_mode == 'release'
+    if: inputs.build_mode == 'release' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     environment: release-signing
@@ -199,7 +164,7 @@ jobs:
             flavor: hardwareAv1
             player: hardware
     steps:
-      - name: Checkout exact develop revision
+      - name: Checkout exact approved main revision
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
@@ -218,7 +183,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git rev-parse HEAD
+          test "${GITHUB_REF}" = 'refs/heads/main' || { echo '::error::Signing is permitted only on main'; exit 1; }
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}" || { echo '::error::Checkout revision mismatch'; exit 1; }
           test -f android/app/src/${{ matrix.flavor }}/kotlin/com/dreamcast/app/MainActivity.kt
           test -f scripts/audit_av1_apk.py
           test -f scripts/prepare_software_av1.py
@@ -349,7 +315,7 @@ jobs:
   publish_v071:
     name: Publish v0.7.1 on GitHub Releases
     needs: [release_v071]
-    if: inputs.source_branch == 'develop' && inputs.build_mode == 'release' && github.ref == 'refs/heads/develop'
+    if: inputs.build_mode == 'release' && github.ref == 'refs/heads/main' && github.ref == 'refs/heads/develop'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -364,6 +330,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test "${GITHUB_REF}" = 'refs/heads/main' || { echo '::error::Public release requires main'; exit 1; }
           cd dist
           for variant in software_AV1 hardware_AV1; do
             test -s "DreamCast-TV-v0.7.1-${variant}-release.apk"
@@ -409,7 +376,7 @@ jobs:
             fi
           done
           echo 'Signing certificate and upgrade versionCode validated for both flavors.'
-      - name: Publish stable GitHub Release (no changes to main)
+      - name: Publish stable GitHub Release from approved main
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
