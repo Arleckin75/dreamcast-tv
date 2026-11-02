@@ -56,7 +56,6 @@ jobs:
           test -f scripts/prepare_software_av1.py
           test -f third_party/video_player_android_noop/pubspec.yaml
           test -f android/app/build.gradle.kts
-          test -f android/gradlew
           for file in MainActivity.kt CosmosAv1PlayerActivity.kt CosmosFmp4Resolver.kt CosmosMedia3Probe.kt; do
             test ! -f "android/app/src/main/kotlin/com/dreamcast/app/$file" || {
               echo "::error::Duplicate shared Kotlin source: $file"; exit 1;
@@ -141,12 +140,15 @@ jobs:
               assert abis == {'armeabi-v7a', 'arm64-v8a'}, f'Unexpected native ABIs: {abis}'
           print('Release metadata, version and ARM ABIs: PASS')
           PYCODE
+      - name: Set up Gradle for Release dependency audit
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14'
       - name: Audit packaged Release AV1 engines
         shell: bash
         run: |
           set -euo pipefail
-          chmod +x android/gradlew
-          (cd android && ./gradlew :app:dependencies --configuration '${{ matrix.flavor }}ReleaseRuntimeClasspath' > ../av1-runtime-dependencies.txt)
+          gradle --project-dir android :app:dependencies --configuration '${{ matrix.flavor }}ReleaseRuntimeClasspath' > av1-runtime-dependencies.txt
           python3 scripts/audit_av1_apk.py \
             --apk 'dist/DreamCast-TV-v0.7.1-${{ matrix.variant }}-release.apk' \
             --dependencies av1-runtime-dependencies.txt \
@@ -223,7 +225,23 @@ jobs:
           fi
           baseline_apk="${BASE_APKS[0]}"
           "$APKSIGNER" verify "$baseline_apk"
-          baseline_cert="$("$APKSIGNER" verify --print-certs "$baseline_apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)"
+          # apksigner may label the same SHA-256 as "Signer #1" or "V2 Signer".
+          # Fail closed if the digest is missing, malformed, or ambiguous.
+          certificate_sha256() {
+            local apk="$1"
+            "$APKSIGNER" verify --print-certs "$apk" | python3 -c '
+          import re, sys
+          text = sys.stdin.read()
+          pattern = r"^(?:Signer #\d+|V\d+(?:\.\d+)? Signer): certificate SHA-256 digest: ([0-9a-fA-F]{64})\s*$"
+          values = {match.group(1).lower() for line in text.splitlines() if (match := re.match(pattern, line.strip()))}
+          if len(values) != 1:
+              print(f"::error::Expected exactly one unique certificate SHA-256, found {len(values)}", file=sys.stderr)
+              sys.exit(1)
+          print(next(iter(values)))
+          '
+          }
+          baseline_cert="$(certificate_sha256 "$baseline_apk")"
+          echo "v0.7.0 certificate SHA-256: $baseline_cert"
           baseline_code="$("$AAPT" dump badging "$baseline_apk" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p" | head -1)"
           baseline_pkg="$("$AAPT" dump badging "$baseline_apk" | sed -n "s/.*package: name='\([^']*\)'.*/\1/p" | head -1)"
           test -n "$baseline_cert" && test -n "$baseline_code"
@@ -235,8 +253,9 @@ jobs:
           for variant in software_AV1 hardware_AV1; do
             apk="dist/DreamCast-TV-v0.7.1-${variant}-release.apk"
             "$APKSIGNER" verify "$apk"
-            cert="$("$APKSIGNER" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)"
-            if [[ -z "$cert" || "$cert" != "$baseline_cert" ]]; then
+            cert="$(certificate_sha256 "$apk")"
+            echo "v0.7.1 ${variant} certificate SHA-256: $cert"
+            if [[ "$cert" != "$baseline_cert" ]]; then
               echo "::error::Release signing certificate mismatch: $variant versus v0.7.0"
               exit 1
             fi
