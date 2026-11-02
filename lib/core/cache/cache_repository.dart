@@ -76,28 +76,26 @@ final class CacheRepository {
   }
 
   Future<CacheStats> stats() async {
-    final entries = await _database.allCacheEntries();
-    var bytes = 0;
-    Duration? maxRetention;
-
-    for (final entry in entries) {
-      bytes += utf8.encode(entry.key).length;
-      bytes += utf8.encode(entry.valueJson).length;
-      bytes += utf8.encode(entry.etag ?? '').length;
-
-      final expiresAt = entry.expiresAt;
-      if (expiresAt != null && expiresAt.isAfter(entry.updatedAt)) {
-        final retention = expiresAt.difference(entry.updatedAt);
-        if (maxRetention == null || retention > maxRetention) {
-          maxRetention = retention;
-        }
-      }
-    }
-
+    // Aggregate inside SQLite instead of loading every cached JSON document
+    // into Dart memory just to display a byte count.
+    final row = await _database
+        .customSelect(
+          '''
+      SELECT COUNT(*) AS entry_count,
+        COALESCE(SUM(length(CAST(key AS BLOB)) + length(CAST(value_json AS BLOB))
+          + length(CAST(COALESCE(etag, '') AS BLOB))), 0) AS byte_count,
+        MAX(CASE WHEN expires_at > updated_at
+          THEN expires_at - updated_at END) AS retention_seconds
+      FROM cache_entries
+    ''',
+          readsFrom: {_database.cacheEntries},
+        )
+        .getSingle();
+    final seconds = row.readNullable<int>('retention_seconds');
     return CacheStats(
-      entriesCount: entries.length,
-      approximateBytes: bytes,
-      maxRetention: maxRetention,
+      entriesCount: row.read<int>('entry_count'),
+      approximateBytes: row.read<int>('byte_count'),
+      maxRetention: seconds == null ? null : Duration(seconds: seconds),
     );
   }
 

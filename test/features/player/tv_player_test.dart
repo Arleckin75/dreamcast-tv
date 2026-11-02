@@ -6,6 +6,7 @@ import 'package:dream_cast/core/cache/cache_repository.dart';
 import 'package:dream_cast/core/cache/cache_retention.dart';
 import 'package:dream_cast/core/database/app_database.dart';
 import 'package:dream_cast/core/database/database_providers.dart';
+import 'package:dream_cast/app/bootstrap/dream_cast_app.dart';
 import 'package:dream_cast/features/player/domain/playback_request.dart';
 import 'package:dream_cast/features/player/presentation/video_player_screen.dart';
 import 'package:dream_cast/features/releases/domain/release.dart';
@@ -21,6 +22,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:wakelock_plus_platform_interface/wakelock_plus_platform_interface.dart';
+
+class _ScreenLock extends WakelockPlusPlatformInterface {
+  final requests = <bool>[];
+  @override
+  Future<void> toggle({required bool enable}) async {
+    requests.add(enable);
+  }
+
+  @override
+  Future<bool> get enabled async => requests.isNotEmpty && requests.last;
+}
 
 class _Player extends VideoPlayerPlatform {
   bool delayInitialization = false;
@@ -36,6 +50,7 @@ class _Player extends VideoPlayerPlatform {
   @override
   Future<int?> createWithOptions(VideoCreationOptions options) async {
     if (!creationStarted.isCompleted) creationStarted.complete();
+    if (sources.isNotEmpty) position = Duration.zero;
     sources.add(options.dataSource.uri ?? '');
     return sources.length;
   }
@@ -92,11 +107,19 @@ void main() {
     'lifecycle',
     'close-during-initialize',
     'retry',
+    'completion-auto',
+    'completion-cancel',
+    'completion-last',
+    'completion-error',
+    'cycles',
   ]) {
     testWidgets('TV playback: $scenario', (tester) async {
       final previous = VideoPlayerPlatform.instance;
       final player = _Player();
-      player.injectable = scenario == 'retry';
+      player.injectable =
+          scenario == 'retry' ||
+          scenario.startsWith('completion') ||
+          scenario == 'cycles';
       if (scenario == 'close-during-initialize') {
         player.delayInitialization = true;
       }
@@ -106,6 +129,7 @@ void main() {
       VideoPlayerPlatform.instance = player;
       addTearDown(() => VideoPlayerPlatform.instance = previous);
       SharedPreferences.setMockInitialValues({});
+      final preferences = await SharedPreferences.getInstance();
       final database = AppDatabase(NativeDatabase.memory());
       addTearDown(database.close);
       await tester.runAsync(() async {
@@ -121,15 +145,12 @@ void main() {
           null,
         ),
       );
-      tester.binding.defaultBinaryMessenger.setMockMessageHandler(
-        'dev.flutter.pigeon.wakelock_plus_platform_interface.WakelockPlusApi.toggle',
-        (data) async => const StandardMessageCodec().encodeMessage([null]),
-      );
+      final previousScreenLock = wakelockPlusPlatformInstance;
+      final screenLock = _ScreenLock();
+      wakelockPlusPlatformInstance = screenLock;
+      final wakeRequests = screenLock.requests;
       addTearDown(
-        () => tester.binding.defaultBinaryMessenger.setMockMessageHandler(
-          'dev.flutter.pigeon.wakelock_plus_platform_interface.WakelockPlusApi.toggle',
-          null,
-        ),
+        () => wakelockPlusPlatformInstance = previousScreenLock,
       );
       const release = DreamRelease(
         id: 1,
@@ -143,6 +164,13 @@ void main() {
         ordinal: 1,
         title: 'Episode',
         file: 'https://example.com/video.m3u8',
+      );
+      const nextEpisode = DreamEpisode(
+        id: 'ep-2',
+        releaseId: 1,
+        ordinal: 2,
+        title: 'Episode 2',
+        file: 'https://example.com/next720.m3u8',
       );
       final stream = DreamStream(
         id: '1',
@@ -158,11 +186,23 @@ void main() {
           '#2${base64EncodeUrlComponent(jsonEncode({
             'file': [
               {'id': 'ep-1', 'title': 'Episode', 'file': 'https://example.com/fresh720.m3u8'},
+              {'id': 'ep-2', 'title': 'Episode 2', 'file': 'https://example.com/next720.m3u8'},
             ],
           }))}';
+      var failNext = scenario == 'completion-error';
       dio.interceptors.add(
         InterceptorsWrapper(
           onRequest: (options, handler) {
+            if (failNext) {
+              handler.reject(
+                DioException(
+                  requestOptions: options,
+                  type: DioExceptionType.badResponse,
+                  response: Response(requestOptions: options, statusCode: 400),
+                ),
+              );
+              return;
+            }
             handler.resolve(
               Response(
                 requestOptions: options,
@@ -183,24 +223,27 @@ void main() {
         ),
         parser: const DreamCastParserService(),
       );
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            appDatabaseProvider.overrideWithValue(database),
-            releaseRepositoryProvider.overrideWithValue(releases),
-          ],
-          child: MaterialApp(
-            home: VideoPlayerScreen(
-              request: PlaybackRequest(
-                release: release,
-                episode: episode,
-                streams: [stream],
-                initialStream: stream,
-              ),
+      Widget buildPlayer() => ProviderScope(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(preferences),
+          appDatabaseProvider.overrideWithValue(database),
+          releaseRepositoryProvider.overrideWithValue(releases),
+        ],
+        child: MaterialApp(
+          home: VideoPlayerScreen(
+            request: PlaybackRequest(
+              release: release,
+              episode: episode,
+              streams: [stream],
+              initialStream: stream,
+              episodeQueue: scenario == 'completion-last'
+                  ? [episode]
+                  : [nextEpisode, episode],
             ),
           ),
         ),
       );
+      await tester.pumpWidget(buildPlayer());
       for (var frame = 0; frame < 12; frame++) {
         await tester.pump(const Duration(milliseconds: 50));
       }
@@ -227,6 +270,79 @@ void main() {
         return;
       }
       expect(player.playing, isTrue);
+      if (scenario == 'cycles') {
+        for (var cycle = 0; cycle < 20; cycle++) {
+          if (cycle != 0) {
+            await tester.pumpWidget(buildPlayer());
+            for (var frame = 0; frame < 30; frame++) {
+              await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+              await tester.pump(const Duration(milliseconds: 50));
+            }
+          }
+          await tester.pump(const Duration(minutes: 2));
+          await tester.pumpWidget(const SizedBox());
+          await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+          await tester.pump();
+          expect(player.disposed, player.sources.length);
+          expect(player.pendingEvents.hasListener, isFalse);
+          expect(tester.takeException(), isNull);
+        }
+        expect(player.sources.length, 20);
+        return;
+      }
+      if (scenario.startsWith('completion')) {
+        player.pendingEvents.add(
+          VideoEvent(eventType: VideoEventType.completed),
+        );
+        for (var frame = 0; frame < 20; frame++) {
+          await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+        expect(find.text('Серия закончилась'), findsWidgets);
+        expect(wakeRequests.last, isFalse);
+        if (scenario == 'completion-last') {
+          await tester.pump(const Duration(seconds: 20));
+          expect(find.text('Следующая серия'), findsNothing);
+          expect(player.sources.length, 1);
+        } else {
+          if (scenario == 'completion-cancel') {
+            await tester.tap(find.text('Отменить переход'));
+            await tester.pump(const Duration(seconds: 20));
+            expect(player.sources.length, 1);
+            await tester.tap(find.text('Следующая серия'));
+          } else {
+            await tester.pump(const Duration(seconds: 10));
+          }
+          for (var frame = 0; frame < 40; frame++) {
+            await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+            await tester.pump(const Duration(milliseconds: 50));
+          }
+          if (scenario == 'completion-error') {
+            expect(find.text('Повторить'), findsOneWidget);
+            expect(player.sources.length, 1);
+            failNext = false;
+            await tester.tap(find.text('Повторить'));
+            for (var frame = 0; frame < 40; frame++) {
+              await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+              await tester.pump(const Duration(milliseconds: 50));
+            }
+          }
+          expect(player.sources.length, 2);
+          expect(player.sources.last, 'https://example.com/next720.m3u8');
+          expect(player.position, Duration.zero);
+          expect(player.disposed, 1);
+          expect(player.playing, isTrue);
+          expect(wakeRequests.last, isTrue);
+        }
+        final progress = await tester.runAsync(
+          () => database.watchEntry('1', 'ep-1'),
+        );
+        expect(progress?.isWatched, isTrue);
+        await tester.pumpWidget(const SizedBox());
+        await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+        expect(tester.takeException(), isNull);
+        return;
+      }
       if (scenario == 'retry') {
         await tester.pump(const Duration(milliseconds: 600));
         player.pendingEvents.addError(

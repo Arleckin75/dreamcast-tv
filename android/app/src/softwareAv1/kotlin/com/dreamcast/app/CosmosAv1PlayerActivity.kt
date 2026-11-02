@@ -14,6 +14,7 @@ import android.view.KeyEvent
 import android.view.SurfaceView
 import android.view.SurfaceHolder
 import android.view.View
+import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.TextView
 import org.videolan.libvlc.LibVLC
@@ -36,6 +37,25 @@ object CosmosAv1Launcher {
 }
 
 class CosmosAv1PlayerActivity : Activity() {
+    private var activityResumed = false
+    private var playbackScreenOnRequested = false
+
+    private fun setPlaybackScreenOn(enabled: Boolean) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            uiHandler.post { setPlaybackScreenOn(enabled) }
+            return
+        }
+        playbackScreenOnRequested = enabled
+        applyPlaybackScreenOn()
+    }
+
+    private fun applyPlaybackScreenOn() {
+        if (activityResumed && playbackScreenOnRequested && !shutdownStarted && !isFinishing && !isDestroyed) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
     private var backExitRequested = false
     private var shutdownStarted = false
     // Capture playback progress before VLC.stop()/release() invalidate player.time.
@@ -104,6 +124,8 @@ class CosmosAv1PlayerActivity : Activity() {
         if (url.isNullOrBlank() || !url.startsWith("https://") && !url.startsWith("http://")) {
             finish(); return
         }
+        // Flutter's WakelockPlus only affects MainActivity, not this VLC window.
+        setPlaybackScreenOn(true)
                 userAgent = intent.getStringExtra("userAgent")
         referer = intent.getStringExtra("referer")
         episodeKey = intent.getStringExtra("episodeKey").orEmpty()
@@ -159,6 +181,7 @@ class CosmosAv1PlayerActivity : Activity() {
         CosmosFmp4Resolver.resolve(master, userAgent, referer, activeHeight) { direct ->
             if (isFinishing || isDestroyed || serial != requestSerial) return@resolve
             if (direct == null) {
+                setPlaybackScreenOn(false)
                 Log.e("DCTV_QUALITY", "AV1 ${activeHeight}p fMP4 unavailable; no other quality fallback")
                 message?.text = "AV1 ${activeHeight}p fMP4 недоступен. Нажмите Back."
                 reveal()
@@ -169,6 +192,7 @@ class CosmosAv1PlayerActivity : Activity() {
     }
 
     private fun releasePlayer() {
+        setPlaybackScreenOn(false)
         uiHandler.removeCallbacks(progressSaver)
         val mp = player
         player = null
@@ -187,6 +211,7 @@ class CosmosAv1PlayerActivity : Activity() {
     private fun startVlcFmp4(url: String, status: TextView, surface: SurfaceView) {
         Log.i("DCTV_QUALITY", "starting LibVLC with forced ${activeHeight}p fMP4 media playlist")
         try {
+            setPlaybackScreenOn(true)
             val vlc = LibVLC(this, arrayListOf("--no-video-title-show", "--network-caching=1200", "--avcodec-hw=none", "--verbose=0"))
             engine = vlc
             val mp = MediaPlayer(vlc)
@@ -212,24 +237,31 @@ class CosmosAv1PlayerActivity : Activity() {
                         Log.i("DCTV_AV1", "Vout event count=$voutCount surfaceReady=$surfaceReady")
                         uiHandler.post { syncVlcWindowSize("vout") }
                     }
-                    MediaPlayer.Event.Opening -> Log.i("DCTV_AV1", "Opening")
+                    MediaPlayer.Event.Opening -> {
+                        setPlaybackScreenOn(true)
+                        Log.i("DCTV_AV1", "Opening")
+                    }
                     MediaPlayer.Event.SeekableChanged -> uiHandler.post { restorePosition(mp) }
                     MediaPlayer.Event.Playing -> {
+                        setPlaybackScreenOn(true)
                         Log.i("DCTV_AV1", "LibVLC playing; software decode requested")
                         uiHandler.post { restorePosition(mp) }
                         uiHandler.post { status.text = "AV1 ${activeHeight}p · программный режим | OK: пауза | ◀ ▶: ±10 сек | Back: выход" }
                     }
                     MediaPlayer.Event.EncounteredError -> {
+                        setPlaybackScreenOn(false)
                         playbackError = true
                         Log.e("DCTV_AV1", "LibVLC playback error")
                         uiHandler.post { status.text = "Ошибка воспроизведения AV1. Нажмите Back."; reveal() }
                     }
                     MediaPlayer.Event.EndReached -> uiHandler.post {
+                        setPlaybackScreenOn(false)
                         episodeCompleted = true
                         if (episodeKey.isNotBlank()) progressPrefs.edit().remove(episodeKey)
                             .remove("${episodeKey}:updatedAt").apply()
                         finish()
                     }
+                    MediaPlayer.Event.Paused, MediaPlayer.Event.Stopped -> setPlaybackScreenOn(false)
                 }
             }
             mp.play()
@@ -238,6 +270,7 @@ class CosmosAv1PlayerActivity : Activity() {
             reveal()
             Log.i("DCTV_QUALITY", "height=$activeHeight launched; videoTracks=${mp.videoTracksCount} selectedVideo=${mp.videoTrack} (initial)")
         } catch (e: Throwable) {
+            setPlaybackScreenOn(false)
             Log.e("DCTV_AV1", "Failed to start LibVLC", e)
             status.text = "Не удалось запустить AV1: ${e.javaClass.simpleName}. Нажмите Back."
         }
@@ -351,13 +384,22 @@ class CosmosAv1PlayerActivity : Activity() {
         return super.onKeyDown(keyCode, event)
     }
 
+    override fun onResume() {
+        super.onResume()
+        activityResumed = true
+        applyPlaybackScreenOn()
+    }
+
     override fun onPause() {
+        activityResumed = false
+        applyPlaybackScreenOn()
         persistPosition(true)
         super.onPause()
     }
 
     override fun finish() {
         if (isFinishing) return
+        setPlaybackScreenOn(false)
         val mp = player
         val ms = if (episodeCompleted) 0L else exitPositionMs
             ?: runCatching { mp?.time ?: 0L }.getOrDefault(0L)

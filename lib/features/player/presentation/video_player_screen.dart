@@ -7,6 +7,8 @@ import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 
 import 'package:dream_cast/features/player/data/player_providers.dart';
 import 'package:dream_cast/features/player/data/playback_repository.dart';
+import 'package:dream_cast/features/player/presentation/episode_completion_dialog.dart';
+import 'package:dio/dio.dart';
 import 'package:dream_cast/features/player/data/player_pip_service.dart';
 import 'package:dream_cast/features/player/data/stream_preference_providers.dart';
 import 'package:dream_cast/features/player/domain/playback_request.dart';
@@ -50,6 +52,11 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
   bool _showControls = true;
   bool _isInitializing = true;
   bool _completionHandled = false;
+  bool _nativeCompletionPending = false;
+  bool _isTransitioning = false;
+  DreamEpisode? _pendingNextEpisode;
+  CancelToken? _transitionCancel;
+  (int, String, Duration, Duration, bool)? _lastQueuedProgress;
   bool _isClosing = false;
   bool _playerModeExited = false;
   bool _isInPip = false;
@@ -81,6 +88,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
 
   @override
   void dispose() {
+    _transitionCancel?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_saveProgress());
     _playerFocus.dispose();
@@ -127,6 +135,13 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
               Center(
                 child: _error != null
                     ? _PlayerError(error: _error!, onRetry: _retry)
+                    : _completionHandled && !_isTransitioning
+                    ? const Center(
+                        child: Text(
+                          'Серия закончилась',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                      )
                     : _isInitializing ||
                           controller == null ||
                           !controller.value.isInitialized
@@ -141,7 +156,10 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
                   text: _seekFeedbackText!,
                   alignment: _seekFeedbackAlignment,
                 ),
-              if (controller != null && _error == null && !_isInitializing)
+              if (controller != null &&
+                  _error == null &&
+                  !_isInitializing &&
+                  !_completionHandled)
                 _PlayerControls(
                   playFocus: _playFocus,
                   visible: _showControls && !_isInPip,
@@ -245,6 +263,10 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
       );
     } finally {
       _initializationInProgress = false;
+      if (_nativeCompletionPending && mounted && !_isClosing) {
+        _nativeCompletionPending = false;
+        unawaited(_handlePlaybackCompleted());
+      }
     }
   }
 
@@ -253,6 +275,13 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
     required bool resume,
     Duration? preservePosition,
   }) async {
+    // A completed episode releases the screen lock; each subsequent episode
+    // must acquire it again before playback starts.
+    await WakelockPlus.enable();
+    if (!mounted || _isClosing) {
+      await WakelockPlus.disable();
+      return;
+    }
     _progressReady = false;
     setState(() {
       _isInitializing = true;
@@ -345,6 +374,11 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
               _error = StateError('Ошибка воспроизведения LibVLC');
               _isInitializing = false;
             });
+            return;
+          }
+          if (completed) {
+            _completionHandled = true;
+            _nativeCompletionPending = true;
             return;
           }
           if (mounted) await _closePlayer();
@@ -529,8 +563,11 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
     final duration = controller.value.duration;
     final position = controller.value.position;
     if (!_completionHandled &&
-        duration > Duration.zero &&
-        position >= duration - const Duration(milliseconds: 700)) {
+        _progressReady &&
+        (value.isCompleted ||
+            (duration > Duration.zero &&
+                position >= duration &&
+                !value.isPlaying))) {
       _completionHandled = true;
       unawaited(_handlePlaybackCompleted());
     }
@@ -589,12 +626,18 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
   Future<void> _closePlayer() async {
     if (_isClosing) return;
     _isClosing = true;
+    _transitionCancel?.cancel();
     await _exitPlayerMode();
     if (mounted) Navigator.pop(context);
   }
 
   Future<void> _retry() async {
     if (_retrying || _initializationInProgress || _isClosing) return;
+    final pending = _pendingNextEpisode;
+    if (pending != null) {
+      await _playNextEpisode(pending);
+      return;
+    }
     var stream = _currentStream;
     if (stream == null) return;
     _retrying = true;
@@ -657,7 +700,13 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
     _uiTimer?.cancel();
     _uiTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       final controller = _controller;
-      if (!mounted || controller == null || !controller.value.isInitialized) {
+      if (!mounted ||
+          !_showControls ||
+          _isInPip ||
+          _completionHandled ||
+          !(ModalRoute.of(context)?.isCurrent ?? false) ||
+          controller == null ||
+          !controller.value.isInitialized) {
         return;
       }
       setState(() {});
@@ -692,53 +741,52 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
   }
 
   Future<void> _handlePlaybackCompleted() async {
-    await _saveProgress();
-    if (!mounted) return;
-
+    _progressTimer?.cancel();
+    _uiTimer?.cancel();
+    _controlsHideTimer?.cancel();
+    await _saveProgress(completed: true);
+    await WakelockPlus.disable();
+    if (!mounted || _isClosing) return;
+    setState(() => _isInitializing = false);
     final nextEpisode = _nextEpisode();
-    await showDialog<void>(
+    final action = await showDialog<EpisodeCompletionAction>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Серия закончилась'),
-        content: Text(
-          nextEpisode == null
-              ? 'Это последняя доступная серия.'
-              : 'Перейти к следующей серии?',
-        ),
-        actions: [
-          TextButton(
-            autofocus: true,
-            onPressed: () {
-              Navigator.pop(context);
-              unawaited(_closePlayer());
-            },
-            child: const Text('К тайтлу'),
-          ),
-          if (nextEpisode != null)
-            FilledButton(
-              onPressed: () {
-                Navigator.pop(context);
-                unawaited(_playNextEpisode(nextEpisode));
-              },
-              child: const Text('Следующая серия'),
-            ),
-        ],
-      ),
+      barrierDismissible: false,
+      builder: (context) =>
+          EpisodeCompletionDialog(nextTitle: nextEpisode?.title),
     );
+    if (!mounted || _isClosing) return;
+    if (action == EpisodeCompletionAction.next && nextEpisode != null) {
+      await _playNextEpisode(nextEpisode);
+    } else {
+      await _closePlayer();
+    }
   }
 
   DreamEpisode? _nextEpisode() {
-    final queue = _request.episodeQueue;
-    if (queue.isEmpty) return null;
-    final currentIndex = queue.indexWhere(
-      (episode) => episode.id == _request.episode.id,
-    );
-    if (currentIndex < 0 || currentIndex + 1 >= queue.length) return null;
-    return queue[currentIndex + 1];
+    final queue =
+        _request.episodeQueue
+            .where(
+              (episode) =>
+                  episode.releaseId == _request.release.id &&
+                  episode.ordinal > _request.episode.ordinal,
+            )
+            .toList()
+          ..sort((a, b) => a.ordinal.compareTo(b.ordinal));
+    return queue.isEmpty ? null : queue.first;
   }
 
   Future<void> _playNextEpisode(DreamEpisode episode) async {
-    if (!mounted || _isClosing || _initializationInProgress) return;
+    if (!mounted ||
+        _isClosing ||
+        _initializationInProgress ||
+        _isTransitioning) {
+      return;
+    }
+    _isTransitioning = true;
+    _pendingNextEpisode = episode;
+    final token = _transitionCancel = CancelToken();
+    final repository = ref.read(releaseRepositoryProvider);
     setState(() {
       _isInitializing = true;
       _showControls = true;
@@ -756,27 +804,47 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
       previous?.removeListener(_onControllerChanged);
       await previous?.dispose();
       if (!mounted || _isClosing) return;
-      final data = await ref
-          .read(releaseRepositoryProvider)
-          .getStreams(episode);
+      final detail = await repository.getDetailById(
+        _request.release.id,
+        seed: _request.release,
+        cancelToken: token,
+      );
+      final episodes = await repository.getEpisodes(
+        detail.value,
+        cancelToken: token,
+      );
+      if (!mounted || _isClosing || token.isCancelled) return;
+      final freshEpisode = episodes.value.firstWhere(
+        (item) => item.id == episode.id || item.ordinal == episode.ordinal,
+        orElse: () => throw StateError('Следующая серия больше не доступна.'),
+      );
+      final data = await repository.getStreams(freshEpisode, refresh: true);
+      if (!mounted || _isClosing || token.isCancelled) return;
       if (data.value.isEmpty) {
         throw StateError('Для следующей серии не найден поток.');
       }
       final preferred = _pickPreferredStream(data.value);
       _request = PlaybackRequest(
-        release: _request.release,
-        episode: episode,
+        release: detail.value.release,
+        episode: freshEpisode,
         streams: data.value,
         initialStream: preferred,
-        episodeQueue: _request.episodeQueue,
+        episodeQueue: episodes.value,
       );
-      await _initialize(stream: preferred, resume: true);
+      _pendingNextEpisode = null;
+      await _initialize(
+        stream: preferred,
+        resume: false,
+        preservePosition: Duration.zero,
+      );
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || _isClosing || token.isCancelled) return;
       setState(() {
         _error = error;
         _isInitializing = false;
       });
+    } finally {
+      _isTransitioning = false;
     }
   }
 
@@ -786,7 +854,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
     return pickPreferredStream(streams, preference, fallback: current);
   }
 
-  Future<void> _saveProgress() async {
+  Future<void> _saveProgress({bool completed = false}) async {
     if (!_progressReady) return _pendingProgress;
     final controller = _controller;
     final value = controller != null && controller.value.isInitialized
@@ -794,15 +862,30 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
         : _lastPlaybackValue;
     if (value == null || !value.isInitialized) return;
     final request = _request;
+    completed = completed || _completionHandled;
+    final position = completed && value.duration > Duration.zero
+        ? value.duration
+        : value.position;
+    final snapshot = (
+      request.release.id,
+      request.episode.id,
+      position,
+      value.duration,
+      completed,
+    );
+    if (_lastQueuedProgress == snapshot) return _pendingProgress;
+    _lastQueuedProgress = snapshot;
     _pendingProgress = _pendingProgress.then((_) async {
       try {
         await _playbackRepository.saveWatchProgress(
           release: request.release,
           episode: request.episode,
-          position: value.position,
+          position: position,
           duration: value.duration,
+          completed: completed,
         );
       } catch (error) {
+        if (_lastQueuedProgress == snapshot) _lastQueuedProgress = null;
         _diag('Could not save playback progress: ${error.runtimeType}');
       }
     });
