@@ -1,3 +1,4 @@
+import 'package:dream_cast/core/utils/json_record.dart';
 import 'dart:convert';
 
 import 'package:dream_cast/features/notifications/data/episode_notification_subscription.dart';
@@ -52,17 +53,17 @@ final class EpisodeNotificationStorage {
 }
 
 EpisodeNotificationSubscription? _subscriptionFromJson(String raw) {
-  final decoded = jsonDecode(raw);
-  if (decoded is! Map) return null;
-  final releaseRaw = decoded['release'];
-  if (releaseRaw is! Map) return null;
-  return EpisodeNotificationSubscription(
-    release: _releaseFromJson(releaseRaw.cast<String, Object?>()),
-    lastKnownEpisodes: (decoded['lastKnownEpisodes'] as num?)?.toInt() ?? 0,
-    updatedAt:
-        DateTime.tryParse(decoded['updatedAt'] as String? ?? '') ??
-        DateTime.fromMillisecondsSinceEpoch(0),
-  );
+  return readJsonRecord(raw, (decoded) {
+    final releaseRaw = decoded['release'];
+    if (releaseRaw is! Map) return null;
+    return EpisodeNotificationSubscription(
+      release: _releaseFromJson(releaseRaw.cast<String, Object?>()),
+      lastKnownEpisodes: (decoded['lastKnownEpisodes'] as num?)?.toInt() ?? 0,
+      updatedAt:
+          DateTime.tryParse(decoded['updatedAt'] as String? ?? '') ??
+          DateTime.fromMillisecondsSinceEpoch(0),
+    );
+  });
 }
 
 Map<String, Object?> _subscriptionToJson(

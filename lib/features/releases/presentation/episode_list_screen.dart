@@ -1,8 +1,10 @@
+import 'dart:io';
+
 import 'package:dream_cast/app/widgets/app_error_view.dart';
 import 'package:dream_cast/core/database/app_database.dart';
+import 'package:dream_cast/core/settings/player_build.dart';
 import 'package:dream_cast/core/database/database_providers.dart';
 import 'package:dream_cast/features/downloads/data/download_providers.dart';
-import 'package:dream_cast/features/downloads/data/download_service.dart';
 import 'package:dream_cast/features/player/data/player_providers.dart';
 import 'package:dream_cast/features/player/domain/playback_request.dart';
 import 'package:dream_cast/features/player/presentation/preferred_stream_launcher.dart';
@@ -46,7 +48,10 @@ class _EpisodeListScreenState extends ConsumerState<EpisodeListScreen> {
               )
               .map((download) => download.episodeId)
               .toSet();
-          final offlineOnly = data.isStale && completedDownloads != null;
+          final offlineOnly =
+              offlinePlaybackSupported &&
+              data.isStale &&
+              completedDownloads != null;
           final queue =
               (offlineOnly
                       ? data.value.where(
@@ -299,15 +304,16 @@ class _DownloadActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    if (!offlinePlaybackSupported) return const SizedBox.shrink();
     final status = download?.status;
 
-    if (status == 'pending') {
-      return const SizedBox.square(
-        dimension: 40,
-        child: Padding(
-          padding: EdgeInsets.all(10),
-          child: CircularProgressIndicator(strokeWidth: 2),
-        ),
+    if (status == 'pending' || status == 'cancelled') {
+      return IconButton(
+        tooltip: status == 'pending'
+            ? 'Отменить загрузку в очереди'
+            : 'Отмена загрузки…',
+        onPressed: status == 'pending' ? onCancelDownload : null,
+        icon: const Icon(Icons.hourglass_empty_rounded),
       );
     }
 
@@ -367,7 +373,10 @@ Future<void> playEpisode({
       .read(appDatabaseProvider)
       .downloadedEpisode(release.id, episode.id);
 
-  if (downloaded != null && downloaded.status == 'completed') {
+  if (offlinePlaybackSupported &&
+      downloaded != null &&
+      downloaded.status == 'completed' &&
+      await File(downloaded.localFilePath).exists()) {
     final localStream = DreamStream(
       id: 'local_${episode.id}',
       releaseId: release.id,

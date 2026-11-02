@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:dream_cast/core/database/app_database.dart';
+import 'package:dream_cast/core/settings/player_build.dart';
+import 'package:dream_cast/core/logging/app_logger.dart';
 import 'package:dream_cast/features/downloads/data/download_notification_service.dart';
 import 'package:dream_cast/features/releases/domain/release.dart';
 import 'package:drift/drift.dart';
@@ -13,7 +15,7 @@ import 'package:path_provider/path_provider.dart';
 
 const downloadEpisodeTaskName = 'dream_cast_download_episode';
 const downloadEpisodeBatchTaskName = 'dream_cast_download_episode_batch';
-const _downloadForegroundPayloadKey = 'download.foreground.payload';
+const _downloadQueuePrefix = 'download.queue.';
 const _downloadForegroundServiceId =
     DownloadNotificationService.activeForegroundNotificationId;
 
@@ -23,35 +25,23 @@ void downloadForegroundTaskCallback() {
 }
 
 final class _DownloadForegroundTaskHandler extends TaskHandler {
+  Future<void>? _running;
+  DownloadService? _service;
   @override
-  Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
-    final raw = await FlutterForegroundTask.getData<String>(
-      key: _downloadForegroundPayloadKey,
-    );
-    if (raw == null || raw.isEmpty) {
-      await FlutterForegroundTask.stopService();
-      return;
-    }
+  Future<void> onStart(DateTime timestamp, TaskStarter starter) {
+    return _running = _runQueue();
+  }
 
+  Future<void> _runQueue() async {
+    final database = AppDatabase();
     try {
-      final payload = jsonDecode(raw) as Map<String, dynamic>;
-      await FlutterForegroundTask.updateService(
-        notificationTitle: payload['title'] as String? ?? 'Загрузка серии',
-        notificationText: payload['text'] as String? ?? 'Подготовка...',
+      _service = DownloadService(
+        database,
+        DownloadService._createBackgroundDio(),
       );
-
-      final type = payload['type'] as String? ?? downloadEpisodeTaskName;
-      final input = (payload['input'] as Map<String, dynamic>?) ?? {};
-      if (type == downloadEpisodeBatchTaskName) {
-        await DownloadService.runBackgroundBatchTask(input);
-      } else {
-        await DownloadService.runBackgroundTask(input);
-      }
+      await _service!.drainQueue();
     } finally {
-      await FlutterForegroundTask.removeData(
-        key: _downloadForegroundPayloadKey,
-      );
-      await FlutterForegroundTask.stopService();
+      await database.close();
     }
   }
 
@@ -59,7 +49,10 @@ final class _DownloadForegroundTaskHandler extends TaskHandler {
   void onRepeatEvent(DateTime timestamp) {}
 
   @override
-  Future<void> onDestroy(DateTime timestamp, bool isTimeout) async {}
+  Future<void> onDestroy(DateTime timestamp, bool isTimeout) async {
+    _service?.cancelActiveRequests();
+    await _running;
+  }
 }
 
 final class DownloadService {
@@ -74,6 +67,14 @@ final class DownloadService {
   final Dio _dio;
   final bool _useForegroundTask;
   final Map<String, CancelToken> _activeCancelTokens = {};
+  bool _stopping = false;
+
+  void cancelActiveRequests() {
+    _stopping = true;
+    for (final token in _activeCancelTokens.values) {
+      token.cancel('Download service stopped');
+    }
+  }
 
   Future<void> startDownload({
     required DreamRelease release,
@@ -81,28 +82,19 @@ final class DownloadService {
     required DreamStream stream,
     DownloadBatch? batch,
   }) async {
-    final key = _taskKey(release.id, episode.id);
-    if (_activeCancelTokens.containsKey(key)) return;
+    if (!offlinePlaybackSupported) {
+      throw StateError('Этот вариант поддерживает только онлайн-просмотр.');
+    }
+    final existing = await _database.downloadedEpisode(release.id, episode.id);
+    if (existing != null &&
+        const {
+          'pending',
+          'downloading',
+          'cancelled',
+        }.contains(existing.status)) {
+      return;
+    }
 
-    final cancelToken = CancelToken();
-    _activeCancelTokens[key] = cancelToken;
-
-    await _database.saveDownloadedEpisode(
-      DownloadedEpisodesCompanion(
-        releaseId: Value(release.id),
-        episodeId: Value(episode.id),
-        releaseTitle: Value(release.title),
-        episodeTitle: Value(episode.title),
-        posterUrl: Value(release.posterUrl),
-        episodeOrdinal: Value(episode.ordinal),
-        localFilePath: const Value(''),
-        fileSize: const Value(0),
-        downloadedBytes: const Value(0),
-        status: const Value('pending'),
-        streamQuality: Value(stream.quality),
-        createdAt: Value(DateTime.now()),
-      ),
-    );
     if (batch == null) {
       await DownloadNotificationService.showQueued(
         release: release,
@@ -120,25 +112,38 @@ final class DownloadService {
       );
     }
 
-    if (_useForegroundTask) {
-      await _startForegroundDownload(
-        title: batch == null ? 'Загрузка серии' : 'Загрузка серий',
-        text: '${release.title} • ${episode.title}',
-        type: downloadEpisodeTaskName,
-        input: _taskInputData(
-          release: release,
-          episode: episode,
-          stream: stream,
-          batch: batch,
-        ),
-      );
-    }
+    await _startForegroundDownload(
+      title: batch == null ? 'Загрузка серии' : 'Загрузка серий',
+      text: '${release.title} • ${episode.title}',
+      type: downloadEpisodeTaskName,
+      input: _taskInputData(
+        release: release,
+        episode: episode,
+        stream: stream,
+        batch: batch,
+      ),
+    );
   }
 
   Future<void> startBatchDownload({
     required DreamRelease release,
     required List<DreamEpisodeDownloadRequest> requests,
   }) async {
+    if (!offlinePlaybackSupported) {
+      throw StateError('Этот вариант поддерживает только онлайн-просмотр.');
+    }
+    if (requests.isEmpty) return;
+    final available = <DreamEpisodeDownloadRequest>[];
+    for (final request in requests) {
+      final existing = await _database.downloadedEpisode(
+        release.id,
+        request.episode.id,
+      );
+      if (existing == null || existing.status == 'failed') {
+        available.add(request);
+      }
+    }
+    requests = available;
     if (requests.isEmpty) return;
 
     final batch = DownloadBatch(
@@ -146,25 +151,6 @@ final class DownloadService {
       title: release.title,
       episodeIds: requests.map((request) => request.episode.id).toSet(),
     );
-
-    for (final request in requests) {
-      await _database.saveDownloadedEpisode(
-        DownloadedEpisodesCompanion(
-          releaseId: Value(release.id),
-          episodeId: Value(request.episode.id),
-          releaseTitle: Value(release.title),
-          episodeTitle: Value(request.episode.title),
-          posterUrl: Value(release.posterUrl),
-          episodeOrdinal: Value(request.episode.ordinal),
-          localFilePath: const Value(''),
-          fileSize: const Value(0),
-          downloadedBytes: const Value(0),
-          status: const Value('pending'),
-          streamQuality: Value(request.stream.quality),
-          createdAt: Value(DateTime.now()),
-        ),
-      );
-    }
 
     await DownloadNotificationService.showBatchProgress(
       batchId: batch.id,
@@ -175,37 +161,68 @@ final class DownloadService {
       notificationId: _downloadForegroundServiceId,
     );
 
-    if (_useForegroundTask) {
-      await _startForegroundDownload(
-        title: 'Загрузка серий',
-        text: release.title,
-        type: downloadEpisodeBatchTaskName,
-        input: _batchTaskInputData(
-          release: release,
-          requests: requests,
-          batch: batch,
-        ),
-      );
-    }
+    await _startForegroundDownload(
+      title: 'Загрузка серий',
+      text: release.title,
+      type: downloadEpisodeBatchTaskName,
+      input: _batchTaskInputData(
+        release: release,
+        requests: requests,
+        batch: batch,
+      ),
+    );
   }
 
   Future<void> cancelDownload(int releaseId, String episodeId) async {
     final key = _taskKey(releaseId, episodeId);
     final cancelToken = _activeCancelTokens.remove(key);
     cancelToken?.cancel('User cancelled download');
-    await DownloadNotificationService.cancel(
-      releaseId: releaseId,
-      episodeId: episodeId,
-    );
+    final record = await _database.transaction(() async {
+      await _lockQueue();
+      final current = await _database.downloadedEpisode(releaseId, episodeId);
+      await _database.updateDownloadedEpisode(
+        releaseId,
+        episodeId,
+        const DownloadedEpisodesCompanion(status: Value('cancelled')),
+      );
+      if (current?.status != 'downloading') {
+        await (_database.delete(
+          _database.settingsRows,
+        )..where((row) => row.key.equals('$_downloadQueuePrefix$key'))).go();
+      }
+      return current;
+    });
+    if (record == null) return;
+    // The worker observes this persisted state across isolates and cancels its
+    // own token. Wait for its cleanup before allowing the same episode again.
+    if (record.status == 'downloading') {
+      for (var attempt = 0; attempt < 50; attempt++) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        if (await _database.downloadedEpisode(releaseId, episodeId) == null) {
+          return;
+        }
+      }
+      if (await FlutterForegroundTask.isRunningService) return;
+    }
     await deleteDownload(releaseId, episodeId);
   }
 
   Future<void> deleteDownload(int releaseId, String episodeId) async {
     final record = await _database.downloadedEpisode(releaseId, episodeId);
+    if (record != null &&
+        const {'pending', 'downloading'}.contains(record.status)) {
+      return cancelDownload(releaseId, episodeId);
+    }
     if (record != null && record.localFilePath.isNotEmpty) {
       await _deleteLocalDownloadPath(record.localFilePath);
     }
     await _database.deleteDownloadedEpisode(releaseId, episodeId);
+    await (_database.delete(_database.settingsRows)..where(
+          (row) => row.key.equals(
+            '$_downloadQueuePrefix${_taskKey(releaseId, episodeId)}',
+          ),
+        ))
+        .go();
     await DownloadNotificationService.cancel(
       releaseId: releaseId,
       episodeId: episodeId,
@@ -213,22 +230,15 @@ final class DownloadService {
   }
 
   Future<void> deleteAllDownloads() async {
-    for (final token in _activeCancelTokens.values) {
-      token.cancel('All downloads cleared');
-    }
-    _activeCancelTokens.clear();
-
     final downloads = await _database.allDownloadedEpisodes();
     for (final record in downloads) {
-      if (record.localFilePath.isEmpty) continue;
-      await _deleteLocalDownloadPath(record.localFilePath);
+      await deleteDownload(record.releaseId, record.episodeId);
     }
-    await _database.deleteAllDownloadedEpisodes();
   }
 
   String _taskKey(int releaseId, String episodeId) => '${releaseId}_$episodeId';
 
-  Future<void> runDownload({
+  Future<bool> runDownload({
     required DreamRelease release,
     required DreamEpisode episode,
     required DreamStream stream,
@@ -238,8 +248,39 @@ final class DownloadService {
     final key = _taskKey(release.id, episode.id);
     File? tempPlaylist;
     Directory? episodeDir;
+    Future<void>? cancellationCheck;
+    _activeCancelTokens[key] = cancelToken;
+    final cancellationPoll = Timer.periodic(const Duration(milliseconds: 250), (
+      _,
+    ) {
+      cancellationCheck ??= checkCancellation(
+        release.id,
+        episode.id,
+        cancelToken,
+      ).whenComplete(() => cancellationCheck = null);
+    });
 
     try {
+      final record = await _database.downloadedEpisode(release.id, episode.id);
+      if (record == null || record.status == 'cancelled') {
+        cancelToken.cancel('User cancelled download');
+        return true;
+      }
+      if (record.status == 'completed') return true;
+      final claimed =
+          await (_database.update(_database.downloadedEpisodes)..where(
+                (row) =>
+                    row.releaseId.equals(release.id) &
+                    row.episodeId.equals(episode.id) &
+                    row.status.isNotValue('cancelled'),
+              ))
+              .write(
+                const DownloadedEpisodesCompanion(status: Value('downloading')),
+              );
+      if (claimed == 0) {
+        cancelToken.cancel('User cancelled download');
+        return true;
+      }
       if (stream.type != DreamStreamType.hls) {
         throw StateError(
           'Для офлайн-загрузки сейчас поддерживается только HLS.',
@@ -298,6 +339,13 @@ final class DownloadService {
         await episodeDir.delete(recursive: true);
       }
       await episodeDir.create(recursive: true);
+      await _database.updateDownloadedEpisode(
+        release.id,
+        episode.id,
+        DownloadedEpisodesCompanion(
+          localFilePath: Value(p.join(episodeDir.path, 'playlist.m3u8')),
+        ),
+      );
 
       tempPlaylist = File(p.join(episodeDir.path, 'playlist.tmp'));
       final playlistUri = Uri.parse(playlistUrl);
@@ -393,6 +441,8 @@ final class DownloadService {
         _rewritePlaylistForOffline(playlist.lines, localResourceNames),
         flush: true,
       );
+      await checkCancellation(release.id, episode.id, cancelToken);
+      if (cancelToken.isCancelled) throw cancelToken.cancelError!;
       final finalPlaylist = File(p.join(episodeDir.path, 'playlist.m3u8'));
       if (await finalPlaylist.exists()) await finalPlaylist.delete();
       await tempPlaylist.rename(finalPlaylist.path);
@@ -414,7 +464,17 @@ final class DownloadService {
         batch: batch,
         completed: true,
       );
-    } catch (_) {
+      return true;
+    } catch (error, stackTrace) {
+      appLogger('downloads').warning('Download failed: $error', stackTrace);
+      if (episodeDir != null && await episodeDir.exists()) {
+        try {
+          await episodeDir.delete(recursive: true);
+        } on FileSystemException catch (error) {
+          appLogger('downloads').warning('Download cleanup failed: $error');
+        }
+        tempPlaylist = null;
+      }
       if (tempPlaylist != null && await tempPlaylist.exists()) {
         try {
           await tempPlaylist.delete();
@@ -434,8 +494,40 @@ final class DownloadService {
           failed: true,
         );
       }
+      return cancelToken.isCancelled;
     } finally {
+      cancellationPoll.cancel();
+      await cancellationCheck;
       _activeCancelTokens.remove(key);
+      if (cancelToken.isCancelled) {
+        if (episodeDir != null && await episodeDir.exists()) {
+          await episodeDir.delete(recursive: true);
+        }
+        if (_stopping) {
+          await _database.updateDownloadedEpisode(
+            release.id,
+            episode.id,
+            const DownloadedEpisodesCompanion(status: Value('pending')),
+          );
+        } else {
+          await _database.deleteDownloadedEpisode(release.id, episode.id);
+        }
+      }
+    }
+  }
+
+  Future<void> checkCancellation(
+    int releaseId,
+    String episodeId,
+    CancelToken token,
+  ) async {
+    try {
+      final record = await _database.downloadedEpisode(releaseId, episodeId);
+      if (record == null || record.status == 'cancelled') {
+        token.cancel('User cancelled download');
+      }
+    } catch (error) {
+      token.cancel('Cannot read download state: $error');
     }
   }
 
@@ -445,14 +537,13 @@ final class DownloadService {
     final database = AppDatabase();
     try {
       final service = DownloadService(database, _createBackgroundDio());
-      await service.runDownload(
+      return await service.runDownload(
         release: _releaseFromInput(inputData),
         episode: _episodeFromInput(inputData),
         stream: _streamFromInput(inputData),
         batch: _batchFromInput(inputData),
         cancelToken: CancelToken(),
       );
-      return true;
     } finally {
       await database.close();
     }
@@ -466,30 +557,28 @@ final class DownloadService {
     final database = AppDatabase();
     try {
       final service = DownloadService(database, _createBackgroundDio());
-      await service.runBatchDownload(
+      return await service.runBatchDownload(
         release: _releaseFromInput(inputData),
         requests: _downloadRequestsFromInput(inputData),
         batch: _batchFromInput(inputData),
-        stopOnCancel: true,
       );
-      return true;
     } finally {
       await database.close();
     }
   }
 
-  Future<void> runBatchDownload({
+  Future<bool> runBatchDownload({
     required DreamRelease release,
     required List<DreamEpisodeDownloadRequest> requests,
     required DownloadBatch? batch,
-    required bool stopOnCancel,
   }) async {
+    var succeeded = true;
     for (final request in requests) {
       final token = CancelToken();
       final key = _taskKey(release.id, request.episode.id);
       _activeCancelTokens[key] = token;
 
-      await runDownload(
+      final result = await runDownload(
         release: release,
         episode: request.episode,
         stream: request.stream,
@@ -497,65 +586,245 @@ final class DownloadService {
         cancelToken: token,
       );
 
-      if (stopOnCancel && token.isCancelled) return;
+      succeeded = result && succeeded;
+      // Cancelling one episode must not discard the rest of the batch.
     }
+    return succeeded;
   }
 
-  static Future<void> _startForegroundDownload({
+  Future<void> _startForegroundDownload({
     required String title,
     required String text,
     required String type,
     required Map<String, dynamic> input,
   }) async {
-    FlutterForegroundTask.init(
-      androidNotificationOptions: AndroidNotificationOptions(
-        channelId: DownloadNotificationService.channelId,
-        channelName: DownloadNotificationService.channelName,
-        channelDescription: DownloadNotificationService.channelDescription,
-        onlyAlertOnce: true,
-      ),
-      iosNotificationOptions: const IOSNotificationOptions(
-        showNotification: false,
-        playSound: false,
-      ),
-      foregroundTaskOptions: ForegroundTaskOptions(
-        eventAction: ForegroundTaskEventAction.nothing(),
-        autoRunOnBoot: false,
-        autoRunOnMyPackageReplaced: false,
-        allowWakeLock: true,
-        allowWifiLock: true,
-      ),
-    );
+    try {
+      if (_useForegroundTask) {
+        FlutterForegroundTask.init(
+          androidNotificationOptions: AndroidNotificationOptions(
+            channelId: DownloadNotificationService.channelId,
+            channelName: DownloadNotificationService.channelName,
+            channelDescription: DownloadNotificationService.channelDescription,
+            onlyAlertOnce: true,
+          ),
+          iosNotificationOptions: const IOSNotificationOptions(
+            showNotification: false,
+            playSound: false,
+          ),
+          foregroundTaskOptions: ForegroundTaskOptions(
+            eventAction: ForegroundTaskEventAction.nothing(),
+            autoRunOnBoot: false,
+            autoRunOnMyPackageReplaced: false,
+            allowWakeLock: true,
+            allowWifiLock: true,
+          ),
+        );
 
-    final permission =
-        await FlutterForegroundTask.checkNotificationPermission();
-    if (permission != NotificationPermission.granted) {
-      await FlutterForegroundTask.requestNotificationPermission();
+        final permission =
+            await FlutterForegroundTask.checkNotificationPermission();
+        if (permission != NotificationPermission.granted) {
+          await FlutterForegroundTask.requestNotificationPermission();
+        }
+      }
+
+      await _database.transaction(() async {
+        await _lockQueue();
+        final release = type == 'resume' ? null : _releaseFromInput(input);
+        final requests = type == 'resume'
+            ? <DreamEpisodeDownloadRequest>[]
+            : type == downloadEpisodeBatchTaskName
+            ? _downloadRequestsFromInput(input)
+            : [
+                DreamEpisodeDownloadRequest(
+                  episode: _episodeFromInput(input),
+                  stream: _streamFromInput(input),
+                ),
+              ];
+        for (final request in requests) {
+          final existing = await _database.downloadedEpisode(
+            release!.id,
+            request.episode.id,
+          );
+          if (existing != null &&
+              const {
+                'pending',
+                'downloading',
+                'cancelled',
+              }.contains(existing.status)) {
+            continue;
+          }
+          await _database.saveDownloadedEpisode(
+            DownloadedEpisodesCompanion(
+              releaseId: Value(release.id),
+              episodeId: Value(request.episode.id),
+              releaseTitle: Value(release.title),
+              episodeTitle: Value(request.episode.title),
+              posterUrl: Value(release.posterUrl),
+              episodeOrdinal: Value(request.episode.ordinal),
+              localFilePath: const Value(''),
+              fileSize: const Value(0),
+              downloadedBytes: const Value(0),
+              status: const Value('pending'),
+              streamQuality: Value(request.stream.quality),
+              createdAt: Value(DateTime.now()),
+            ),
+          );
+          await _database
+              .into(_database.settingsRows)
+              .insertOnConflictUpdate(
+                SettingsRowsCompanion.insert(
+                  key:
+                      '$_downloadQueuePrefix${_taskKey(release.id, request.episode.id)}',
+                  value: jsonEncode({
+                    ..._taskInputData(
+                      release: release,
+                      episode: request.episode,
+                      stream: request.stream,
+                      batch: _batchFromInput(input),
+                    ),
+                    'queueId': DateTime.now().microsecondsSinceEpoch,
+                  }),
+                  updatedAt: DateTime.now(),
+                ),
+              );
+        }
+        if (!_useForegroundTask ||
+            await FlutterForegroundTask.isRunningService) {
+          return;
+        }
+        final result = await FlutterForegroundTask.startService(
+          serviceId: _downloadForegroundServiceId,
+          serviceTypes: [ForegroundServiceTypes.dataSync],
+          notificationTitle: title,
+          notificationText: text,
+          callback: downloadForegroundTaskCallback,
+        );
+        if (result is ServiceRequestFailure) {
+          throw result.error;
+        }
+      });
+    } catch (_) {
+      if (type != 'resume') {
+        final requests = type == downloadEpisodeBatchTaskName
+            ? _downloadRequestsFromInput(input)
+            : [
+                DreamEpisodeDownloadRequest(
+                  episode: _episodeFromInput(input),
+                  stream: _streamFromInput(input),
+                ),
+              ];
+        for (final request in requests) {
+          await _database.updateDownloadedEpisode(
+            request.episode.releaseId,
+            request.episode.id,
+            const DownloadedEpisodesCompanion(status: Value('failed')),
+          );
+        }
+      }
+      rethrow;
     }
+  }
 
-    if (await FlutterForegroundTask.isRunningService) {
-      await FlutterForegroundTask.stopService();
-    }
-
-    await FlutterForegroundTask.saveData(
-      key: _downloadForegroundPayloadKey,
-      value: jsonEncode({
-        'type': type,
-        'title': title,
-        'text': text,
-        'input': input,
-      }),
+  static Future<void> resumePendingDownloads(AppDatabase database) async {
+    if (!offlinePlaybackSupported) return;
+    final pending =
+        await (database.select(database.settingsRows)
+              ..where((row) => row.key.like('$_downloadQueuePrefix%'))
+              ..limit(1))
+            .get();
+    if (pending.isEmpty) return;
+    await DownloadService(
+      database,
+      _createBackgroundDio(),
+    )._startForegroundDownload(
+      title: 'Загрузка серий',
+      text: 'Продолжение очереди',
+      type: 'resume',
+      input: {},
     );
+  }
 
-    final result = await FlutterForegroundTask.startService(
-      serviceId: _downloadForegroundServiceId,
-      serviceTypes: [ForegroundServiceTypes.dataSync],
-      notificationTitle: title,
-      notificationText: text,
-      callback: downloadForegroundTaskCallback,
-    );
-    if (result is ServiceRequestFailure) {
-      throw result.error;
+  Future<void> _lockQueue() => _database.customStatement(
+    'UPDATE settings_rows SET value = value WHERE key = ?',
+    ['download.queue.lock'],
+  );
+
+  /// Serialize enqueue/start and empty/stop across UI and worker connections.
+  /// Holding the SQLite writer lock prevents a last-second enqueue from being
+  /// stranded while the worker is stopping the foreground service.
+  Future<void> drainQueue({Future<void> Function()? onIdle}) async {
+    while (!_stopping) {
+      final job = await _database.transaction(() async {
+        await _lockQueue();
+        final rows =
+            await (_database.select(_database.settingsRows)
+                  ..where((row) => row.key.like('$_downloadQueuePrefix%'))
+                  ..orderBy([(row) => OrderingTerm.asc(row.updatedAt)])
+                  ..limit(1))
+                .get();
+        if (rows.isEmpty) {
+          if (onIdle != null) {
+            await onIdle();
+          } else {
+            await FlutterForegroundTask.stopService();
+          }
+          return null;
+        }
+        try {
+          final input = (jsonDecode(rows.first.value) as Map)
+              .cast<String, dynamic>();
+          await (_database.update(_database.downloadedEpisodes)..where(
+                (row) =>
+                    row.releaseId.equals(input['releaseId'] as int) &
+                    row.episodeId.equals(input['episodeId'] as String) &
+                    row.status.isNotValue('cancelled') &
+                    row.status.isNotValue('completed'),
+              ))
+              .write(
+                const DownloadedEpisodesCompanion(status: Value('downloading')),
+              );
+        } on FormatException {
+          // The per-job error handler below discards damaged queue records.
+        } on TypeError {
+          // The per-job error handler below discards damaged queue records.
+        }
+        return rows.first;
+      });
+      if (job == null) return;
+      if (_stopping) return;
+      try {
+        final input = (jsonDecode(job.value) as Map).cast<String, dynamic>();
+        await runDownload(
+          release: _releaseFromInput(input),
+          episode: _episodeFromInput(input),
+          stream: _streamFromInput(input),
+          batch: _batchFromInput(input),
+          cancelToken: CancelToken(),
+        );
+      } catch (error, stackTrace) {
+        appLogger(
+          'downloads',
+        ).warning('Invalid queued download: $error', stackTrace);
+        try {
+          final input = (jsonDecode(job.value) as Map).cast<String, dynamic>();
+          await _database.updateDownloadedEpisode(
+            input['releaseId'] as int,
+            input['episodeId'] as String,
+            const DownloadedEpisodesCompanion(status: Value('failed')),
+          );
+        } on FormatException {
+          // No valid episode can be recovered from this queue record.
+        } on TypeError {
+          // No valid episode can be recovered from this queue record.
+        }
+      } finally {
+        if (!_stopping) {
+          await (_database.delete(_database.settingsRows)..where(
+                (row) => row.key.equals(job.key) & row.value.equals(job.value),
+              ))
+              .go();
+        }
+      }
     }
   }
 
@@ -606,7 +875,8 @@ final class DownloadService {
       'streamHeadersJson': jsonEncode(stream.headers),
       if (batch != null) 'batchId': batch.id,
       if (batch != null) 'batchTitle': batch.title,
-      if (batch != null) 'batchEpisodeIdsJson': jsonEncode(batch.episodeIds),
+      if (batch != null)
+        'batchEpisodeIdsJson': jsonEncode(batch.episodeIds.toList()),
     };
   }
 
@@ -804,6 +1074,7 @@ final class DownloadService {
     final lines = content.split('\n');
     int? bestQuality;
     String? bestPath;
+    String? bestAudioGroup;
 
     for (var i = 0; i < lines.length; i++) {
       final line = lines[i].trim();
@@ -826,9 +1097,21 @@ final class DownloadService {
               (bestQuality - preferredQuality).abs()) {
         bestQuality = quality;
         bestPath = nextLine;
+        bestAudioGroup = RegExp(r'AUDIO="([^"]+)"').firstMatch(line)?.group(1);
       }
     }
 
+    if (bestAudioGroup != null &&
+        lines.any(
+          (line) =>
+              line.startsWith('#EXT-X-MEDIA:') &&
+              line.contains('GROUP-ID="$bestAudioGroup"') &&
+              line.contains('URI='),
+        )) {
+      throw StateError(
+        'Офлайн-загрузка HLS с отдельной аудиодорожкой пока не поддерживается. Смотрите серию онлайн.',
+      );
+    }
     return bestPath == null ? url : Uri.parse(url).resolve(bestPath).toString();
   }
 
@@ -844,6 +1127,12 @@ final class DownloadService {
     );
     final content = response.data;
     if (content == null) return const _HlsMediaPlaylist([], [], []);
+    if (content.contains('#EXT-X-BYTERANGE') ||
+        RegExp(r'#EXT-X-MAP:[^\n]*BYTERANGE').hasMatch(content)) {
+      throw StateError(
+        'Офлайн-загрузка HLS с диапазонами байтов пока не поддерживается. Смотрите серию онлайн.',
+      );
+    }
 
     final lines = content.split('\n');
     final segments = <String>[];

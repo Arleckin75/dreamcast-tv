@@ -1,7 +1,13 @@
 import 'dart:async';
+import 'dart:io';
+import 'package:dream_cast/core/database/database_providers.dart';
+import 'package:dream_cast/core/settings/player_build.dart';
 
 import 'package:dio/dio.dart';
 import 'package:dream_cast/app/bootstrap/dream_cast_app.dart';
+import 'package:dream_cast/core/errors/app_exception.dart';
+import 'package:dream_cast/features/player/data/stream_preference_providers.dart';
+import 'package:dream_cast/features/player/domain/playback_request.dart';
 import 'package:dream_cast/features/releases/data/dream_cast_diagnostics.dart';
 import 'package:dream_cast/features/releases/data/release_providers.dart';
 import 'package:dream_cast/features/releases/data/release_repository.dart';
@@ -19,6 +25,13 @@ final searchReleasesProvider =
       SearchReleasesController.new,
     );
 
+final releaseByIdProvider = FutureProvider.autoDispose
+    .family<DreamRelease, ({int id, DreamRelease? seed})>((ref, key) {
+      return ref
+          .watch(releaseRepositoryProvider)
+          .resolveRelease(key.id, seed: key.seed);
+    });
+
 final releaseDetailProvider = FutureProvider.autoDispose
     .family<DreamData<DreamReleaseDetail>, DreamRelease>((ref, release) {
       final cancelToken = CancelToken();
@@ -26,6 +39,92 @@ final releaseDetailProvider = FutureProvider.autoDispose
       return ref
           .watch(releaseRepositoryProvider)
           .getDetail(release, cancelToken: cancelToken);
+    });
+
+final releaseDetailByIdProvider = FutureProvider.autoDispose
+    .family<DreamData<DreamReleaseDetail>, ({int id, DreamRelease? seed})>((
+      ref,
+      key,
+    ) {
+      final cancelToken = CancelToken();
+      ref.onDispose(cancelToken.cancel);
+      return ref
+          .watch(releaseRepositoryProvider)
+          .getDetailById(key.id, seed: key.seed, cancelToken: cancelToken);
+    });
+
+typedef WatchRouteKey = ({int releaseId, String episodeId});
+
+final watchPlaybackRequestProvider = FutureProvider.autoDispose
+    .family<PlaybackRequest, WatchRouteKey>((ref, key) async {
+      final cancelToken = CancelToken();
+      ref.onDispose(cancelToken.cancel);
+      final repository = ref.watch(releaseRepositoryProvider);
+      if (offlinePlaybackSupported) {
+        final downloaded = await ref
+            .read(appDatabaseProvider)
+            .downloadedEpisode(key.releaseId, key.episodeId);
+        if (downloaded != null &&
+            downloaded.status == 'completed' &&
+            await File(downloaded.localFilePath).exists()) {
+          final release = DreamRelease(
+            id: key.releaseId,
+            title: downloaded.releaseTitle,
+            originalTitle: '',
+            url: '/home/release/${key.releaseId}',
+            posterUrl: downloaded.posterUrl,
+          );
+          final episode = DreamEpisode(
+            id: key.episodeId,
+            releaseId: key.releaseId,
+            ordinal: downloaded.episodeOrdinal,
+            title: downloaded.episodeTitle,
+            file: downloaded.localFilePath,
+          );
+          final stream = DreamStream(
+            id: 'local_${key.episodeId}',
+            releaseId: key.releaseId,
+            episodeId: key.episodeId,
+            url: Uri.file(downloaded.localFilePath),
+            type: DreamStreamType.hls,
+            quality: downloaded.streamQuality,
+          );
+          return PlaybackRequest(
+            release: release,
+            episode: episode,
+            streams: [stream],
+            initialStream: stream,
+          );
+        }
+      }
+      final detail = await repository.getDetailById(
+        key.releaseId,
+        cancelToken: cancelToken,
+      );
+      final episodes = await repository.getEpisodes(
+        detail.value,
+        cancelToken: cancelToken,
+      );
+      DreamEpisode? episode;
+      for (final item in episodes.value) {
+        if (item.id == key.episodeId ||
+            item.ordinal.toString() == key.episodeId) {
+          episode = item;
+          break;
+        }
+      }
+      if (episode == null) {
+        throw const ParserException('Серия не найдена. Откройте релиз снова.');
+      }
+      final streams = await repository.getStreams(episode, refresh: true);
+      final preference = ref.read(preferredStreamTechnologyProvider);
+      return PlaybackRequest(
+        release: detail.value.release,
+        episode: episode,
+        streams: streams.value,
+        initialStream: pickPreferredStream(streams.value, preference),
+        episodeQueue: episodes.value,
+      );
     });
 
 final releaseEpisodesProvider = FutureProvider.autoDispose

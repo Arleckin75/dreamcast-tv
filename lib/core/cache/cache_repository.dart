@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:dream_cast/core/utils/json_record.dart';
 
 import 'package:dream_cast/core/cache/cache_entry.dart';
 import 'package:dream_cast/core/cache/cache_retention.dart';
@@ -49,8 +50,8 @@ final class CacheRepository {
     final row = await _database.cacheEntry(key);
     if (row == null) return null;
 
-    final decoded = jsonDecode(row.valueJson);
-    if (decoded is! Map) return null;
+    final decoded = readJsonRecord(row.valueJson, (value) => value);
+    if (decoded == null) return null;
 
     final expiresAt = row.expiresAt;
     return CachedValue<Map<String, Object?>>(

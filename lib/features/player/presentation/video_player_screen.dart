@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:dream_cast/core/settings/player_build.dart';
 import 'dart:ui' show FontFeature, ImageFilter;
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 
@@ -29,7 +30,6 @@ class VideoPlayerScreen extends ConsumerStatefulWidget {
 
 class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   static const _media3Probe = MethodChannel("dream_cast/media3_probe");
-  static const _av1Variant = String.fromEnvironment('AV1_PLAYER', defaultValue: 'hardware');
   VideoPlayerController? _controller;
   DreamStream? _currentStream;
   late PlaybackRequest _request;
@@ -56,7 +56,6 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   void _diag(String message) {
     if (kDebugMode) debugPrint('DCTV_DIAG: $message');
   }
-
 
   @override
   void initState() {
@@ -97,54 +96,54 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
           autofocus: true,
           onKeyEvent: _handleRemoteKey,
           child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: _toggleControlsVisibility,
-          onDoubleTapDown: _handleDoubleTapSeek,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              Center(
-                child: _error != null
-                    ? _PlayerError(error: _error!, onRetry: _retry)
-                    : _isInitializing ||
-                          controller == null ||
-                          !controller.value.isInitialized
-                    ? const _PlayerLoading()
-                    : AspectRatio(
-                        aspectRatio: controller.value.aspectRatio,
-                        child: VideoPlayer(controller),
-                      ),
-              ),
-              if (_seekFeedbackText != null)
-                _SeekFeedback(
-                  text: _seekFeedbackText!,
-                  alignment: _seekFeedbackAlignment,
+            behavior: HitTestBehavior.opaque,
+            onTap: _toggleControlsVisibility,
+            onDoubleTapDown: _handleDoubleTapSeek,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                Center(
+                  child: _error != null
+                      ? _PlayerError(error: _error!, onRetry: _retry)
+                      : _isInitializing ||
+                            controller == null ||
+                            !controller.value.isInitialized
+                      ? const _PlayerLoading()
+                      : AspectRatio(
+                          aspectRatio: controller.value.aspectRatio,
+                          child: VideoPlayer(controller),
+                        ),
                 ),
-              if (controller != null)
-                _PlayerControls(
-                  visible: _showControls && !_isInPip,
-                  controller: controller,
-                  title: _request.episode.title,
-                  subtitle: displayReleaseTitle(_request.release),
-                  streams: _request.streams,
-                  currentStream: _currentStream,
-                  onBack: _closePlayer,
-                  onTogglePlay: () {
-                    _togglePlay();
-                    _scheduleControlsAutoHide();
-                  },
-                  onSeek: (position) {
-                    unawaited(_seekTo(position));
-                    _scheduleControlsAutoHide();
-                  },
-                  onSeekRelative: (offset) {
-                    unawaited(_seekRelative(offset));
-                    _scheduleControlsAutoHide();
-                  },
-                  onStreamSelected: _switchStream,
-                ),
-            ],
-          ),
+                if (_seekFeedbackText != null)
+                  _SeekFeedback(
+                    text: _seekFeedbackText!,
+                    alignment: _seekFeedbackAlignment,
+                  ),
+                if (controller != null)
+                  _PlayerControls(
+                    visible: _showControls && !_isInPip,
+                    controller: controller,
+                    title: _request.episode.title,
+                    subtitle: displayReleaseTitle(_request.release),
+                    streams: _request.streams,
+                    currentStream: _currentStream,
+                    onBack: _closePlayer,
+                    onTogglePlay: () {
+                      _togglePlay();
+                      _scheduleControlsAutoHide();
+                    },
+                    onSeek: (position) {
+                      unawaited(_seekTo(position));
+                      _scheduleControlsAutoHide();
+                    },
+                    onSeekRelative: (offset) {
+                      unawaited(_seekRelative(offset));
+                      _scheduleControlsAutoHide();
+                    },
+                    onStreamSelected: _switchStream,
+                  ),
+              ],
+            ),
           ),
         ),
       ),
@@ -160,7 +159,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         key == LogicalKeyboardKey.space ||
         (node.hasPrimaryFocus &&
             (key == LogicalKeyboardKey.select ||
-             key == LogicalKeyboardKey.enter))) {
+                key == LogicalKeyboardKey.enter))) {
       _togglePlay();
       _scheduleControlsAutoHide();
       return KeyEventResult.handled;
@@ -180,8 +179,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       _scheduleControlsAutoHide();
       return KeyEventResult.handled;
     }
-    if (key == LogicalKeyboardKey.escape ||
-        key == LogicalKeyboardKey.goBack) {
+    if (key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.goBack) {
       unawaited(_closePlayer());
       return KeyEventResult.handled;
     }
@@ -206,63 +204,102 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     _diagLoggedError = false;
     _diagLastSecondBucket = -1;
     // Player backend is selected at compile time. Never switch engines at runtime.
-    if (_av1Variant == 'software') {
+    if (softwarePlayerBuild) {
       if (!Platform.isAndroid || stream.url.isScheme('file')) {
-        if (mounted) setState(() { _error = StateError('LibVLC requires an Android network stream'); _isInitializing = false; });
+        if (mounted) {
+          setState(() {
+            _error = StateError('LibVLC requires an Android network stream');
+            _isInitializing = false;
+          });
+        }
         return;
       }
       try {
-            final resumePosition = preservePosition ??
-                (resume ? (await ref.read(playbackRepositoryProvider).getPosition(
-                  releaseId: '${_request.release.id}',
-                  episodeId: _request.episode.id,
-                ))?.position : null);
-            // The native Activity returns the final watch position when it closes.
-            // Write through the regular repository so the Drift-based home carousel
-            // and episode progress indicators update, rather than only Android prefs.
-            await ref.read(playbackRepositoryProvider).saveDreamStreamSession(
+        final resumePosition =
+            preservePosition ??
+            (resume
+                ? (await ref
+                          .read(playbackRepositoryProvider)
+                          .getPosition(
+                            releaseId: '${_request.release.id}',
+                            episodeId: _request.episode.id,
+                          ))
+                      ?.position
+                : null);
+        // The native Activity returns the final watch position when it closes.
+        // Write through the regular repository so the Drift-based home carousel
+        // and episode progress indicators update, rather than only Android prefs.
+        await ref
+            .read(playbackRepositoryProvider)
+            .saveDreamStreamSession(
               release: _request.release,
               episode: _request.episode,
               stream: stream,
             );
-            final qualityPrefs = await SharedPreferences.getInstance();
-            final selectedQuality = qualityPrefs.getInt('software_av1_quality') ?? 0;
-            final requestedQuality = selectedQuality == 0 ? 720 : selectedQuality;
-            final nativeProgress = await _media3Probe.invokeMapMethod<String, dynamic>('playSoftwareAV1', {
+        final qualityPrefs = await SharedPreferences.getInstance();
+        final selectedQuality =
+            qualityPrefs.getInt('software_av1_quality') ?? 0;
+        final requestedQuality = selectedQuality == 0 ? 720 : selectedQuality;
+        final nativeProgress = await _media3Probe
+            .invokeMapMethod<String, dynamic>('playSoftwareAV1', {
               'url': stream.url.toString(),
               'headers': stream.headers,
               'positionMs': resumePosition?.inMilliseconds ?? 0,
               'episodeKey': '${_request.release.id}:${_request.episode.id}',
               'quality': requestedQuality,
             });
-            if (!mounted || _isClosing) return;
-            if (nativeProgress != null) {
-              final positionMs = (nativeProgress['positionMs'] as num?)?.toInt() ?? 0;
-              final durationMs = (nativeProgress['durationMs'] as num?)?.toInt() ?? 0;
-              final completed = nativeProgress['completed'] == true;
-              if (durationMs > 0 || positionMs > 0 || completed) {
-                await ref.read(playbackRepositoryProvider).saveWatchProgress(
+        if (!mounted || _isClosing) return;
+        if (nativeProgress != null) {
+          final positionMs =
+              (nativeProgress['positionMs'] as num?)?.toInt() ?? 0;
+          final durationMs =
+              (nativeProgress['durationMs'] as num?)?.toInt() ?? 0;
+          final completed = nativeProgress['completed'] == true;
+          if (durationMs > 0 || positionMs > 0 || completed) {
+            await ref
+                .read(playbackRepositoryProvider)
+                .saveWatchProgress(
                   release: _request.release,
                   episode: _request.episode,
-                  position: Duration(milliseconds: completed && durationMs > 0 ? durationMs : positionMs),
-                  duration: durationMs > 0 ? Duration(milliseconds: durationMs) : null,
+                  position: Duration(
+                    milliseconds: completed && durationMs > 0
+                        ? durationMs
+                        : positionMs,
+                  ),
+                  duration: durationMs > 0
+                      ? Duration(milliseconds: durationMs)
+                      : null,
                 );
-                _diag('native progress synced to home: positionMs=$positionMs durationMs=$durationMs completed=$completed');
-              }
-              if (mounted) await _closePlayer();
-              return;
-            }
-        if (mounted) setState(() { _error = StateError('Не удалось запустить LibVLC'); _isInitializing = false; });
+            _diag(
+              'native progress synced to home: positionMs=$positionMs durationMs=$durationMs completed=$completed',
+            );
+          }
+          if (mounted) await _closePlayer();
+          return;
+        }
+        if (mounted) {
+          setState(() {
+            _error = StateError('Не удалось запустить LibVLC');
+            _isInitializing = false;
+          });
+        }
       } catch (error) {
-        if (mounted) setState(() { _error = error; _isInitializing = false; });
+        if (mounted) {
+          setState(() {
+            _error = error;
+            _isInitializing = false;
+          });
+        }
       }
       return;
     }
     // hardwareAv1: ExoPlayer only, never attempt LibVLC fallback.
     if (!mounted || _isClosing) return;
     _currentStream = stream;
-    _diag('open stream scheme=${stream.url.scheme} host=${stream.url.host} '
-          'headers=${stream.headers.keys.join(",")} (URL/path omitted)');
+    _diag(
+      'open stream scheme=${stream.url.scheme} host=${stream.url.host} '
+      'headers=${stream.headers.keys.join(",")} (URL/path omitted)',
+    );
     _uiTimer?.cancel();
     _controlsHideTimer?.cancel();
     final old = _controller;
@@ -295,10 +332,12 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
             ),
       );
       await controller.initialize();
-      _diag('initialize completed size=${controller.value.size} '
-            'aspect=${controller.value.aspectRatio} '
-            'duration=${controller.value.duration} '
-            'hasError=${controller.value.hasError}');
+      _diag(
+        'initialize completed size=${controller.value.size} '
+        'aspect=${controller.value.aspectRatio} '
+        'duration=${controller.value.duration} '
+        'hasError=${controller.value.hasError}',
+      );
       await PlayerPipService.setEnabled(
         enabled: true,
         aspectRatio: controller.value.aspectRatio,
@@ -376,7 +415,9 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     final value = controller.value;
     if (value.isInitialized && !_diagLoggedInitialized) {
       _diagLoggedInitialized = true;
-      _diag('controller initialized: size=${value.size} duration=${value.duration}');
+      _diag(
+        'controller initialized: size=${value.size} duration=${value.duration}',
+      );
     }
     if (value.isPlaying && !_diagLoggedPlaying) {
       _diagLoggedPlaying = true;
@@ -386,9 +427,11 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       final bucket = value.position.inSeconds ~/ 5;
       if (bucket != _diagLastSecondBucket) {
         _diagLastSecondBucket = bucket;
-        _diag('sample position=${value.position} size=${value.size} '
-              'isPlaying=${value.isPlaying} isBuffering=${value.isBuffering} '
-              'hasError=${value.hasError}');
+        _diag(
+          'sample position=${value.position} size=${value.size} '
+          'isPlaying=${value.isPlaying} isBuffering=${value.isBuffering} '
+          'hasError=${value.hasError}',
+        );
       }
     }
     final duration = controller.value.duration;
@@ -573,7 +616,10 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         episode.id,
       );
 
-      if (downloaded != null && downloaded.status == 'completed') {
+      if (offlinePlaybackSupported &&
+          downloaded != null &&
+          downloaded.status == 'completed' &&
+          await File(downloaded.localFilePath).exists()) {
         final localStream = DreamStream(
           id: 'local_${episode.id}',
           releaseId: _request.release.id,

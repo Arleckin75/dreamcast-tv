@@ -67,7 +67,10 @@ final class EpisodeNotificationWorker {
       // update if the general latest request is unavailable.
     }
 
-    for (final subscription in subscriptions.take(40)) {
+    for (final subscription in await subscriptionsForNextCheck(
+      preferences,
+      subscriptions,
+    )) {
       final freshRelease =
           freshById[subscription.release.id] ??
           await _findRelease(api, subscription.release);
@@ -133,6 +136,25 @@ final class EpisodeNotificationWorker {
       ),
     );
   }
+}
+
+/// Keep each job bounded, while checking every subscription over successive jobs.
+Future<List<EpisodeNotificationSubscription>> subscriptionsForNextCheck(
+  SharedPreferences preferences,
+  List<EpisodeNotificationSubscription> subscriptions,
+) async {
+  if (subscriptions.isEmpty) return [];
+  final ordered = [...subscriptions]
+    ..sort((a, b) => a.release.id.compareTo(b.release.id));
+  const cursorKey = 'notifications.check.cursor';
+  final offset = (preferences.getInt(cursorKey) ?? 0) % ordered.length;
+  final count = ordered.length.clamp(0, 40);
+  final selected = List.generate(
+    count,
+    (index) => ordered[(offset + index) % ordered.length],
+  );
+  await preferences.setInt(cursorKey, (offset + count) % ordered.length);
+  return selected;
 }
 
 final class EpisodeNotificationScheduler {

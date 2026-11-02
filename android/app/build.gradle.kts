@@ -1,4 +1,5 @@
 import java.util.Properties
+import groovy.json.JsonSlurper
 
 plugins {
     id("com.android.application")
@@ -82,13 +83,40 @@ android {
             signingConfig = if (hasReleaseKeystore) {
                 signingConfigs.getByName("release")
             } else {
-                signingConfigs.getByName("debug")
+                null
             }
         }
     }
 }
 
 gradle.taskGraph.whenReady {
+    // Inspect requested targets: Flutter's dependency graph can also contain
+    // helper tasks mentioning a different flavor.
+    val softwareRequested = gradle.startParameter.taskNames.any { it.contains("SoftwareAv1", ignoreCase = true) }
+    val hardwareRequested = gradle.startParameter.taskNames.any { it.contains("HardwareAv1", ignoreCase = true) }
+    if (softwareRequested && hardwareRequested) {
+        throw GradleException("Build one AV1 flavor at a time using scripts/build_tv.dart.")
+    }
+    if (!softwareRequested && !hardwareRequested && allTasks.any {
+            it.project.path == ":app" && (it.name.startsWith("assemble") || it.name.startsWith("bundle"))
+        }) {
+        throw GradleException("Specify softwareAv1 or hardwareAv1 using scripts/build_tv.dart.")
+    }
+    if (softwareRequested || hardwareRequested) {
+        val packageConfig = rootProject.file("../.dart_tool/package_config.json")
+        val config = JsonSlurper().parse(packageConfig) as Map<*, *>
+        val packages = config["packages"] as List<*>
+        val videoPackage = packages.filterIsInstance<Map<*, *>>()
+            .firstOrNull { it["name"] == "video_player_android" }
+        val usesNoopPlayer = videoPackage?.get("rootUri").toString()
+            .contains("video_player_android_noop")
+        if (softwareRequested != usesNoopPlayer) {
+            throw GradleException(
+                "Flutter video plugin does not match the Android flavor. " +
+                    "Use dart run scripts/build_tv.dart software|hardware debug|release."
+            )
+        }
+    }
     val releaseTaskRequested = allTasks.any {
         it.name.contains("Release", ignoreCase = true) && (it.name.startsWith("assemble") || it.name.startsWith("bundle"))
     }

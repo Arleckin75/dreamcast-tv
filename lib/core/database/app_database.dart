@@ -139,7 +139,9 @@ class AppDatabase extends _$AppDatabase {
   ) {
     return (update(downloadedEpisodes)..where(
           (row) =>
-              row.releaseId.equals(releaseId) & row.episodeId.equals(episodeId),
+              row.releaseId.equals(releaseId) &
+              row.episodeId.equals(episodeId) &
+              row.status.isNotValue('cancelled'),
         ))
         .write(changes);
   }
@@ -320,6 +322,12 @@ LazyDatabase _openConnection() {
   return LazyDatabase(() async {
     final directory = await getApplicationDocumentsDirectory();
     final file = File(p.join(directory.path, 'dream_cast.sqlite'));
-    return NativeDatabase.createInBackground(file);
+    return NativeDatabase.createInBackground(
+      file,
+      setup: (database) {
+        database.execute('PRAGMA busy_timeout = 15000');
+        database.execute('PRAGMA journal_mode = WAL');
+      },
+    );
   });
 }

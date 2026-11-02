@@ -1,8 +1,20 @@
 name: Build Dream Cast TV APK
 
 on:
+  workflow_call:
+    inputs:
+      build_mode:
+        type: string
+        default: debug
+      publish:
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
+      publish:
+        description: 'Publish the verified release (main only)'
+        type: boolean
+        default: false
       build_mode:
         description: 'Build mode'
         required: true
@@ -49,12 +61,14 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.41.5'
           channel: stable
           cache: true
       - name: Verify flavor-specific Kotlin sources
         shell: bash
         run: |
           set -euo pipefail
+          chmod +x android/gradlew
           SOURCE_DIR=android/app/src/main/kotlin/com/dreamcast/app
           for file in MainActivity.kt CosmosAv1PlayerActivity.kt CosmosFmp4Resolver.kt CosmosMedia3Probe.kt; do
             if [[ -f "$SOURCE_DIR/$file" ]]; then
@@ -69,6 +83,10 @@ jobs:
         run: python3 scripts/prepare_software_av1.py
       - name: Get dependencies
         run: flutter pub get
+      - name: Analyze Dart sources
+        run: flutter analyze
+      - name: Run regression tests
+        run: flutter test
       - name: Build Debug APK
         shell: bash
         run: |
@@ -76,11 +94,10 @@ jobs:
           if [[ "${{ matrix.player }}" == "software" ]]; then
             # Don't package Flutter x86_64 artifacts in the software AV1 build.
             flutter build apk --debug --flavor "${{ matrix.flavor }}" \
-              --target-platform android-arm,android-arm64 \
-              --dart-define="AV1_PLAYER=${{ matrix.player }}"
+              --target-platform android-arm,android-arm64
           else
             flutter build apk --debug --flavor "${{ matrix.flavor }}" \
-              --dart-define="AV1_PLAYER=${{ matrix.player }}"
+              --target-platform android-arm,android-arm64
           fi
       - name: Prepare named APK and SHA256
         shell: bash
@@ -177,6 +194,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.41.5'
           channel: stable
           cache: true
       - name: Verify source revision and expected flavor sources
@@ -191,6 +209,7 @@ jobs:
           test -f third_party/video_player_android_noop/pubspec.yaml
           test -f android/app/build.gradle.kts
           test -f android/gradlew
+          chmod +x android/gradlew
           for file in MainActivity.kt CosmosAv1PlayerActivity.kt CosmosFmp4Resolver.kt CosmosMedia3Probe.kt; do
             test ! -f "android/app/src/main/kotlin/com/dreamcast/app/$file" || {
               echo "::error::Duplicate shared Kotlin source: $file"; exit 1;
@@ -225,14 +244,16 @@ jobs:
         run: python3 scripts/prepare_software_av1.py
       - name: Get dependencies
         run: flutter pub get
+      - name: Analyze Dart sources
+        run: flutter analyze
+      - name: Run regression tests
+        run: flutter test
       - name: Build signed Release APK
         shell: bash
         run: |
           set -euo pipefail
           flutter build apk --release --no-shrink --flavor '${{ matrix.flavor }}' \
-            --target-platform android-arm,android-arm64 \
-            --build-name 0.7.1 --build-number 71 \
-            --dart-define='AV1_PLAYER=${{ matrix.player }}'
+            --target-platform android-arm,android-arm64
       - name: Locate Release APK and record checksum
         shell: bash
         run: |
@@ -259,7 +280,7 @@ jobs:
           AAPT="$(find "$SDK/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -1)"
           test -x "$APKSIGNER" && test -x "$AAPT"
           "$APKSIGNER" verify --verbose --print-certs "$APK" | tee dist/signature-${{ matrix.player }}.txt
-          "$AAPT" dump badging "$APK" | head -n 4 | tee dist/manifest-${{ matrix.player }}.txt
+          "$AAPT" dump badging "$APK" | sed -n '1,4p' | tee dist/manifest-${{ matrix.player }}.txt
           python3 - "$APK" "$AAPT" <<'PYCODE'
           import re, subprocess, sys, zipfile
           apk, aapt = sys.argv[1:]
@@ -267,7 +288,7 @@ jobs:
           m = re.search(r"package: name='([^']+)' versionCode='(\d+)' versionName='([^']+)'", out)
           assert m, 'Missing package metadata'
           assert m.group(1) == 'com.dreamcast.app', f'Unexpected package: {m.group(1)}'
-          assert int(m.group(2)) == 71, f'Unexpected version code: {m.group(2)}'
+          assert int(m.group(2)) == 710001, f'Unexpected version code: {m.group(2)}'
           assert m.group(3) == '0.7.1', f'Unexpected version name: {m.group(3)}'
           with zipfile.ZipFile(apk) as z:
               libs = [n for n in z.namelist() if n.startswith('lib/') and n.endswith('.so')]
@@ -315,7 +336,7 @@ jobs:
   publish_v071:
     name: Publish v0.7.1 on GitHub Releases
     needs: [release_v071]
-    if: inputs.build_mode == 'release' && github.ref == 'refs/heads/main' && github.ref == 'refs/heads/develop'
+    if: inputs.build_mode == 'release' && inputs.publish && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -362,8 +383,8 @@ jobs:
           baseline_pkg="$("$AAPT" dump badging "$baseline_apk" | sed -n "s/.*package: name='\([^']*\)'.*/\1/p" | head -1)"
           test -n "$baseline_cert" && test -n "$baseline_code"
           test "$baseline_pkg" = 'com.dreamcast.app'
-          if (( 10#$baseline_code >= 71 )); then
-            echo "::error::v0.7.0 versionCode $baseline_code is not lower than 71"
+          if (( 10#$baseline_code >= 710001 )); then
+            echo "::error::v0.7.0 versionCode $baseline_code is not lower than 710001"
             exit 1
           fi
           for variant in software_AV1 hardware_AV1; do

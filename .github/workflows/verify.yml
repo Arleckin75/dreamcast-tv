@@ -1,0 +1,27 @@
+name: Verify develop
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop]
+permissions:
+  contents: read
+jobs:
+  flutter:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.5'
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter analyze
+      - run: flutter test
+      - name: Verify online-only software flavor
+        run: flutter test test/software_player_test.dart --flavor softwareAv1
+      - name: Check Python build tools
+        run: python3 -m py_compile scripts/prepare_software_av1.py scripts/audit_av1_apk.py

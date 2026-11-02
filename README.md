@@ -102,19 +102,19 @@ Dream Cast
 
 ## Сборка
 
-Нужны Flutter SDK и Android Studio с Android SDK.
+Нужны Flutter SDK, Android SDK и JDK 17. Если Android Studio поставляет другую Java, укажите установленный JDK 17 командой `flutter config --jdk-dir /путь/к/jdk-17`.
 
 ```bash
 flutter pub get
 flutter analyze
 flutter test
-flutter build apk --debug
+dart run scripts/build_tv.dart hardware debug
 ```
 
 Для релизной сборки:
 
 ```bash
-flutter build apk --release
+dart run scripts/build_tv.dart hardware release
 ```
 
 
@@ -136,6 +136,22 @@ lib/
     schedule/
     settings/
 ```
+
+## Воспроизводимая сборка Android TV
+
+Используйте **Flutter 3.41.5 / Dart 3.11.3**:
+
+```sh
+flutter pub get
+dart run scripts/build_tv.dart software debug --check
+dart run scripts/build_tv.dart hardware debug --check
+```
+
+Скрипт выбирает видеоплагин, запускает анализатор и тесты, собирает ARM APK и восстанавливает локальные overrides и lock-файл. Для Release замените `debug` на `release` и предварительно настройте `android/key.properties`. Версия и `versionCode` берутся из `pubspec.yaml` одинаково локально и в CI; сейчас это `0.7.1+710001`. Перед публикацией CI проверяет, что код версии выше опубликованной v0.7.0.
+
+`softwareAv1` предназначен для онлайн-просмотра: скачивание и офлайн-воспроизведение в нём отключены. `hardwareAv1` поддерживает загрузки HLS с общей аудио/видеодорожкой; плейлисты с отдельным аудио или диапазонами байтов пока отклоняются. Все сетевые источники должны использовать HTTPS.
+
+Основной workflow — `build-tv-apk.yml`; старые точки запуска вызывают его. Подписанные Release APK собираются только из `main`, публикация требует явного параметра `publish`. Изменения готовятся в `develop`; перенос в `main` выполняется владельцем проекта.
 
 ## Лицензия
 

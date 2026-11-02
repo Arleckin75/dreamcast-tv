@@ -1,4 +1,5 @@
 import 'package:dream_cast/app/widgets/app_empty_state.dart';
+import 'package:dream_cast/app/router/app_routes.dart';
 import 'package:dream_cast/app/widgets/app_error_view.dart';
 import 'package:dream_cast/core/settings/app_ui_preferences.dart';
 import 'package:dream_cast/features/notifications/data/episode_notification_history_providers.dart';
@@ -184,7 +185,9 @@ class _ReleaseSliverGrid extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final configuredColumns = ref.watch(appUiPreferencesProvider).homeGridColumns;
+    final configuredColumns = ref
+        .watch(appUiPreferencesProvider)
+        .homeGridColumns;
     final availableWidth = MediaQuery.sizeOf(context).width;
     final isWideLayout = availableWidth >= 900;
     final crossAxisCount = isWideLayout
@@ -276,21 +279,9 @@ class _ContinueWatchingSection extends ConsumerWidget {
     WidgetRef ref,
     ContinueWatchingItem item,
   ) async {
-    final request = await ref
-        .read(playbackRepositoryProvider)
-        .restorePlaybackRequest(item);
-    if (!context.mounted) return;
-    if (request == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Не удалось восстановить поток. Откройте серию из карточки релиза.',
-          ),
-        ),
-      );
-      return;
-    }
-    context.push('/watch', extra: request);
+    final releaseId = int.tryParse(item.releaseId);
+    if (releaseId == null) return;
+    await context.push(watchLocation(releaseId, item.episodeId));
   }
 }
 

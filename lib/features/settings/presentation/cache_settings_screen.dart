@@ -1,6 +1,7 @@
 import 'package:dream_cast/core/cache/cache_providers.dart';
 import 'package:dream_cast/core/cache/cache_retention.dart';
 import 'package:dream_cast/core/database/app_database.dart';
+import 'package:dream_cast/core/settings/player_build.dart';
 import 'package:dream_cast/features/downloads/data/download_providers.dart';
 import 'package:dream_cast/features/settings/data/cache_settings_providers.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +12,12 @@ class CacheSettingsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    if (!offlinePlaybackSupported) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Сетевой кэш')),
+        body: const _NetworkCacheTab(),
+      );
+    }
     return DefaultTabController(
       length: 2,
       child: Scaffold(
@@ -694,6 +701,7 @@ String _downloadStatusLabel(String status) {
   return switch (status) {
     'pending' => 'В очереди',
     'downloading' => 'Загрузка',
+    'cancelled' => 'Отмена загрузки…',
     'completed' => 'Готово',
     'failed' => 'Ошибка',
     _ => 'Неизвестно',

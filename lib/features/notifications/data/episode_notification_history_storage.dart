@@ -1,3 +1,4 @@
+import 'package:dream_cast/core/utils/json_record.dart';
 import 'dart:convert';
 
 import 'package:dream_cast/features/notifications/data/episode_notification_history.dart';
@@ -82,21 +83,21 @@ final class EpisodeNotificationHistoryStorage {
 }
 
 EpisodeNotificationHistoryEntry? _entryFromJson(String raw) {
-  final decoded = jsonDecode(raw);
-  if (decoded is! Map) return null;
-  final releaseRaw = decoded['release'];
-  if (releaseRaw is! Map) return null;
-  return EpisodeNotificationHistoryEntry(
-    id: decoded['id'] as String? ?? '',
-    release: _releaseFromJson(releaseRaw.cast<String, Object?>()),
-    message: decoded['message'] as String? ?? '',
-    previousCount: (decoded['previousCount'] as num?)?.toInt() ?? 0,
-    currentCount: (decoded['currentCount'] as num?)?.toInt() ?? 0,
-    createdAt:
-        DateTime.tryParse(decoded['createdAt'] as String? ?? '') ??
-        DateTime.fromMillisecondsSinceEpoch(0),
-    readAt: DateTime.tryParse(decoded['readAt'] as String? ?? ''),
-  );
+  return readJsonRecord(raw, (decoded) {
+    final releaseRaw = decoded['release'];
+    if (releaseRaw is! Map) return null;
+    return EpisodeNotificationHistoryEntry(
+      id: decoded['id'] as String? ?? '',
+      release: _releaseFromJson(releaseRaw.cast<String, Object?>()),
+      message: decoded['message'] as String? ?? '',
+      previousCount: (decoded['previousCount'] as num?)?.toInt() ?? 0,
+      currentCount: (decoded['currentCount'] as num?)?.toInt() ?? 0,
+      createdAt:
+          DateTime.tryParse(decoded['createdAt'] as String? ?? '') ??
+          DateTime.fromMillisecondsSinceEpoch(0),
+      readAt: DateTime.tryParse(decoded['readAt'] as String? ?? ''),
+    );
+  });
 }
 
 Map<String, Object?> _entryToJson(EpisodeNotificationHistoryEntry entry) => {

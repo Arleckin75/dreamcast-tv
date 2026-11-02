@@ -1,3 +1,4 @@
+import 'package:dream_cast/core/utils/json_record.dart';
 import 'dart:convert';
 
 import 'package:dream_cast/app/bootstrap/dream_cast_app.dart';
@@ -124,18 +125,18 @@ ReleaseBookmarkStatus? _statusFromName(String? name) {
 }
 
 ReleaseBookmarkEntry? _entryFromJson(String raw) {
-  final decoded = jsonDecode(raw);
-  if (decoded is! Map) return null;
-  final status = _statusFromName(decoded['status'] as String?);
-  final releaseRaw = decoded['release'];
-  if (status == null || releaseRaw is! Map) return null;
-  return ReleaseBookmarkEntry(
-    status: status,
-    release: _releaseFromJson(releaseRaw.cast<String, Object?>()),
-    updatedAt:
-        DateTime.tryParse(decoded['updatedAt'] as String? ?? '') ??
-        DateTime.fromMillisecondsSinceEpoch(0),
-  );
+  return readJsonRecord(raw, (decoded) {
+    final status = _statusFromName(decoded['status'] as String?);
+    final releaseRaw = decoded['release'];
+    if (status == null || releaseRaw is! Map) return null;
+    return ReleaseBookmarkEntry(
+      status: status,
+      release: _releaseFromJson(releaseRaw.cast<String, Object?>()),
+      updatedAt:
+          DateTime.tryParse(decoded['updatedAt'] as String? ?? '') ??
+          DateTime.fromMillisecondsSinceEpoch(0),
+    );
+  });
 }
 
 Map<String, Object?> _entryToJson(ReleaseBookmarkEntry entry) => {

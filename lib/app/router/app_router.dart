@@ -1,4 +1,7 @@
 import 'package:animations/animations.dart';
+import 'package:dream_cast/app/router/app_routes.dart';
+import 'package:dream_cast/app/widgets/app_error_view.dart';
+import 'package:dream_cast/features/releases/presentation/release_list_providers.dart';
 import 'package:dream_cast/app/widgets/adaptive_app_shell.dart';
 import 'package:dream_cast/features/home/presentation/home_screen.dart';
 import 'package:dream_cast/features/library/presentation/library_screen.dart';
@@ -152,17 +155,58 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/release/:id',
         parentNavigatorKey: _rootNavigatorKey,
         pageBuilder: (context, state) {
-          final release = state.extra;
+          final id = int.tryParse(state.pathParameters['id'] ?? '');
           return _sharedAxisPage(
             key: state.pageKey,
-            child: release is DreamRelease
-                ? ReleaseDetailScreen(release: release)
+            child: id != null && id > 0
+                ? _ReleaseRouteScreen(
+                    id: id,
+                    seed: releaseExtra(state.extra, id),
+                  )
+                : const _MissingRouteDataScreen(),
+          );
+        },
+      ),
+      GoRoute(
+        path: '/release/:id/episodes',
+        parentNavigatorKey: _rootNavigatorKey,
+        pageBuilder: (context, state) {
+          final id = int.tryParse(state.pathParameters['id'] ?? '');
+          return _sharedAxisPage(
+            key: state.pageKey,
+            child: id != null && id > 0
+                ? _ReleaseRouteScreen(id: id, episodes: true)
+                : const _MissingRouteDataScreen(),
+          );
+        },
+      ),
+      GoRoute(
+        path: '/watch/:releaseId/:episodeId',
+        parentNavigatorKey: _rootNavigatorKey,
+        pageBuilder: (context, state) {
+          final id = int.tryParse(state.pathParameters['releaseId'] ?? '');
+          final episodeId = state.pathParameters['episodeId'];
+          return _sharedAxisPage(
+            key: state.pageKey,
+            child: id != null && id > 0 && episodeId != null
+                ? _WatchRouteScreen(
+                    releaseId: id,
+                    episodeId: episodeId,
+                    request: state.extra is PlaybackRequest
+                        ? state.extra as PlaybackRequest
+                        : null,
+                  )
                 : const _MissingRouteDataScreen(),
           );
         },
       ),
       GoRoute(
         path: '/episodes',
+        redirect: (context, state) => state.extra is DreamReleaseDetail
+            ? releaseEpisodesLocation(
+                (state.extra as DreamReleaseDetail).release.id,
+              )
+            : '/home',
         parentNavigatorKey: _rootNavigatorKey,
         pageBuilder: (context, state) {
           final detail = state.extra;
@@ -176,6 +220,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/watch',
+        redirect: (context, state) {
+          final request = state.extra;
+          return request is PlaybackRequest
+              ? watchLocation(request.release.id, request.episode.id)
+              : '/home';
+        },
         parentNavigatorKey: _rootNavigatorKey,
         pageBuilder: (context, state) {
           final request = state.extra;
@@ -198,6 +248,90 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     ],
   );
 });
+
+class _ReleaseRouteScreen extends ConsumerWidget {
+  const _ReleaseRouteScreen({
+    required this.id,
+    this.seed,
+    this.episodes = false,
+  });
+  final int id;
+  final DreamRelease? seed;
+  final bool episodes;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (episodes) {
+      final provider = releaseDetailByIdProvider((id: id, seed: seed));
+      return ref
+          .watch(provider)
+          .when(
+            data: (data) => EpisodeListScreen(detail: data.value),
+            loading: () => const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            ),
+            error: (error, stack) => Scaffold(
+              body: AppErrorView(
+                error: error,
+                onRetry: () => ref.invalidate(provider),
+              ),
+            ),
+          );
+    }
+    final provider = releaseByIdProvider((id: id, seed: seed));
+    return ref
+        .watch(provider)
+        .when(
+          data: (release) => ReleaseDetailScreen(release: release),
+          loading: () =>
+              const Scaffold(body: Center(child: CircularProgressIndicator())),
+          error: (error, stack) => Scaffold(
+            body: AppErrorView(
+              error: error,
+              onRetry: () => ref.invalidate(provider),
+            ),
+          ),
+        );
+  }
+}
+
+class _WatchRouteScreen extends ConsumerWidget {
+  const _WatchRouteScreen({
+    required this.releaseId,
+    required this.episodeId,
+    this.request,
+  });
+  final int releaseId;
+  final String episodeId;
+  final PlaybackRequest? request;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final seed = request;
+    if (seed != null &&
+        seed.release.id == releaseId &&
+        seed.episode.id == episodeId) {
+      return VideoPlayerScreen(request: seed);
+    }
+    final provider = watchPlaybackRequestProvider((
+      releaseId: releaseId,
+      episodeId: episodeId,
+    ));
+    return ref
+        .watch(provider)
+        .when(
+          data: (request) => VideoPlayerScreen(request: request),
+          loading: () =>
+              const Scaffold(body: Center(child: CircularProgressIndicator())),
+          error: (error, stack) => Scaffold(
+            body: AppErrorView(
+              error: error,
+              onRetry: () => ref.invalidate(provider),
+            ),
+          ),
+        );
+  }
+}
 
 class _MissingRouteDataScreen extends StatelessWidget {
   const _MissingRouteDataScreen();

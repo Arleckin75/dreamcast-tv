@@ -1,8 +1,8 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dream_cast/app/widgets/app_error_view.dart';
 import 'package:dream_cast/core/database/app_database.dart';
+import 'package:dream_cast/core/settings/player_build.dart';
 import 'package:dream_cast/features/downloads/data/download_providers.dart';
-import 'package:dream_cast/features/downloads/data/download_service.dart';
 import 'package:dream_cast/features/library/data/release_bookmark_providers.dart';
 import 'package:dream_cast/features/notifications/data/episode_notification_providers.dart';
 import 'package:dream_cast/features/player/data/player_providers.dart';
@@ -444,7 +444,10 @@ class _EpisodeListSheetState extends ConsumerState<_EpisodeListSheet> {
     SharedPreferences.getInstance().then((prefs) {
       if (!mounted) return;
       final value = prefs.getInt('software_av1_quality') ?? 0;
-      setState(() => _selectedQuality = {0, 480, 720, 1080}.contains(value) ? value : 0);
+      setState(
+        () =>
+            _selectedQuality = {0, 480, 720, 1080}.contains(value) ? value : 0,
+      );
     });
   }
 
@@ -454,7 +457,6 @@ class _EpisodeListSheetState extends ConsumerState<_EpisodeListSheet> {
       (prefs) => prefs.setInt('software_av1_quality', quality),
     );
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -488,9 +490,9 @@ class _EpisodeListSheetState extends ConsumerState<_EpisodeListSheet> {
                       ButtonSegment(value: 1080, label: Text('1080p')),
                     ],
                     selected: {_selectedQuality},
-                    onSelectionChanged: (values) => _changeQuality(values.first),
+                    onSelectionChanged: (values) =>
+                        _changeQuality(values.first),
                   ),
-
                 ],
               ),
             ),
@@ -512,7 +514,9 @@ class _EpisodeListSheetState extends ConsumerState<_EpisodeListSheet> {
                       .map((download) => download.episodeId)
                       .toSet();
                   final offlineOnly =
-                      data.isStale && completedDownloads != null;
+                      offlinePlaybackSupported &&
+                      data.isStale &&
+                      completedDownloads != null;
                   final queue =
                       (offlineOnly
                               ? data.value.where(
@@ -552,8 +556,6 @@ class _EpisodeListSheetState extends ConsumerState<_EpisodeListSheet> {
       ),
     );
   }
-
-
 }
 
 class _OfflineEpisodesEmptyState extends StatelessWidget {
@@ -770,15 +772,16 @@ class _EpisodeDownloadButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    if (!offlinePlaybackSupported) return const SizedBox.shrink();
     final status = download?.status;
 
-    if (status == 'pending') {
-      return const SizedBox.square(
-        dimension: 40,
-        child: Padding(
-          padding: EdgeInsets.all(10),
-          child: CircularProgressIndicator(strokeWidth: 2),
-        ),
+    if (status == 'pending' || status == 'cancelled') {
+      return IconButton(
+        tooltip: status == 'pending'
+            ? 'Отменить загрузку в очереди'
+            : 'Отмена загрузки…',
+        onPressed: status == 'pending' ? onCancelDownload : null,
+        icon: const Icon(Icons.hourglass_empty_rounded),
       );
     }
 

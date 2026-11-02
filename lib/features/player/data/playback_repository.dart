@@ -139,6 +139,10 @@ final class PlaybackRepository {
     );
     if (row == null) return null;
 
+    if (row.expiresAt != null && !row.expiresAt!.isAfter(DateTime.now())) {
+      return null;
+    }
+
     final release = DreamRelease(
       id: int.tryParse(item.releaseId) ?? 0,
       title: item.releaseTitle,

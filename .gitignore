@@ -49,3 +49,8 @@ android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
 /android/key.properties
 /android/app/*.jks
 /android/app/*.keystore
+# Local verification SDK and package cache.
+.tools/
+/pubspec_overrides.yaml
+/android/local.properties
+/android/.gradle/
