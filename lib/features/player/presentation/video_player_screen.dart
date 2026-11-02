@@ -1,3 +1,4 @@
+import 'package:dream_cast/app/widgets/tv_dialog.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:dream_cast/core/settings/player_build.dart';
@@ -29,6 +30,8 @@ class VideoPlayerScreen extends ConsumerStatefulWidget {
 }
 
 class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
+  final _playerFocus = FocusNode(debugLabel: 'tv-player');
+  final _playFocus = FocusNode(debugLabel: 'tv-player-play');
   static const _media3Probe = MethodChannel("dream_cast/media3_probe");
   VideoPlayerController? _controller;
   DreamStream? _currentStream;
@@ -69,6 +72,8 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
 
   @override
   void dispose() {
+    _playerFocus.dispose();
+    _playFocus.dispose();
     _progressTimer?.cancel();
     _uiTimer?.cancel();
     _controlsHideTimer?.cancel();
@@ -93,57 +98,54 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       child: Scaffold(
         backgroundColor: Colors.black,
         body: Focus(
+          focusNode: _playerFocus,
           autofocus: true,
           onKeyEvent: _handleRemoteKey,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: _toggleControlsVisibility,
-            onDoubleTapDown: _handleDoubleTapSeek,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                Center(
-                  child: _error != null
-                      ? _PlayerError(error: _error!, onRetry: _retry)
-                      : _isInitializing ||
-                            controller == null ||
-                            !controller.value.isInitialized
-                      ? const _PlayerLoading()
-                      : AspectRatio(
-                          aspectRatio: controller.value.aspectRatio,
-                          child: VideoPlayer(controller),
-                        ),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Center(
+                child: _error != null
+                    ? _PlayerError(error: _error!, onRetry: _retry)
+                    : _isInitializing ||
+                          controller == null ||
+                          !controller.value.isInitialized
+                    ? const _PlayerLoading()
+                    : AspectRatio(
+                        aspectRatio: controller.value.aspectRatio,
+                        child: VideoPlayer(controller),
+                      ),
+              ),
+              if (_seekFeedbackText != null)
+                _SeekFeedback(
+                  text: _seekFeedbackText!,
+                  alignment: _seekFeedbackAlignment,
                 ),
-                if (_seekFeedbackText != null)
-                  _SeekFeedback(
-                    text: _seekFeedbackText!,
-                    alignment: _seekFeedbackAlignment,
-                  ),
-                if (controller != null)
-                  _PlayerControls(
-                    visible: _showControls && !_isInPip,
-                    controller: controller,
-                    title: _request.episode.title,
-                    subtitle: displayReleaseTitle(_request.release),
-                    streams: _request.streams,
-                    currentStream: _currentStream,
-                    onBack: _closePlayer,
-                    onTogglePlay: () {
-                      _togglePlay();
-                      _scheduleControlsAutoHide();
-                    },
-                    onSeek: (position) {
-                      unawaited(_seekTo(position));
-                      _scheduleControlsAutoHide();
-                    },
-                    onSeekRelative: (offset) {
-                      unawaited(_seekRelative(offset));
-                      _scheduleControlsAutoHide();
-                    },
-                    onStreamSelected: _switchStream,
-                  ),
-              ],
-            ),
+              if (controller != null)
+                _PlayerControls(
+                  playFocus: _playFocus,
+                  visible: _showControls && !_isInPip,
+                  controller: controller,
+                  title: _request.episode.title,
+                  subtitle: displayReleaseTitle(_request.release),
+                  streams: _request.streams,
+                  currentStream: _currentStream,
+                  onTogglePlay: () {
+                    _togglePlay();
+                    _scheduleControlsAutoHide();
+                  },
+                  onSeek: (position) {
+                    unawaited(_seekTo(position));
+                    _scheduleControlsAutoHide();
+                  },
+                  onSeekRelative: (offset) {
+                    unawaited(_seekRelative(offset));
+                    _scheduleControlsAutoHide();
+                  },
+                  onStreamSelected: _switchStream,
+                  onControlsReturned: _showControlsNow,
+                ),
+            ],
           ),
         ),
       ),
@@ -155,13 +157,31 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       return KeyEventResult.ignored;
     }
     final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.mediaPlay ||
+        key == LogicalKeyboardKey.mediaPause) {
+      final controller = _controller;
+      if (controller != null && controller.value.isInitialized) {
+        key == LogicalKeyboardKey.mediaPlay
+            ? controller.play()
+            : controller.pause();
+      }
+      _showControlsNow();
+      return KeyEventResult.handled;
+    }
+    if (_showControls) _scheduleControlsAutoHide();
+    if ((!_showControls || node.hasPrimaryFocus) &&
+        (key == LogicalKeyboardKey.arrowUp ||
+            key == LogicalKeyboardKey.arrowDown)) {
+      _showControlsNow();
+      return KeyEventResult.handled;
+    }
     if (key == LogicalKeyboardKey.mediaPlayPause ||
         key == LogicalKeyboardKey.space ||
         (node.hasPrimaryFocus &&
             (key == LogicalKeyboardKey.select ||
                 key == LogicalKeyboardKey.enter))) {
       _togglePlay();
-      _scheduleControlsAutoHide();
+      _showControlsNow();
       return KeyEventResult.handled;
     }
     if (!node.hasPrimaryFocus && _showControls) {
@@ -170,13 +190,15 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     if (key == LogicalKeyboardKey.arrowLeft ||
         key == LogicalKeyboardKey.mediaRewind) {
       unawaited(_seekRelative(const Duration(seconds: -10)));
-      _scheduleControlsAutoHide();
+      _showSeekFeedback(true);
+      _showControlsNow(requestFocus: false);
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.arrowRight ||
         key == LogicalKeyboardKey.mediaFastForward) {
       unawaited(_seekRelative(const Duration(seconds: 10)));
-      _scheduleControlsAutoHide();
+      _showSeekFeedback(false);
+      _showControlsNow(requestFocus: false);
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.goBack) {
@@ -468,15 +490,6 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     if (mounted) setState(() {});
   }
 
-  void _handleDoubleTapSeek(TapDownDetails details) {
-    final width = MediaQuery.sizeOf(context).width;
-    final backward = details.localPosition.dx < width / 2;
-    final offset = Duration(seconds: backward ? -10 : 10);
-    unawaited(_seekRelative(offset));
-    _showSeekFeedback(backward);
-    _scheduleControlsAutoHide();
-  }
-
   void _showSeekFeedback(bool backward) {
     _seekFeedbackTimer?.cancel();
     setState(() {
@@ -534,26 +547,30 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     });
   }
 
-  void _toggleControlsVisibility() {
-    if (_showControls) {
-      _controlsHideTimer?.cancel();
-      setState(() => _showControls = false);
-      return;
-    }
-    _showControlsNow();
-  }
-
-  void _showControlsNow() {
+  void _showControlsNow({bool requestFocus = true}) {
     if (!mounted) return;
     setState(() => _showControls = true);
+    if (requestFocus) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted &&
+            _showControls &&
+            !_isInPip &&
+            _playFocus.canRequestFocus) {
+          _playFocus.requestFocus();
+        }
+      });
+    }
     _scheduleControlsAutoHide();
   }
 
   void _scheduleControlsAutoHide() {
     _controlsHideTimer?.cancel();
     _controlsHideTimer = Timer(const Duration(seconds: 10), () {
-      if (!mounted) return;
+      if (!mounted || _isClosing) return;
       setState(() => _showControls = false);
+      if (!_isInPip && (ModalRoute.of(context)?.isCurrent ?? false)) {
+        _playerFocus.requestFocus();
+      }
     });
   }
 
@@ -573,6 +590,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         ),
         actions: [
           TextButton(
+            autofocus: true,
             onPressed: () {
               Navigator.pop(context);
               unawaited(_closePlayer());
@@ -689,7 +707,6 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     await SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
-      DeviceOrientation.portraitUp,
     ]);
   }
 
@@ -699,16 +716,11 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     if (saveProgress) await _saveProgress();
     await PlayerPipService.setEnabled(enabled: false);
     await WakelockPlus.disable();
-    await SystemChrome.setPreferredOrientations(DeviceOrientation.values);
-    await SystemChrome.setEnabledSystemUIMode(
-      SystemUiMode.manual,
-      overlays: SystemUiOverlay.values,
-    );
-    await Future<void>.delayed(const Duration(milliseconds: 120));
-    await SystemChrome.setEnabledSystemUIMode(
-      SystemUiMode.manual,
-      overlays: SystemUiOverlay.values,
-    );
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   }
 
   Duration _clampDuration(Duration value, Duration max) {
@@ -726,11 +738,12 @@ class _PlayerControls extends StatelessWidget {
     required this.subtitle,
     required this.streams,
     required this.currentStream,
-    required this.onBack,
+    required this.playFocus,
     required this.onTogglePlay,
     required this.onSeek,
     required this.onSeekRelative,
     required this.onStreamSelected,
+    required this.onControlsReturned,
   });
 
   final bool visible;
@@ -739,11 +752,12 @@ class _PlayerControls extends StatelessWidget {
   final String subtitle;
   final List<DreamStream> streams;
   final DreamStream? currentStream;
-  final VoidCallback onBack;
+  final FocusNode playFocus;
   final VoidCallback onTogglePlay;
   final ValueChanged<Duration> onSeek;
   final ValueChanged<Duration> onSeekRelative;
   final ValueChanged<DreamStream> onStreamSelected;
+  final VoidCallback onControlsReturned;
 
   @override
   Widget build(BuildContext context) {
@@ -754,63 +768,69 @@ class _PlayerControls extends StatelessWidget {
     final compact = size.width < 640 || size.height < 420;
     final horizontalPadding = compact ? 12.0 : 28.0;
 
-    return IgnorePointer(
-      ignoring: !visible,
-      child: AnimatedOpacity(
-        opacity: visible ? 1 : 0,
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Colors.black.withValues(alpha: 0.58),
-                Colors.black.withValues(alpha: 0.08),
-                Colors.black.withValues(alpha: 0.64),
-              ],
-              stops: const [0, 0.48, 1],
-            ),
-          ),
-          child: SafeArea(
-            minimum: EdgeInsets.fromLTRB(
-              horizontalPadding,
-              compact ? 8 : 12,
-              horizontalPadding,
-              compact ? 8 : 14,
-            ),
-            child: Column(
-              children: [
-                _TopBar(
-                  title: title,
-                  subtitle: subtitle,
-                  compact: compact,
-                  currentStream: currentStream,
-                  onBack: onBack,
-                  onQualityTap: () => _showQualitySheet(context),
+    return ExcludeFocus(
+      excluding: !visible,
+      child: ExcludeSemantics(
+        excluding: !visible,
+        child: IgnorePointer(
+          ignoring: !visible,
+          child: AnimatedOpacity(
+            opacity: visible ? 1 : 0,
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withValues(alpha: 0.58),
+                    Colors.black.withValues(alpha: 0.08),
+                    Colors.black.withValues(alpha: 0.64),
+                  ],
+                  stops: const [0, 0.48, 1],
                 ),
-                const Spacer(),
-                AnimatedScale(
-                  scale: visible ? 1 : 0.96,
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOutCubic,
-                  child: _CenterTransportControls(
-                    isPlaying: value.isPlaying,
-                    compact: compact,
-                    onTogglePlay: onTogglePlay,
-                    onSeekRelative: onSeekRelative,
-                  ),
+              ),
+              child: SafeArea(
+                minimum: EdgeInsets.fromLTRB(
+                  horizontalPadding,
+                  compact ? 8 : 12,
+                  horizontalPadding,
+                  compact ? 8 : 14,
                 ),
-                const Spacer(),
-                _BottomControls(
-                  position: value.position,
-                  duration: value.duration,
-                  compact: compact,
-                  accentColor: colors.primary,
-                  onSeek: onSeek,
+                child: Column(
+                  children: [
+                    _TopBar(
+                      title: title,
+                      subtitle: subtitle,
+                      compact: compact,
+                      currentStream: currentStream,
+                      onQualityTap: () => _showQualitySheet(context),
+                    ),
+                    const Spacer(),
+                    AnimatedScale(
+                      scale: visible ? 1 : 0.96,
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeOutCubic,
+                      child: _CenterTransportControls(
+                        playFocus: playFocus,
+                        isPlaying: value.isPlaying,
+                        compact: compact,
+                        onTogglePlay: onTogglePlay,
+                        onSeekRelative: onSeekRelative,
+                      ),
+                    ),
+                    const Spacer(),
+                    _BottomControls(
+                      position: value.position,
+                      duration: value.duration,
+                      compact: compact,
+                      accentColor: colors.primary,
+                      onSeek: onSeek,
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
@@ -818,11 +838,9 @@ class _PlayerControls extends StatelessWidget {
     );
   }
 
-  void _showQualitySheet(BuildContext context) {
-    showModalBottomSheet<void>(
+  Future<void> _showQualitySheet(BuildContext context) async {
+    await showTvDialog<void>(
       context: context,
-      showDragHandle: true,
-      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHigh,
       builder: (context) => SafeArea(
         child: ListView(
           shrinkWrap: true,
@@ -840,6 +858,7 @@ class _PlayerControls extends StatelessWidget {
             for (final stream in streams)
               ListTile(
                 selected: stream == currentStream,
+                autofocus: stream == currentStream,
                 onTap: () => onStreamSelected(stream),
                 leading: Icon(
                   stream == currentStream
@@ -855,6 +874,7 @@ class _PlayerControls extends StatelessWidget {
         ),
       ),
     );
+    onControlsReturned();
   }
 }
 
@@ -864,7 +884,6 @@ class _TopBar extends StatelessWidget {
     required this.subtitle,
     required this.compact,
     required this.currentStream,
-    required this.onBack,
     required this.onQualityTap,
   });
 
@@ -872,7 +891,6 @@ class _TopBar extends StatelessWidget {
   final String subtitle;
   final bool compact;
   final DreamStream? currentStream;
-  final VoidCallback onBack;
   final VoidCallback onQualityTap;
 
   @override
@@ -881,13 +899,6 @@ class _TopBar extends StatelessWidget {
 
     return Row(
       children: [
-        _FloatingIconButton(
-          tooltip: 'Назад',
-          icon: Icons.arrow_back,
-          onPressed: onBack,
-          size: compact ? 48 : 56,
-        ),
-        SizedBox(width: compact ? 8 : 12),
         Expanded(
           child: _FloatingPill(
             minHeight: compact ? 48 : 56,
@@ -943,12 +954,14 @@ class _CenterTransportControls extends StatelessWidget {
     required this.compact,
     required this.onTogglePlay,
     required this.onSeekRelative,
+    required this.playFocus,
   });
 
   final bool isPlaying;
   final bool compact;
   final VoidCallback onTogglePlay;
   final ValueChanged<Duration> onSeekRelative;
+  final FocusNode playFocus;
 
   @override
   Widget build(BuildContext context) {
@@ -968,6 +981,7 @@ class _CenterTransportControls extends StatelessWidget {
         SizedBox(width: compact ? 18 : 30),
         _FloatingIconButton(
           tooltip: isPlaying ? 'Пауза' : 'Воспроизвести',
+          focusNode: playFocus,
           icon: isPlaying ? Icons.pause : Icons.play_arrow,
           onPressed: onTogglePlay,
           size: playSize,
@@ -1088,6 +1102,7 @@ class _FloatingIconButton extends StatelessWidget {
     required this.size,
     this.iconSize = 28,
     this.accent = false,
+    this.focusNode,
   });
 
   final String tooltip;
@@ -1096,6 +1111,7 @@ class _FloatingIconButton extends StatelessWidget {
   final double size;
   final double iconSize;
   final bool accent;
+  final FocusNode? focusNode;
 
   @override
   Widget build(BuildContext context) {
@@ -1118,6 +1134,7 @@ class _FloatingIconButton extends StatelessWidget {
           ),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
+            focusNode: focusNode,
             onTap: onPressed,
             child: Icon(
               icon,

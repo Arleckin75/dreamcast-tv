@@ -339,7 +339,10 @@ class _MissingRouteDataScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Не удалось открыть')),
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        title: const Text('Не удалось открыть'),
+      ),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(24),

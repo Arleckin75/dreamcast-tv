@@ -1,3 +1,4 @@
+import 'package:dream_cast/app/widgets/tv_refresh.dart';
 import 'package:dream_cast/app/widgets/app_empty_state.dart';
 import 'package:dream_cast/app/router/app_routes.dart';
 import 'package:dream_cast/app/widgets/app_error_view.dart';
@@ -50,25 +51,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Dream Cast'),
+        automaticallyImplyLeading: false,
+        title: const Text('Dream Cast TV'),
         actions: [
           IconButton(
             tooltip: 'Поиск',
             onPressed: () => context.push('/search'),
             icon: const Icon(Icons.search),
           ),
-          if (MediaQuery.sizeOf(context).width >= 720) ...[
-            IconButton(
-              tooltip: 'Библиотека',
-              onPressed: () => context.go('/library'),
-              icon: const Icon(Icons.collections_bookmark_outlined),
-            ),
-            IconButton(
-              tooltip: 'Календарь',
-              onPressed: () => context.go('/schedule'),
-              icon: const Icon(Icons.calendar_month_outlined),
-            ),
-          ],
           IconButton(
             tooltip: 'Уведомления',
             onPressed: () => context.push('/notifications'),
@@ -80,12 +70,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               child: const Icon(Icons.notifications_none_outlined),
             ),
           ),
-          if (MediaQuery.sizeOf(context).width >= 720)
-            IconButton(
-              tooltip: 'Настройки',
-              onPressed: () => context.go('/settings'),
-              icon: const Icon(Icons.settings_outlined),
-            ),
         ],
       ),
       body: Column(
@@ -108,7 +92,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Widget _buildContent(ReleaseListState data) {
     if (data.items.isEmpty) {
-      return RefreshIndicator(
+      return TvRefresh(
         onRefresh: () => ref.read(latestReleasesProvider.notifier).refresh(),
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -119,19 +103,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               title: 'Релизы не найдены',
               message:
                   'Попробуйте обновить страницу или проверить подключение.',
-              action: FilledButton.icon(
-                onPressed: () =>
-                    ref.read(latestReleasesProvider.notifier).refresh(),
-                icon: const Icon(Icons.refresh),
-                label: const Text('Обновить'),
-              ),
             ),
           ],
         ),
       );
     }
 
-    return RefreshIndicator(
+    return TvRefresh(
       onRefresh: () => ref.read(latestReleasesProvider.notifier).refresh(),
       child: CustomScrollView(
         controller: _scrollController,

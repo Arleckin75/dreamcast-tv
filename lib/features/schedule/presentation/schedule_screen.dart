@@ -1,3 +1,4 @@
+import 'package:dream_cast/app/widgets/tv_refresh.dart';
 import 'package:dream_cast/app/widgets/app_empty_state.dart';
 import 'package:dream_cast/app/widgets/app_error_view.dart';
 import 'package:dream_cast/features/releases/domain/release.dart';
@@ -19,14 +20,8 @@ class ScheduleScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: false,
         title: const Text('Календарь'),
-        leading: MediaQuery.sizeOf(context).width >= 720
-            ? IconButton(
-                tooltip: 'К каталогу',
-                onPressed: () => context.go('/home'),
-                icon: const Icon(Icons.arrow_back),
-              )
-            : null,
       ),
       body: state.when(
         loading: () => const ReleaseGridSkeleton(),
@@ -37,7 +32,7 @@ class ScheduleScreen extends ConsumerWidget {
         data: (data) {
           final schedule = data.value;
           if (schedule.days.every((day) => day.releases.isEmpty)) {
-            return RefreshIndicator(
+            return TvRefresh(
               onRefresh: () => _refresh(ref),
               child: ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
@@ -53,7 +48,7 @@ class ScheduleScreen extends ConsumerWidget {
             );
           }
 
-          return RefreshIndicator(
+          return TvRefresh(
             onRefresh: () => _refresh(ref),
             child: CustomScrollView(
               physics: const AlwaysScrollableScrollPhysics(),

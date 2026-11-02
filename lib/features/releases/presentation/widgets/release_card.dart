@@ -3,25 +3,49 @@ import 'package:dream_cast/features/releases/presentation/release_title_formatte
 import 'package:dream_cast/features/releases/presentation/widgets/release_poster.dart';
 import 'package:flutter/material.dart';
 
-class ReleaseCard extends StatelessWidget {
-  const ReleaseCard({required this.release, required this.onTap, this.focusNode, super.key});
+class ReleaseCard extends StatefulWidget {
+  const ReleaseCard({
+    required this.release,
+    required this.onTap,
+    this.focusNode,
+    super.key,
+  });
 
   final DreamRelease release;
   final VoidCallback onTap;
   final FocusNode? focusNode;
 
   @override
+  State<ReleaseCard> createState() => _ReleaseCardState();
+}
+
+class _ReleaseCardState extends State<ReleaseCard> {
+  bool _focused = false;
+  DreamRelease get release => widget.release;
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     return InkWell(
-      focusNode: focusNode,
-      onTap: onTap,
+      focusNode: widget.focusNode,
+      onTap: widget.onTap,
+      onFocusChange: (focused) {
+        if (mounted) setState(() => _focused = focused);
+      },
       autofocus: false,
       focusColor: theme.colorScheme.primary.withValues(alpha: 0.24),
       hoverColor: theme.colorScheme.primary.withValues(alpha: 0.12),
       borderRadius: BorderRadius.circular(10),
-      child: Padding(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: _focused ? theme.colorScheme.primary : Colors.transparent,
+            width: 3,
+          ),
+        ),
         padding: const EdgeInsets.all(4),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -32,7 +56,7 @@ class ReleaseCard extends StatelessWidget {
               displayReleaseTitle(release),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelMedium?.copyWith(
+              style: theme.textTheme.labelLarge?.copyWith(
                 fontWeight: FontWeight.w700,
                 color: theme.colorScheme.onSurface,
                 height: 1.15,
@@ -46,7 +70,7 @@ class ReleaseCard extends StatelessWidget {
               style: theme.textTheme.labelSmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
                 fontWeight: FontWeight.w500,
-                fontSize: 10,
+                fontSize: 14,
               ),
             ),
           ],

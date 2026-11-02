@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:dream_cast/app/widgets/tv_dialog.dart';
 
 class AboutAppScreen extends StatefulWidget {
   const AboutAppScreen({super.key});
@@ -17,7 +17,10 @@ class _AboutAppScreenState extends State<AboutAppScreen> {
     return Scaffold(
       body: CustomScrollView(
         slivers: [
-          SliverAppBar.large(title: const Text('Информация')),
+          SliverAppBar.large(
+            automaticallyImplyLeading: false,
+            title: const Text('Информация'),
+          ),
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
@@ -209,15 +212,7 @@ class _LinkButton extends StatelessWidget {
   }
 
   Future<void> _open(BuildContext context) async {
-    final opened = await launchUrl(
-      Uri.parse(link.url),
-      mode: LaunchMode.externalApplication,
-    );
-    if (!opened && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Не удалось открыть ${link.title}.')),
-      );
-    }
+    await showTvLink(context, link.url);
   }
 }
 
@@ -269,7 +264,6 @@ class _NotePanel extends StatelessWidget {
   }
 }
 
-
 /// The original project's GPLv3 license is bundled as an offline asset.
 class _OpenSourceLicensePanel extends StatelessWidget {
   const _OpenSourceLicensePanel();
@@ -283,33 +277,45 @@ class _OpenSourceLicensePanel extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Открытый исходный код и лицензия',
-                style: theme.textTheme.titleLarge),
+            Text(
+              'Открытый исходный код и лицензия',
+              style: theme.textTheme.titleLarge,
+            ),
             const SizedBox(height: 12),
-            const Text('Dream Cast распространяется по лицензии GNU GPLv3. '
-                'Оригинальное приложение разработано rurin1x. '
-                'Версия для Android TV является модификацией оригинального проекта.'),
+            const Text(
+              'Dream Cast распространяется по лицензии GNU GPLv3. '
+              'Оригинальное приложение разработано rurin1x. '
+              'Версия для Android TV является модификацией оригинального проекта.',
+            ),
             const SizedBox(height: 14),
-            Wrap(spacing: 12, runSpacing: 12, children: [
-              OutlinedButton.icon(
-                autofocus: false,
-                onPressed: () => _showFullLicense(context),
-                icon: const Icon(Icons.description_outlined),
-                label: const Text('Текст лицензии GPLv3'),
-              ),
-              OutlinedButton.icon(
-                onPressed: () => _openSource(context,
-                    'https://github.com/rurin1x/dreamcast-app'),
-                icon: const Icon(Icons.code),
-                label: const Text('Оригинальные исходники'),
-              ),
-              OutlinedButton.icon(
-                onPressed: () => _openSource(context,
-                    'https://github.com/Arleckin75/dreamcast-tv'),
-                icon: const Icon(Icons.tv_outlined),
-                label: const Text('Исходники Android TV'),
-              ),
-            ]),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                OutlinedButton.icon(
+                  autofocus: false,
+                  onPressed: () => _showFullLicense(context),
+                  icon: const Icon(Icons.description_outlined),
+                  label: const Text('Текст лицензии GPLv3'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => _openSource(
+                    context,
+                    'https://github.com/rurin1x/dreamcast-app',
+                  ),
+                  icon: const Icon(Icons.code),
+                  label: const Text('Оригинальные исходники'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => _openSource(
+                    context,
+                    'https://github.com/Arleckin75/dreamcast-tv',
+                  ),
+                  icon: const Icon(Icons.tv_outlined),
+                  label: const Text('Исходники Android TV'),
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -317,12 +323,7 @@ class _OpenSourceLicensePanel extends StatelessWidget {
   }
 
   Future<void> _openSource(BuildContext context, String url) async {
-    final opened = await launchUrl(Uri.parse(url),
-        mode: LaunchMode.externalApplication);
-    if (!opened && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Не удалось открыть ссылку.')));
-    }
+    await showTvLink(context, url);
   }
 
   Future<void> _showFullLicense(BuildContext context) async {
@@ -334,18 +335,11 @@ class _OpenSourceLicensePanel extends StatelessWidget {
         title: const Text('GNU General Public License v3'),
         content: SizedBox(
           width: 850,
-          height: 480,
-          child: Scrollbar(
-            thumbVisibility: true,
-            child: SingleChildScrollView(
-              primary: true,
-              child: SelectableText(text),
-            ),
-          ),
+          height: MediaQuery.sizeOf(context).height * 0.5,
+          child: TvScrollableText(text),
         ),
         actions: [
           FilledButton(
-            autofocus: true,
             onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Закрыть'),
           ),

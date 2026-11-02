@@ -312,6 +312,14 @@ class CosmosAv1PlayerActivity : Activity() {
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         val p = player
         when (keyCode) {
+            KeyEvent.KEYCODE_MEDIA_PLAY -> {
+                p?.play()
+                reveal(); return true
+            }
+            KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                if (p != null) { persistPosition(true); p.pause() }
+                reveal(); return true
+            }
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_SPACE -> {
                 if (p != null) { if (p.isPlaying) { persistPosition(true); p.pause() } else p.play() }

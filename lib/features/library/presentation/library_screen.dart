@@ -18,14 +18,8 @@ class LibraryScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: false,
         title: const Text('Библиотека'),
-        leading: MediaQuery.sizeOf(context).width >= 720
-            ? IconButton(
-                tooltip: 'К каталогу',
-                onPressed: () => context.go('/home'),
-                icon: const Icon(Icons.arrow_back),
-              )
-            : null,
       ),
       body: entries.isEmpty
           ? const AppEmptyState(
@@ -74,7 +68,10 @@ class LibraryStatusScreen extends ConsumerWidget {
         .toList(growable: false);
 
     return Scaffold(
-      appBar: AppBar(title: Text(status.label)),
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        title: Text(status.label),
+      ),
       body: entries.isEmpty
           ? AppEmptyState(
               icon: Icons.collections_bookmark_outlined,

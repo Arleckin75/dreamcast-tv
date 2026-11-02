@@ -1,3 +1,4 @@
+import 'package:dream_cast/app/widgets/tv_dialog.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dream_cast/app/widgets/app_error_view.dart';
 import 'package:dream_cast/core/database/app_database.dart';
@@ -79,10 +80,8 @@ class _ReleaseDetailScreenState extends ConsumerState<ReleaseDetailScreen> {
   }
 
   void _showEpisodeList(BuildContext context, DreamReleaseDetail detail) {
-    showModalBottomSheet<void>(
+    showTvDialog<void>(
       context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
       builder: (context) => _EpisodeListSheet(detail: detail),
     );
   }
@@ -100,6 +99,7 @@ class _HeaderSliver extends StatelessWidget {
         detail?.thumbnailUrl ?? release.wallUrl ?? release.posterUrl;
 
     return SliverAppBar(
+      automaticallyImplyLeading: false,
       pinned: true,
       expandedHeight: 280,
       title: Text(
@@ -625,6 +625,7 @@ class _EpisodeRow extends ConsumerWidget {
     final download = downloadState.value;
 
     return ListTile(
+      autofocus: episodeQueue.isNotEmpty && episode.id == episodeQueue.first.id,
       minVerticalPadding: 10,
       leading: _EpisodeNumberBadge(episode.ordinal),
       title: Text(episode.title, maxLines: 2, overflow: TextOverflow.ellipsis),

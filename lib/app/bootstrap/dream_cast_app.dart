@@ -37,7 +37,8 @@ class _DreamCastMaterialApp extends ConsumerStatefulWidget {
   const _DreamCastMaterialApp();
 
   @override
-  ConsumerState<_DreamCastMaterialApp> createState() => _DreamCastMaterialAppState();
+  ConsumerState<_DreamCastMaterialApp> createState() =>
+      _DreamCastMaterialAppState();
 }
 
 class _DreamCastMaterialAppState extends ConsumerState<_DreamCastMaterialApp> {
@@ -56,6 +57,12 @@ class _DreamCastMaterialAppState extends ConsumerState<_DreamCastMaterialApp> {
     if (_handlingBack || !mounted) return;
     _handlingBack = true;
     try {
+      if (WidgetsBinding.instance.platformDispatcher.views.any(
+        (view) => view.viewInsets.bottom > 0,
+      )) {
+        await SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+        return;
+      }
       final router = ref.read(appRouterProvider);
       if (router.canPop()) {
         // Use the router's popRoute so PopScope (notably the video player)
@@ -65,8 +72,9 @@ class _DreamCastMaterialAppState extends ConsumerState<_DreamCastMaterialApp> {
       }
       if (router.routeInformationProvider.value.uri.path != '/home') {
         router.go('/home');
+      } else {
+        await SystemNavigator.pop();
       }
-      // Back on /home intentionally does nothing.
     } finally {
       _handlingBack = false;
     }
@@ -93,7 +101,7 @@ class _DreamCastMaterialAppState extends ConsumerState<_DreamCastMaterialApp> {
 
         return MaterialApp.router(
           debugShowCheckedModeBanner: false,
-          title: 'Dream Cast',
+          title: 'Dream Cast TV',
           routerConfig: router,
           themeMode: settings.themeMode,
           theme: themeBundle.light,

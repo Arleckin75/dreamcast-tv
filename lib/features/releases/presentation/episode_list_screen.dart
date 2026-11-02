@@ -1,3 +1,4 @@
+import 'package:dream_cast/app/widgets/tv_dialog.dart';
 import 'dart:io';
 
 import 'package:dream_cast/app/widgets/app_error_view.dart';
@@ -32,7 +33,10 @@ class _EpisodeListScreenState extends ConsumerState<EpisodeListScreen> {
     final downloadsState = ref.watch(downloadedEpisodesStreamProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Серии')),
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        title: const Text('Серии'),
+      ),
       body: state.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stackTrace) => AppErrorView(
@@ -157,6 +161,7 @@ class _EpisodeTile extends ConsumerWidget {
     final download = downloadState.value;
 
     return ListTile(
+      autofocus: episodeQueue.isNotEmpty && episode.id == episodeQueue.first.id,
       minVerticalPadding: 10,
       leading: _EpisodeNumberBadge(episode.ordinal),
       title: Text(episode.title, maxLines: 2, overflow: TextOverflow.ellipsis),
@@ -416,9 +421,8 @@ Future<void> playEpisode({
   );
   if (openedPreferred || !context.mounted) return;
 
-  showModalBottomSheet<void>(
+  showTvDialog<void>(
     context: context,
-    showDragHandle: true,
     builder: (sheetContext) => SafeArea(
       child: Consumer(
         builder: (context, sheetRef, child) {
@@ -528,6 +532,7 @@ Future<void> confirmDeleteDownload({
       ),
       actions: [
         TextButton(
+          autofocus: true,
           onPressed: () => Navigator.pop(context, false),
           child: const Text('Отмена'),
         ),
@@ -555,10 +560,8 @@ Future<int?> showDownloadQualitySheet({
   final theme = Theme.of(context);
   final sortedQualities = [...qualities]..sort((a, b) => b.compareTo(a));
 
-  return showModalBottomSheet<int?>(
+  return showTvDialog<int?>(
     context: context,
-    showDragHandle: true,
-    backgroundColor: theme.colorScheme.surfaceContainerHigh,
     builder: (sheetContext) => SafeArea(
       child: ListView(
         shrinkWrap: true,

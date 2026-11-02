@@ -54,3 +54,12 @@ android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
 /pubspec_overrides.yaml
 /android/local.properties
 /android/.gradle/
+
+# Local Android outputs and native build caches.
+*.apk
+*.aab
+/dist/
+/android/.kotlin/
+/android/app/.cxx/
+/av1-runtime-dependencies.txt
+/release-notes.md

@@ -47,11 +47,11 @@ class ReleasePoster extends StatelessWidget {
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 4),
                       child: Text(
-                        normalizedUrl == null ? 'NULL URL' : 'INVALID URL',
+                        'Нет постера',
                         textAlign: TextAlign.center,
                         style: theme.textTheme.labelSmall?.copyWith(
                           color: theme.colorScheme.error,
-                          fontSize: 8,
+                          fontSize: 14,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -78,11 +78,11 @@ class ReleasePoster extends StatelessWidget {
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 4),
                           child: Text(
-                            'LOAD ERROR',
+                            'Нет постера',
                             textAlign: TextAlign.center,
                             style: theme.textTheme.labelSmall?.copyWith(
                               color: theme.colorScheme.onErrorContainer,
-                              fontSize: 8,
+                              fontSize: 14,
                               fontWeight: FontWeight.bold,
                             ),
                           ),

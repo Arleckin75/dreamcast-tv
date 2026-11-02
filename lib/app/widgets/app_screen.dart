@@ -19,7 +19,12 @@ class AppScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(title), leading: leading, actions: actions),
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        title: Text(title),
+        leading: leading,
+        actions: actions,
+      ),
       floatingActionButton: floatingActionButton,
       body: SafeArea(top: false, child: child),
     );

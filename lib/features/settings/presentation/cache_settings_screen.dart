@@ -1,3 +1,5 @@
+import 'package:dream_cast/app/widgets/tv_refresh.dart';
+import 'package:dream_cast/app/widgets/tv_dialog.dart';
 import 'package:dream_cast/core/cache/cache_providers.dart';
 import 'package:dream_cast/core/cache/cache_retention.dart';
 import 'package:dream_cast/core/database/app_database.dart';
@@ -14,7 +16,10 @@ class CacheSettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     if (!offlinePlaybackSupported) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Сетевой кэш')),
+        appBar: AppBar(
+          automaticallyImplyLeading: false,
+          title: const Text('Сетевой кэш'),
+        ),
         body: const _NetworkCacheTab(),
       );
     }
@@ -22,6 +27,7 @@ class CacheSettingsScreen extends ConsumerWidget {
       length: 2,
       child: Scaffold(
         appBar: AppBar(
+          automaticallyImplyLeading: false,
           title: const Text('Кэш и загрузки'),
           bottom: const TabBar(
             tabs: [
@@ -31,6 +37,7 @@ class CacheSettingsScreen extends ConsumerWidget {
           ),
         ),
         body: const TabBarView(
+          physics: NeverScrollableScrollPhysics(),
           children: [_NetworkCacheTab(), _DownloadedEpisodesTab()],
         ),
       ),
@@ -47,7 +54,7 @@ class _NetworkCacheTab extends ConsumerWidget {
     final retention = ref.watch(cacheRetentionProvider);
     final theme = Theme.of(context);
 
-    return RefreshIndicator(
+    return TvRefresh(
       onRefresh: () async => ref.invalidate(cacheStatsProvider),
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
@@ -140,9 +147,8 @@ class _NetworkCacheTab extends ConsumerWidget {
   void _showRetentionSheet(BuildContext context, WidgetRef ref) {
     final selected = ref.read(cacheRetentionProvider);
 
-    showModalBottomSheet<void>(
+    showTvDialog<void>(
       context: context,
-      showDragHandle: true,
       builder: (context) => SafeArea(
         child: ListView(
           shrinkWrap: true,
@@ -160,6 +166,7 @@ class _NetworkCacheTab extends ConsumerWidget {
             for (final option in CacheRetentionOption.values)
               ListTile(
                 title: Text(option.label),
+                autofocus: selected == option,
                 subtitle: Text(option.description),
                 trailing: selected == option ? const Icon(Icons.check) : null,
                 onTap: () async {
@@ -235,6 +242,7 @@ class _DownloadedEpisodesTab extends ConsumerWidget {
         ),
         actions: [
           TextButton(
+            autofocus: true,
             onPressed: () => Navigator.pop(context, false),
             child: const Text('Отмена'),
           ),
@@ -380,6 +388,7 @@ class _DownloadGroupCard extends ConsumerWidget {
         ),
         actions: [
           TextButton(
+            autofocus: true,
             onPressed: () => Navigator.pop(context, false),
             child: const Text('Отмена'),
           ),
@@ -493,6 +502,7 @@ class _DownloadedEpisodeAction extends ConsumerWidget {
         ),
         actions: [
           TextButton(
+            autofocus: true,
             onPressed: () => Navigator.pop(context, false),
             child: const Text('Отмена'),
           ),
