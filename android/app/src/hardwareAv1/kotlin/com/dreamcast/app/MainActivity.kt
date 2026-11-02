@@ -15,8 +15,6 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
-    private val softwarePlayerRequestCode = 7192
-    private var pendingSoftwarePlayerResult: MethodChannel.Result? = null
     private val trackProbeChannelName = "dream_cast/media3_probe"
     private var trackProbeChannel: MethodChannel? = null
 
@@ -36,22 +34,6 @@ class MainActivity : FlutterActivity() {
     private var pipEnabled = false
     private var pipAspectRatio = Rational(16, 9)
 
-    @Suppress("DEPRECATION")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == softwarePlayerRequestCode) {
-            val pending = pendingSoftwarePlayerResult
-            pendingSoftwarePlayerResult = null
-            pending?.success(if (resultCode == RESULT_OK && data != null) {
-                mapOf(
-                    "positionMs" to data.getLongExtra("positionMs", 0L),
-                    "durationMs" to data.getLongExtra("durationMs", 0L),
-                    "completed" to data.getBooleanExtra("completed", false)
-                )
-            } else null)
-        }
-    }
-
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         trackProbeChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, trackProbeChannelName)
@@ -63,27 +45,6 @@ class MainActivity : FlutterActivity() {
                 } catch (error: Exception) {
                     android.util.Log.e("DCTV_TRACKS", "Source selection probe failed", error)
                     result.success(null) // Never block playback on source selection failures.
-                }
-            } else if (call.method == "playSoftwareAV1") {
-                try {
-                    val uri = call.argument<String>("url")
-                    val headers = call.argument<Map<String, String>>("headers") ?: emptyMap()
-                    val resumeMs = call.argument<Number>("positionMs")?.toLong() ?: 0L
-                    val episodeKey = call.argument<String>("episodeKey").orEmpty()
-                    val quality = if (call.argument<Int>("quality") == 1080) 1080 else 720
-                    if (uri.isNullOrBlank()) result.error("NO_URL", "No video URL", null)
-                    else {
-                        if (pendingSoftwarePlayerResult != null) {
-                            result.error("PLAYER_BUSY", "Software player already running", null)
-                        } else {
-                            pendingSoftwarePlayerResult = result
-                            try { CosmosAv1Launcher.launch(this, uri, headers, resumeMs, episodeKey, quality) }
-                            catch (error: Exception) { pendingSoftwarePlayerResult = null; throw error }
-                        }
-                    }
-                } catch (error: Exception) {
-                    android.util.Log.e("DCTV_AV1", "Software player could not launch", error)
-                    pendingSoftwarePlayerResult?.let { pendingSoftwarePlayerResult = null; it.success(null) } ?: result.success(null)
                 }
             } else result.notImplemented()
         }

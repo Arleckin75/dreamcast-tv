@@ -1,0 +1,17 @@
+name: video_player_android
+version: 2.9.0
+publish_to: none
+description: No-op Android platform implementation for software-only LibVLC builds.
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: '>=3.22.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  video_player_platform_interface: ^6.4.0
+flutter:
+  plugin:
+    implements: video_player
+    platforms:
+      android:
+        dartPluginClass: VideoPlayerAndroidNoop

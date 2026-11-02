@@ -27,7 +27,7 @@ object CosmosAv1Launcher {
         intent.putExtra("url", url)
         intent.putExtra("positionMs", positionMs)
         intent.putExtra("episodeKey", episodeKey)
-        intent.putExtra("quality", if (quality == 1080) 1080 else 720)
+        intent.putExtra("quality", if (quality in listOf(480, 720, 1080)) quality else 720)
         intent.putExtra("userAgent", headers.entries.firstOrNull { it.key.equals("user-agent", true) }?.value)
         intent.putExtra("referer", headers.entries.firstOrNull { it.key.equals("referer", true) }?.value)
         activity.startActivityForResult(intent, 7192)
@@ -35,6 +35,11 @@ object CosmosAv1Launcher {
 }
 
 class CosmosAv1PlayerActivity : Activity() {
+    private var backExitRequested = false
+    private var shutdownStarted = false
+    // Capture playback progress before VLC.stop()/release() invalidate player.time.
+    private var exitPositionMs: Long? = null
+    private var exitDurationMs: Long? = null
     private var engine: LibVLC? = null
     private var player: MediaPlayer? = null
     private var message: TextView? = null
@@ -98,7 +103,7 @@ class CosmosAv1PlayerActivity : Activity() {
                 userAgent = intent.getStringExtra("userAgent")
         referer = intent.getStringExtra("referer")
         episodeKey = intent.getStringExtra("episodeKey").orEmpty()
-        activeHeight = if (intent.getIntExtra("quality", 720) == 1080) 1080 else 720
+        activeHeight = intent.getIntExtra("quality", 720).takeIf { it in listOf(480, 720, 1080) } ?: 720
         resumeMs = intent.getLongExtra("positionMs", 0L)
         if (episodeKey.isNotBlank()) {
             val storedMs = progressPrefs.getLong(episodeKey, 0L)
@@ -159,14 +164,16 @@ class CosmosAv1PlayerActivity : Activity() {
 
     private fun releasePlayer() {
         uiHandler.removeCallbacks(progressSaver)
-        player?.let { mp ->
-            runCatching { mp.setEventListener(null) }
-            runCatching { mp.stop() }
-            runCatching { mp.vlcVout.detachViews() }
-            runCatching { mp.release() }
-        }
+        val mp = player
         player = null
-        engine?.release()
+        mp?.let {
+            runCatching { it.setEventListener(null) }
+            // Stop while the SurfaceView is still attached to the window.
+            if (!shutdownStarted) runCatching { it.stop() }
+            runCatching { it.vlcVout.detachViews() }
+            runCatching { it.release() }
+        }
+        engine?.let { runCatching { it.release() } }
         engine = null
         voutCount = -1
     }
@@ -249,6 +256,59 @@ class CosmosAv1PlayerActivity : Activity() {
         uiHandler.postDelayed(hideUi, 6000)
     }
 
+    // Consume BOTH DOWN and UP in this Activity. Finishing on DOWN can send the
+    // matching UP to the resumed Flutter MainActivity, triggering an extra Back.
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.keyCode == KeyEvent.KEYCODE_BACK) {
+            if (event.action == KeyEvent.ACTION_UP && !event.isCanceled && !backExitRequested) {
+                exitToEpisodes()
+            }
+            return true
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    @Deprecated("Support legacy Android TV Back dispatch")
+    override fun onBackPressed() {
+        exitToEpisodes()
+    }
+
+    private fun exitToEpisodes() {
+        if (backExitRequested || isFinishing || isDestroyed) return
+        backExitRequested = true
+        Log.i("DCTV_AV1", "Back pressed; stopping VLC before surface teardown")
+        // Returning to Flutter destroys SurfaceView. The Cosmos Mali driver can
+        // crash AWindowHandler if that happens while VLC is still rendering.
+        val mp = player
+        if (mp == null) {
+            finish()
+            return
+        }
+        uiHandler.removeCallbacks(progressSaver)
+        uiHandler.removeCallbacks(hideUi)
+        persistPosition(true)
+        // The delayed finish occurs AFTER releasePlayer() sets player=null.
+        // Keep the same position/duration for the Activity result sent to Flutter.
+        val currentMs = runCatching { mp.time }.getOrDefault(-1L)
+        val savedMs = if (episodeKey.isNotBlank()) progressPrefs.getLong(episodeKey, 0L) else 0L
+        exitPositionMs = if (episodeCompleted) 0L else if (currentMs >= 0L) currentMs else savedMs
+        exitDurationMs = runCatching { mp.length }.getOrDefault(0L).coerceAtLeast(0L)
+        Log.i("DCTV_PROGRESS", "captured before VLC stop positionMs=$exitPositionMs durationMs=$exitDurationMs")
+        runCatching { mp.setEventListener(null) }
+        shutdownStarted = true
+        runCatching { mp.stop() }
+            .onFailure { Log.w("DCTV_AV1", "VLC stop failed", it) }
+        Log.i("DCTV_AV1", "VLC stop requested; delaying surface detach")
+        // Give VLC's asynchronous vout/AWindowHandler thread time to quiesce
+        // before detaching the view and finishing the Android Activity.
+        uiHandler.postDelayed({
+            if (isFinishing || isDestroyed) return@postDelayed
+            Log.i("DCTV_AV1", "Releasing VLC views before Activity.finish")
+            releasePlayer()
+            finish()
+        }, 700L)
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         val p = player
         when (keyCode) {
@@ -265,7 +325,6 @@ class CosmosAv1PlayerActivity : Activity() {
                 if (p != null && p.isSeekable) { p.time = p.time + 10000; uiHandler.postDelayed({ persistPosition(true) }, 500L) }
                 reveal(); return true
             }
-            KeyEvent.KEYCODE_BACK -> { finish(); return true }
         }
         return super.onKeyDown(keyCode, event)
     }
@@ -276,10 +335,14 @@ class CosmosAv1PlayerActivity : Activity() {
     }
 
     override fun finish() {
+        if (isFinishing) return
         val mp = player
-        val ms = if (episodeCompleted) 0L else runCatching { mp?.time ?: 0L }.getOrDefault(0L)
-        val duration = runCatching { mp?.length ?: 0L }.getOrDefault(0L)
-        persistPosition(true)
+        val ms = if (episodeCompleted) 0L else exitPositionMs
+            ?: runCatching { mp?.time ?: 0L }.getOrDefault(0L)
+        val duration = exitDurationMs
+            ?: runCatching { mp?.length ?: 0L }.getOrDefault(0L)
+        // Only read the active player; after release there is nothing to persist.
+        if (mp != null) persistPosition(true)
         setResult(RESULT_OK, Intent().apply {
             putExtra("positionMs", ms.coerceAtLeast(0L))
             putExtra("durationMs", duration.coerceAtLeast(0L))
