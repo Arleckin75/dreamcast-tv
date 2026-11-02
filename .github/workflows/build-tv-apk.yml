@@ -83,6 +83,8 @@ jobs:
         run: python3 scripts/prepare_software_av1.py
       - name: Get dependencies
         run: flutter pub get
+      - name: Install and verify Android NDK
+        run: bash scripts/install_android_ndk.sh
       - name: Analyze Dart sources
         run: flutter analyze
       - name: Run regression tests
@@ -244,6 +246,8 @@ jobs:
         run: python3 scripts/prepare_software_av1.py
       - name: Get dependencies
         run: flutter pub get
+      - name: Install and verify Android NDK
+        run: bash scripts/install_android_ndk.sh
       - name: Analyze Dart sources
         run: flutter analyze
       - name: Run regression tests

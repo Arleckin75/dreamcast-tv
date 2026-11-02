@@ -25,3 +25,5 @@ jobs:
         run: flutter test test/software_player_test.dart --flavor softwareAv1
       - name: Check Python build tools
         run: python3 -m py_compile scripts/prepare_software_av1.py scripts/audit_av1_apk.py
+      - name: Verify NDK setup retries without downloading SDK components
+        run: bash scripts/tests/install_android_ndk_test.sh

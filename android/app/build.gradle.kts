@@ -18,7 +18,7 @@ if (hasReleaseKeystore) {
 android {
     namespace = "com.dreamcast.app"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    ndkVersion = rootProject.file("../.android-ndk-version").readText().trim()
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
