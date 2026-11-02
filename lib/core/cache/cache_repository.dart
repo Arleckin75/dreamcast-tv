@@ -46,7 +46,10 @@ final class CacheRepository {
     );
   }
 
-  Future<CachedValue<Map<String, Object?>>?> getJsonMap(String key) async {
+  Future<CachedValue<Map<String, Object?>>?> getJsonMap(
+    String key, {
+    Duration? maxAge,
+  }) async {
     final row = await _database.cacheEntry(key);
     if (row == null) return null;
 
@@ -57,7 +60,10 @@ final class CacheRepository {
     return CachedValue<Map<String, Object?>>(
       value: decoded.cast<String, Object?>(),
       updatedAt: row.updatedAt,
-      isStale: expiresAt != null && DateTime.now().isAfter(expiresAt),
+      isStale:
+          (expiresAt != null && !DateTime.now().isBefore(expiresAt)) ||
+          (maxAge != null &&
+              !DateTime.now().isBefore(row.updatedAt.add(maxAge))),
     );
   }
 

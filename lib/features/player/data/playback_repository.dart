@@ -65,37 +65,49 @@ final class PlaybackRepository {
     required DreamEpisode episode,
     required Duration position,
     required Duration? duration,
+    bool completed = false,
   }) async {
-    final durationMs = duration?.inMilliseconds;
-    final positionMs = position.inMilliseconds;
+    final durationMs = duration != null && duration > Duration.zero
+        ? duration.inMilliseconds
+        : null;
+    final positionMs = durationMs == null
+        ? position.inMilliseconds.clamp(0, 0x7fffffffffffffff)
+        : position.inMilliseconds.clamp(0, durationMs);
     final isWatched =
-        durationMs != null && durationMs > 0 && positionMs / durationMs >= 0.9;
+        completed ||
+        (durationMs != null &&
+            durationMs > 0 &&
+            positionMs / durationMs >= 0.9);
     final now = DateTime.now();
 
-    await savePosition(
-      PlaybackPosition(
-        releaseId: '${release.id}',
-        episodeId: episode.id,
-        position: position,
-        duration: duration,
-        updatedAt: now,
-      ),
-    );
+    await _database.transaction(() async {
+      await savePosition(
+        PlaybackPosition(
+          releaseId: '${release.id}',
+          episodeId: episode.id,
+          position: Duration(milliseconds: positionMs),
+          duration: durationMs == null
+              ? null
+              : Duration(milliseconds: durationMs),
+          updatedAt: now,
+        ),
+      );
 
-    await _database.upsertWatchEntry(
-      WatchEntriesCompanion(
-        releaseId: Value('${release.id}'),
-        episodeId: Value(episode.id),
-        releaseTitle: Value(release.title),
-        episodeTitle: Value(episode.title),
-        posterUrl: Value(release.posterUrl),
-        episodeOrdinal: Value(episode.ordinal),
-        positionMs: Value(positionMs),
-        durationMs: Value(durationMs),
-        isWatched: Value(isWatched),
-        updatedAt: Value(now),
-      ),
-    );
+      await _database.upsertWatchEntry(
+        WatchEntriesCompanion(
+          releaseId: Value('${release.id}'),
+          episodeId: Value(episode.id),
+          releaseTitle: Value(release.title),
+          episodeTitle: Value(episode.title),
+          posterUrl: Value(release.posterUrl),
+          episodeOrdinal: Value(episode.ordinal),
+          positionMs: Value(positionMs),
+          durationMs: Value(durationMs),
+          isWatched: Value(isWatched),
+          updatedAt: Value(now),
+        ),
+      );
+    });
   }
 
   Future<void> saveDreamStreamSession({
@@ -123,10 +135,9 @@ final class PlaybackRepository {
         .watchRecentEntries(limit: 50)
         .map(
           (rows) => uniqueRecentContinueWatchingItems(
-            rows
-                .where((row) => !row.isWatched)
-                .map(_continueWatchingItemFromRow),
-          ),
+            rows.map(_continueWatchingItemFromRow),
+            limit: 50,
+          ).where((item) => !item.isWatched).take(5).toList(growable: false),
         );
   }
 
@@ -197,11 +208,15 @@ List<ContinueWatchingItem> uniqueRecentContinueWatchingItems(
   Iterable<ContinueWatchingItem> items, {
   int limit = 5,
 }) {
-  final sorted = [...items]..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+  final sorted = items.indexed.toList()
+    ..sort((a, b) {
+      final byDate = b.$2.updatedAt.compareTo(a.$2.updatedAt);
+      return byDate == 0 ? a.$1.compareTo(b.$1) : byDate;
+    });
   final seenReleaseIds = <String>{};
   final result = <ContinueWatchingItem>[];
 
-  for (final item in sorted) {
+  for (final (_, item) in sorted) {
     if (!seenReleaseIds.add(item.releaseId)) continue;
     result.add(item);
     if (result.length == limit) break;

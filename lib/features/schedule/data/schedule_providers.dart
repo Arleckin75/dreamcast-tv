@@ -11,5 +11,5 @@ final releaseScheduleProvider = FutureProvider<DreamData<ReleaseSchedule>>((
   ref.onDispose(cancelToken.cancel);
   return ref
       .watch(releaseRepositoryProvider)
-      .getSchedule(cancelToken: cancelToken);
+      .getSchedule(cancelToken: cancelToken, refresh: ref.isRefresh);
 });

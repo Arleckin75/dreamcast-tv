@@ -22,10 +22,11 @@ import org.videolan.libvlc.MediaPlayer
 
 /** AV1 software fallback, isolated from ExoPlayer on compatible devices. */
 object CosmosAv1Launcher {
-    @JvmStatic fun launch(activity: Activity, url: String, headers: Map<String, String>, positionMs: Long, episodeKey: String, quality: Int) {
+    @JvmStatic fun launch(activity: Activity, url: String, headers: Map<String, String>, positionMs: Long, episodeKey: String, quality: Int, positionUpdatedAtMs: Long) {
         val intent = Intent(activity, CosmosAv1PlayerActivity::class.java)
         intent.putExtra("url", url)
         intent.putExtra("positionMs", positionMs)
+        intent.putExtra("positionUpdatedAtMs", positionUpdatedAtMs)
         intent.putExtra("episodeKey", episodeKey)
         intent.putExtra("quality", if (quality in listOf(480, 720, 1080)) quality else 720)
         intent.putExtra("userAgent", headers.entries.firstOrNull { it.key.equals("user-agent", true) }?.value)
@@ -50,6 +51,7 @@ class CosmosAv1PlayerActivity : Activity() {
     private var videoSurface: SurfaceView? = null
     private var episodeKey: String = ""
     private var episodeCompleted = false
+    private var playbackError = false
     private var resumeMs = 0L
     private var hasRestoredPosition = false
     private var lastPersistedMs = -1L
@@ -57,21 +59,23 @@ class CosmosAv1PlayerActivity : Activity() {
     private fun persistPosition(force: Boolean = false) {
         val mp = player ?: return
         if (episodeKey.isBlank()) return
+        if (episodeCompleted || playbackError || (!hasRestoredPosition && resumeMs > 5000L)) return
         val ms = runCatching { mp.time }.getOrDefault(-1L)
         if (ms < 0L) return
         if (!force && (ms < 1000L || (lastPersistedMs >= 0 && kotlin.math.abs(ms - lastPersistedMs) < 4000L))) return
         val length = runCatching { mp.length }.getOrDefault(0L)
         if (length > 0 && ms >= length - 5000L) return // Don't overwrite progress at the end.
-        progressPrefs.edit().putLong(episodeKey, ms).apply()
+        progressPrefs.edit().putLong(episodeKey, ms)
+            .putLong("${episodeKey}:updatedAt", System.currentTimeMillis()).apply()
         lastPersistedMs = ms
         Log.i("DCTV_PROGRESS", "saved positionMs=$ms durationMs=$length")
     }
     private fun restorePosition(mp: MediaPlayer) {
         if (hasRestoredPosition || resumeMs <= 5000L || !mp.isSeekable) return
-        hasRestoredPosition = true
-        val target = resumeMs
+        val length = runCatching { mp.length }.getOrDefault(0L)
+        val target = if (length > 0L && resumeMs >= length - 1000L) 0L else resumeMs
         runCatching { mp.time = target }
-            .onSuccess { Log.i("DCTV_PROGRESS", "restored positionMs=$target") }
+            .onSuccess { hasRestoredPosition = true; Log.i("DCTV_PROGRESS", "restored positionMs=$target") }
             .onFailure { Log.w("DCTV_PROGRESS", "restore failed: ${it.javaClass.simpleName}") }
     }
 
@@ -107,7 +111,9 @@ class CosmosAv1PlayerActivity : Activity() {
         resumeMs = intent.getLongExtra("positionMs", 0L)
         if (episodeKey.isNotBlank()) {
             val storedMs = progressPrefs.getLong(episodeKey, 0L)
-            if (storedMs > resumeMs) resumeMs = storedMs
+            val storedAt = progressPrefs.getLong("${episodeKey}:updatedAt", 0L)
+            val requestedAt = intent.getLongExtra("positionUpdatedAtMs", 0L)
+            if (storedAt > requestedAt || (requestedAt == 0L && resumeMs == 0L)) resumeMs = storedMs
             Log.i("DCTV_PROGRESS", "loaded positionMs=$resumeMs")
         }
         val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
@@ -214,12 +220,14 @@ class CosmosAv1PlayerActivity : Activity() {
                         uiHandler.post { status.text = "AV1 ${activeHeight}p · программный режим | OK: пауза | ◀ ▶: ±10 сек | Back: выход" }
                     }
                     MediaPlayer.Event.EncounteredError -> {
+                        playbackError = true
                         Log.e("DCTV_AV1", "LibVLC playback error")
                         uiHandler.post { status.text = "Ошибка воспроизведения AV1. Нажмите Back."; reveal() }
                     }
                     MediaPlayer.Event.EndReached -> uiHandler.post {
                         episodeCompleted = true
-                        if (episodeKey.isNotBlank()) progressPrefs.edit().remove(episodeKey).apply()
+                        if (episodeKey.isNotBlank()) progressPrefs.edit().remove(episodeKey)
+                            .remove("${episodeKey}:updatedAt").apply()
                         finish()
                     }
                 }
@@ -291,7 +299,13 @@ class CosmosAv1PlayerActivity : Activity() {
         // Keep the same position/duration for the Activity result sent to Flutter.
         val currentMs = runCatching { mp.time }.getOrDefault(-1L)
         val savedMs = if (episodeKey.isNotBlank()) progressPrefs.getLong(episodeKey, 0L) else 0L
-        exitPositionMs = if (episodeCompleted) 0L else if (currentMs >= 0L) currentMs else savedMs
+        exitPositionMs = when {
+            episodeCompleted -> 0L
+            !hasRestoredPosition && resumeMs > 5000L -> resumeMs
+            playbackError -> savedMs
+            currentMs >= 0L -> currentMs
+            else -> savedMs
+        }
         exitDurationMs = runCatching { mp.length }.getOrDefault(0L).coerceAtLeast(0L)
         Log.i("DCTV_PROGRESS", "captured before VLC stop positionMs=$exitPositionMs durationMs=$exitDurationMs")
         runCatching { mp.setEventListener(null) }
@@ -355,6 +369,7 @@ class CosmosAv1PlayerActivity : Activity() {
             putExtra("positionMs", ms.coerceAtLeast(0L))
             putExtra("durationMs", duration.coerceAtLeast(0L))
             putExtra("completed", episodeCompleted)
+            putExtra("playbackError", playbackError)
         })
         Log.i("DCTV_PROGRESS", "return to Flutter positionMs=$ms durationMs=$duration completed=$episodeCompleted")
         super.finish()

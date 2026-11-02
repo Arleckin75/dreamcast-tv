@@ -45,7 +45,8 @@ class MainActivity : FlutterActivity() {
                 mapOf(
                     "positionMs" to data.getLongExtra("positionMs", 0L),
                     "durationMs" to data.getLongExtra("durationMs", 0L),
-                    "completed" to data.getBooleanExtra("completed", false)
+                    "completed" to data.getBooleanExtra("completed", false),
+                    "playbackError" to data.getBooleanExtra("playbackError", false)
                 )
             } else null)
         }
@@ -60,6 +61,7 @@ class MainActivity : FlutterActivity() {
                     val uri = call.argument<String>("url")
                     val headers = call.argument<Map<String, String>>("headers") ?: emptyMap()
                     val resumeMs = call.argument<Number>("positionMs")?.toLong() ?: 0L
+                    val positionUpdatedAtMs = call.argument<Number>("positionUpdatedAtMs")?.toLong() ?: 0L
                     val episodeKey = call.argument<String>("episodeKey").orEmpty()
                     val quality = call.argument<Int>("quality")?.takeIf { it in listOf(480, 720, 1080) } ?: 720
                     if (uri.isNullOrBlank()) result.error("NO_URL", "No video URL", null)
@@ -68,7 +70,7 @@ class MainActivity : FlutterActivity() {
                             result.error("PLAYER_BUSY", "Software player already running", null)
                         } else {
                             pendingSoftwarePlayerResult = result
-                            try { CosmosAv1Launcher.launch(this, uri, headers, resumeMs, episodeKey, quality) }
+                            try { CosmosAv1Launcher.launch(this, uri, headers, resumeMs, episodeKey, quality, positionUpdatedAtMs) }
                             catch (error: Exception) { pendingSoftwarePlayerResult = null; throw error }
                         }
                     }

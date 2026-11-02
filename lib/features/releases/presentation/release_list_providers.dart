@@ -160,6 +160,7 @@ final episodeStreamsProvider = FutureProvider.autoDispose
 
 class LatestReleasesController extends AsyncNotifier<ReleaseListState> {
   CancelToken? _cancelToken;
+  int _generation = 0;
 
   @override
   Future<ReleaseListState> build() async {
@@ -168,14 +169,17 @@ class LatestReleasesController extends AsyncNotifier<ReleaseListState> {
   }
 
   Future<void> refresh() async {
+    final generation = ++_generation;
     _cancelToken?.cancel();
     state = const AsyncLoading<ReleaseListState>();
-    state = await AsyncValue.guard(() => _loadPage(1));
+    final result = await AsyncValue.guard(() => _loadPage(1, refresh: true));
+    if (ref.mounted && generation == _generation) state = result;
   }
 
   Future<void> loadMore() async {
     final current = state.valueOrNullCompat;
     if (current == null || current.isLoadingMore || !current.hasMore) return;
+    final generation = _generation;
 
     state = AsyncData(
       current.copyWith(isLoadingMore: true, clearLoadMoreError: true),
@@ -183,6 +187,7 @@ class LatestReleasesController extends AsyncNotifier<ReleaseListState> {
 
     try {
       final next = await _loadPage(current.page + 1);
+      if (!ref.mounted || generation != _generation) return;
       state = AsyncData(
         next.copyWith(
           items: [...current.items, ...next.items],
@@ -190,17 +195,23 @@ class LatestReleasesController extends AsyncNotifier<ReleaseListState> {
         ),
       );
     } catch (error) {
+      if (!ref.mounted || generation != _generation) return;
       state = AsyncData(
         current.copyWith(isLoadingMore: false, loadMoreError: error),
       );
     }
   }
 
-  Future<ReleaseListState> _loadPage(int page) async {
+  Future<ReleaseListState> _loadPage(int page, {bool refresh = false}) async {
     _cancelToken = CancelToken();
     final data = await ref
         .read(releaseRepositoryProvider)
-        .ongoingCached(page: page, pageSize: 16, cancelToken: _cancelToken);
+        .ongoingCached(
+          page: page,
+          pageSize: 16,
+          refresh: refresh,
+          cancelToken: _cancelToken,
+        );
     final value = data.value;
     logReleaseSample(
       source: 'Provider latest page=$page',
@@ -325,7 +336,8 @@ final class SearchReleasesController extends AsyncNotifier<SearchState> {
   Future<void> _search(String query, {bool saveHistory = false}) async {
     final current =
         state.valueOrNullCompat ?? SearchState.initial(history: _readHistory());
-    _cancelToken = CancelToken();
+    _cancelToken?.cancel();
+    final token = _cancelToken = CancelToken();
     state = AsyncData(
       current.copyWith(query: query, isSearching: true, clearError: true),
     );
@@ -333,7 +345,8 @@ final class SearchReleasesController extends AsyncNotifier<SearchState> {
     try {
       final result = await ref
           .read(releaseRepositoryProvider)
-          .searchCached(query, cancelToken: _cancelToken);
+          .searchCached(query, cancelToken: token);
+      if (!ref.mounted || token.isCancelled) return;
       logReleaseSample(
         source: 'Provider search "$query"',
         releases: result.value.items,
@@ -341,6 +354,7 @@ final class SearchReleasesController extends AsyncNotifier<SearchState> {
         isStale: result.isStale,
       );
       final history = saveHistory ? await _saveHistory(query) : _readHistory();
+      if (!ref.mounted || token.isCancelled) return;
       state = AsyncData(
         current.copyWith(
           query: query,
@@ -352,7 +366,7 @@ final class SearchReleasesController extends AsyncNotifier<SearchState> {
         ),
       );
     } catch (error) {
-      if (_cancelToken?.isCancelled == true) return;
+      if (!ref.mounted || token.isCancelled) return;
       state = AsyncData(
         current.copyWith(query: query, isSearching: false, error: error),
       );

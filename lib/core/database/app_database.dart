@@ -312,7 +312,10 @@ class AppDatabase extends _$AppDatabase {
 
   Stream<List<WatchEntry>> watchRecentEntries({int limit = 12}) {
     return (select(watchEntries)
-          ..orderBy([(row) => OrderingTerm.desc(row.updatedAt)])
+          ..orderBy([
+            (row) => OrderingTerm.desc(row.updatedAt),
+            (row) => OrderingTerm.desc(row.rowId),
+          ])
           ..limit(limit))
         .watch();
   }

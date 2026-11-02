@@ -38,6 +38,10 @@ final class ReleaseRepository {
   final CacheRepository _cache;
   final DreamCastParserService _parser;
 
+  void _checkCancellation(CancelToken? token) {
+    if (token?.isCancelled == true) throw token!.cancelError!;
+  }
+
   Future<ReleasePage<DreamRelease>> ongoing({
     int page = 1,
     int pageSize = 16,
@@ -53,10 +57,13 @@ final class ReleaseRepository {
   Future<DreamData<ReleasePage<DreamRelease>>> ongoingCached({
     int page = 1,
     int pageSize = 16,
+    bool refresh = false,
     CancelToken? cancelToken,
   }) {
     return _getReleasePage(
       cacheKey: 'dreamcast:releases:ongoing:$page:$pageSize',
+      refresh: refresh,
+      cancelToken: cancelToken,
       page: page,
       pageSize: pageSize,
       request: () => _api.getReleases(
@@ -90,6 +97,7 @@ final class ReleaseRepository {
     final normalized = query.trim().toLowerCase();
     return _getReleasePage(
       cacheKey: 'dreamcast:releases:search:$normalized:$page:$pageSize',
+      cancelToken: cancelToken,
       page: page,
       pageSize: pageSize,
       request: () => _api.getReleases(
@@ -140,6 +148,7 @@ final class ReleaseRepository {
         'Repository detail parse failed: release=${release.id}, '
         'errorType=${error.runtimeType}, error=$error, stackTrace=$stackTrace',
       );
+      _checkCancellation(cancelToken);
       final cached = await _detailFromCache(cacheKey, release);
       if (cached != null) return cached;
       rethrow;
@@ -179,8 +188,13 @@ final class ReleaseRepository {
 
   Future<DreamData<ReleaseSchedule>> getSchedule({
     CancelToken? cancelToken,
+    bool refresh = false,
   }) async {
     const cacheKey = 'dreamcast:schedule';
+    _checkCancellation(cancelToken);
+    final cached = await _scheduleFromCache(cacheKey);
+    _checkCancellation(cancelToken);
+    if (!refresh && cached != null && !cached.isStale) return cached;
 
     try {
       final html = await _api.getScheduleHtml(cancelToken: cancelToken);
@@ -209,8 +223,8 @@ final class ReleaseRepository {
         'Repository schedule failed: errorType=${error.runtimeType}, '
         'error=$error, stackTrace=$stackTrace',
       );
-      final cached = await _scheduleFromCache(cacheKey);
-      if (cached != null) return cached;
+      _checkCancellation(cancelToken);
+      if (cached != null) return DreamData(value: cached.value, isStale: true);
       rethrow;
     }
   }
@@ -257,6 +271,7 @@ final class ReleaseRepository {
         'errorType=${error.runtimeType}, error=$error, stackTrace=$stackTrace, '
         'payloadSnippet="${_snippet(detail.playerPayload)}"',
       );
+      _checkCancellation(cancelToken);
       final cached = await _episodesFromCache(cacheKey);
       if (cached != null) {
         logDreamCastDiagnostic(
@@ -311,12 +326,33 @@ final class ReleaseRepository {
 
   Future<DreamData<ReleasePage<DreamRelease>>> _getReleasePage({
     required String cacheKey,
+    bool refresh = false,
+    CancelToken? cancelToken,
     required int page,
     required int pageSize,
     required Future<DreamReleaseListDto> Function() request,
   }) async {
+    _checkCancellation(cancelToken);
+    final cached = await _cache.getJsonMap(cacheKey, maxAge: releasesTtl);
+    ReleasePage<DreamRelease>? cachedPage;
+    if (cached != null) {
+      try {
+        cachedPage = _releasePageFromDto(
+          DreamReleaseListDto.fromJson(cached.value),
+          page: page,
+          pageSize: pageSize,
+        );
+      } on Object {
+        // Invalid records are cache misses; fetch a replacement from the API.
+      }
+    }
+    _checkCancellation(cancelToken);
+    if (!refresh && cachedPage != null && !cached!.isStale) {
+      return DreamData(value: cachedPage, isStale: false);
+    }
     try {
       final dto = await request();
+      _checkCancellation(cancelToken);
       await _cache.putJson(cacheKey, dto.toJson(), ttl: releasesTtl);
       final pageData = _releasePageFromDto(dto, page: page, pageSize: pageSize);
       logReleaseSample(
@@ -327,10 +363,9 @@ final class ReleaseRepository {
       );
       return DreamData(value: pageData, isStale: false);
     } catch (error) {
-      final cached = await _cache.getJsonMap(cacheKey);
-      if (cached == null) rethrow;
-      final dto = DreamReleaseListDto.fromJson(cached.value);
-      final pageData = _releasePageFromDto(dto, page: page, pageSize: pageSize);
+      _checkCancellation(cancelToken);
+      if (cachedPage == null) rethrow;
+      final pageData = cachedPage;
       logReleaseSample(
         source: 'Repository releases cache page=$page',
         releases: pageData.items,
@@ -396,7 +431,7 @@ final class ReleaseRepository {
   Future<DreamData<List<DreamStream>>?> _streamsFromCache(
     String cacheKey,
   ) async {
-    final cached = await _cache.getJsonMap(cacheKey);
+    final cached = await _cache.getJsonMap(cacheKey, maxAge: streamsTtl);
     if (cached == null) return null;
     final raw = cached.value['streams'];
     if (raw is! List) return null;
@@ -412,18 +447,23 @@ final class ReleaseRepository {
   Future<DreamData<ReleaseSchedule>?> _scheduleFromCache(
     String cacheKey,
   ) async {
-    final cached = await _cache.getJsonMap(cacheKey);
+    final cached = await _cache.getJsonMap(cacheKey, maxAge: scheduleTtl);
     if (cached == null) return null;
     final daysRaw = cached.value['days'];
     if (daysRaw is! List) return null;
-
-    final days = daysRaw
-        .whereType<Map>()
-        .map((item) => _scheduleDayFromJson(item.cast<String, Object?>()))
-        .toList(growable: false);
-    if (days.every((day) => day.releases.isEmpty)) return null;
-
-    return DreamData(value: ReleaseSchedule(days: days), isStale: true);
+    try {
+      final days = daysRaw
+          .whereType<Map>()
+          .map((item) => _scheduleDayFromJson(item.cast<String, Object?>()))
+          .toList(growable: false);
+      if (days.every((day) => day.releases.isEmpty)) return null;
+      return DreamData(
+        value: ReleaseSchedule(days: days),
+        isStale: cached.isStale,
+      );
+    } on TypeError {
+      return null;
+    }
   }
 
   Map<String, Object?> _detailToJson(DreamReleaseDetail detail) => {
