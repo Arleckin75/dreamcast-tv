@@ -1,9 +1,11 @@
-Dream Cast TV v0.7.1 / develop / software_AV1 ONLY
+Исправление для Build Dream Cast TV Release APK (v0.7.1)
 
-Из logcat: AWindowHandler SIGSEGV (null pointer dereference) в /vendor/lib/egl/libGLES_mali.so после выхода из LibVLC.
-Изменение: остановить VLC пока SurfaceView в Activity; через 700 мс отсоединить/освободить VLC, затем Activity.finish().
-Это workaround для асинхронного видеовывода; необходимо проверить на Cosmos, гарантии нет.
+Устраняет зависимость шага аудита от отсутствующих в Git android/gradlew и gradle-wrapper.jar.
+Использует gradle/actions/setup-gradle@v4 с Gradle 8.14, затем запускает Gradle :app:dependencies.
 
-Применение: распаковать архив поверх проекта в develop, commit, push, запустить debug сборку.
-Проверка: 15-20 раз открыть видео -> Back -> список эпизодов, сохранить прогресс.
-Main/hardware не изменены.
+Только файл .github/workflows/build-tv-release.yml.
+Работайте в отдельной ветке fix/v071-release-audit-gradle и создайте Pull Request в защищённую main.
+Не меняйте release-signing и ветки защиты.
+После Merge запускайте Build Dream Cast TV Release APK из main.
+
+Примечание: синтаксис YAML проверен. Выполнение GitHub Actions не проверено.
