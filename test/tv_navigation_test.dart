@@ -8,6 +8,9 @@ import 'package:dream_cast/app/widgets/tv_dialog.dart';
 import 'package:dream_cast/app/widgets/tv_refresh.dart';
 import 'package:dream_cast/core/database/app_database.dart';
 import 'package:dream_cast/core/database/database_providers.dart';
+import 'package:dream_cast/features/home/presentation/home_screen.dart';
+import 'package:dream_cast/features/releases/presentation/release_list_providers.dart';
+import 'package:dream_cast/features/releases/presentation/release_list_state.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -16,14 +19,23 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+class _EmptyReleases extends LatestReleasesController {
+  @override
+  Future<ReleaseListState> build() async => const ReleaseListState.empty();
+}
+
 void main() {
   for (final size in [const Size(640, 360), const Size(960, 540)]) {
-    testWidgets('TV tabs and content work with D-pad at $size', (tester) async {
+    testWidgets('home actions share one row and work with D-pad at $size', (
+      tester,
+    ) async {
       tester.view.physicalSize = size;
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       var activated = false;
+      SharedPreferences.setMockInitialValues({});
+      final preferences = await SharedPreferences.getInstance();
       final router = GoRouter(
         initialLocation: '/home',
         routes: [
@@ -41,14 +53,17 @@ void main() {
                   routes: [
                     GoRoute(
                       path: path,
-                      builder: (context, state) => Scaffold(
-                        body: Center(
-                          child: FilledButton(
-                            onPressed: () => activated = true,
-                            child: Text('Контент $path'),
-                          ),
-                        ),
-                      ),
+                      builder: (context, state) => path == '/home'
+                          ? const HomeScreen()
+                          : Scaffold(
+                              body: Center(
+                                child: FilledButton(
+                                  autofocus: true,
+                                  onPressed: () => activated = true,
+                                  child: Text('Контент $path'),
+                                ),
+                              ),
+                            ),
                     ),
                   ],
                 ),
@@ -57,17 +72,41 @@ void main() {
         ],
       );
       addTearDown(router.dispose);
-      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            sharedPreferencesProvider.overrideWithValue(preferences),
+            latestReleasesProvider.overrideWith(_EmptyReleases.new),
+          ],
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
       await tester.pumpAndSettle();
       expect(find.byType(NavigationBar), findsNothing);
-      expect(find.text('Настройки'), findsOneWidget);
+      expect(find.byType(AppBar), findsOneWidget);
+      expect(find.text('Главная'), findsNothing);
+      expect(find.text('Обновить'), findsNothing);
+      const labels = [
+        'Поиск',
+        'Уведомления',
+        'Библиотека',
+        'Календарь',
+        'Настройки',
+      ];
+      final positions = labels
+          .map((label) => tester.getCenter(find.byTooltip(label)))
+          .toList();
+      for (var i = 1; i < positions.length; i++) {
+        expect(positions[i].dy, positions.first.dy);
+        expect(positions[i].dx, greaterThan(positions[i - 1].dx));
+      }
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
       await tester.pump();
       await tester.sendKeyEvent(LogicalKeyboardKey.select);
       await tester.pumpAndSettle();
       expect(router.routeInformationProvider.value.uri.path, '/library');
-      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
-      await tester.pump();
       await tester.sendKeyEvent(LogicalKeyboardKey.select);
       await tester.pump();
       expect(activated, isTrue);

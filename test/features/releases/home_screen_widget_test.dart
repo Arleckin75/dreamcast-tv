@@ -101,7 +101,18 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Релизы не найдены'), findsOneWidget);
-      expect(find.text('Обновить'), findsOneWidget);
+      expect(find.text('Обновить'), findsNothing);
+      final appBar = find.byType(AppBar);
+      final buttons = tester.widgetList<IconButton>(
+        find.descendant(of: appBar, matching: find.byType(IconButton)),
+      );
+      expect(buttons.map((button) => button.tooltip), [
+        'Поиск',
+        'Уведомления',
+        'Библиотека',
+        'Календарь',
+        'Настройки',
+      ]);
     });
 
     testWidgets('renders populated releases in grid view without diagnostics', (

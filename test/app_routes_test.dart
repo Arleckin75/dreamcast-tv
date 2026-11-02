@@ -1,5 +1,4 @@
 import 'package:dream_cast/app/router/app_router.dart';
-import 'package:dream_cast/features/downloads/data/download_providers.dart';
 import 'package:dream_cast/features/releases/domain/release.dart';
 import 'package:dream_cast/features/releases/data/release_repository.dart';
 import 'package:dream_cast/features/releases/presentation/release_list_providers.dart';
@@ -63,9 +62,6 @@ void main() {
   testWidgets('episodes route restores its release by id', (tester) async {
     final container = ProviderContainer(
       overrides: [
-        downloadedEpisodesStreamProvider.overrideWith(
-          (ref) => Stream.value([]),
-        ),
         releaseDetailByIdProvider((id: 9, seed: null)).overrideWith(
           (ref) async => DreamData(value: _detail, isStale: false),
         ),

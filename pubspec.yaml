@@ -49,7 +49,6 @@ dependencies:
   wakelock_plus: ^1.6.1
   workmanager: ^0.9.0+3
   flutter_local_notifications: ^21.0.0
-  flutter_foreground_task: ^9.2.2
 
 dev_dependencies:
   video_player_platform_interface: ^6.7.0

@@ -80,6 +80,7 @@ class WatchEntries extends Table {
   Set<Column<Object>> get primaryKey => {releaseId, episodeId};
 }
 
+// Legacy table retained for database compatibility; the download feature is removed.
 class DownloadedEpisodes extends Table {
   IntColumn get releaseId => integer()();
   TextColumn get episodeId => text()();
@@ -127,68 +128,6 @@ class AppDatabase extends _$AppDatabase {
       }
     },
   );
-
-  Future<void> saveDownloadedEpisode(DownloadedEpisodesCompanion entry) {
-    return into(downloadedEpisodes).insertOnConflictUpdate(entry);
-  }
-
-  Future<int> updateDownloadedEpisode(
-    int releaseId,
-    String episodeId,
-    DownloadedEpisodesCompanion changes,
-  ) {
-    return (update(downloadedEpisodes)..where(
-          (row) =>
-              row.releaseId.equals(releaseId) &
-              row.episodeId.equals(episodeId) &
-              row.status.isNotValue('cancelled'),
-        ))
-        .write(changes);
-  }
-
-  Future<DownloadedEpisode?> downloadedEpisode(
-    int releaseId,
-    String episodeId,
-  ) {
-    return (select(downloadedEpisodes)..where(
-          (row) =>
-              row.releaseId.equals(releaseId) & row.episodeId.equals(episodeId),
-        ))
-        .getSingleOrNull();
-  }
-
-  Stream<DownloadedEpisode?> watchDownloadedEpisode(
-    int releaseId,
-    String episodeId,
-  ) {
-    return (select(downloadedEpisodes)..where(
-          (row) =>
-              row.releaseId.equals(releaseId) & row.episodeId.equals(episodeId),
-        ))
-        .watchSingleOrNull();
-  }
-
-  Future<List<DownloadedEpisode>> allDownloadedEpisodes() {
-    return select(downloadedEpisodes).get();
-  }
-
-  Stream<List<DownloadedEpisode>> watchAllDownloadedEpisodes() {
-    return (select(
-      downloadedEpisodes,
-    )..orderBy([(row) => OrderingTerm.desc(row.createdAt)])).watch();
-  }
-
-  Future<int> deleteDownloadedEpisode(int releaseId, String episodeId) {
-    return (delete(downloadedEpisodes)..where(
-          (row) =>
-              row.releaseId.equals(releaseId) & row.episodeId.equals(episodeId),
-        ))
-        .go();
-  }
-
-  Future<int> deleteAllDownloadedEpisodes() {
-    return delete(downloadedEpisodes).go();
-  }
 
   Future<Profile?> activeProfile() {
     return (select(

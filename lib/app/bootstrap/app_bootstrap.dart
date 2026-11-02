@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:dream_cast/core/database/app_database.dart';
 import 'package:dream_cast/core/logging/app_logger.dart';
-import 'package:dream_cast/features/downloads/data/download_service.dart';
 import 'package:dream_cast/features/notifications/data/episode_notification_service.dart';
 import 'package:dream_cast/features/notifications/data/episode_notification_worker.dart';
 import 'package:flutter/widgets.dart';
@@ -31,22 +30,14 @@ final class AppBootstrap {
         'bootstrap',
       ).warning('WorkManager startup failed: $error', stackTrace);
     }
-    unawaited(_startBackgroundServices(preferences, database));
+    unawaited(_startBackgroundServices(preferences));
 
     return AppBootstrapResult(preferences: preferences, database: database);
   }
 
   static Future<void> _startBackgroundServices(
     SharedPreferences preferences,
-    AppDatabase database,
   ) async {
-    try {
-      await DownloadService.resumePendingDownloads(database);
-    } catch (error, stackTrace) {
-      appLogger(
-        'bootstrap',
-      ).warning('Download queue startup failed: $error', stackTrace);
-    }
     try {
       await EpisodeNotificationService.initialize().timeout(
         const Duration(seconds: 3),

@@ -5,7 +5,6 @@ import 'package:dream_cast/core/settings/player_build.dart';
 import 'dart:ui' show FontFeature, ImageFilter;
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 
-import 'package:dream_cast/core/database/database_providers.dart';
 import 'package:dream_cast/features/player/data/player_providers.dart';
 import 'package:dream_cast/features/player/data/playback_repository.dart';
 import 'package:dream_cast/features/player/data/player_pip_service.dart';
@@ -757,35 +756,6 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
       previous?.removeListener(_onControllerChanged);
       await previous?.dispose();
       if (!mounted || _isClosing) return;
-      final db = ref.read(appDatabaseProvider);
-      final downloaded = await db.downloadedEpisode(
-        _request.release.id,
-        episode.id,
-      );
-
-      if (offlinePlaybackSupported &&
-          downloaded != null &&
-          downloaded.status == 'completed' &&
-          await File(downloaded.localFilePath).exists()) {
-        final localStream = DreamStream(
-          id: 'local_${episode.id}',
-          releaseId: _request.release.id,
-          episodeId: episode.id,
-          url: Uri.file(downloaded.localFilePath),
-          type: DreamStreamType.hls,
-          quality: downloaded.streamQuality,
-        );
-        _request = PlaybackRequest(
-          release: _request.release,
-          episode: episode,
-          streams: [localStream],
-          initialStream: localStream,
-          episodeQueue: _request.episodeQueue,
-        );
-        await _initialize(stream: localStream, resume: true);
-        return;
-      }
-
       final data = await ref
           .read(releaseRepositoryProvider)
           .getStreams(episode);

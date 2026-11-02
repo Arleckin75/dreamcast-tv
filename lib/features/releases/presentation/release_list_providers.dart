@@ -1,7 +1,4 @@
 import 'dart:async';
-import 'dart:io';
-import 'package:dream_cast/core/database/database_providers.dart';
-import 'package:dream_cast/core/settings/player_build.dart';
 
 import 'package:dio/dio.dart';
 import 'package:dream_cast/app/bootstrap/dream_cast_app.dart';
@@ -60,43 +57,6 @@ final watchPlaybackRequestProvider = FutureProvider.autoDispose
       final cancelToken = CancelToken();
       ref.onDispose(cancelToken.cancel);
       final repository = ref.watch(releaseRepositoryProvider);
-      if (offlinePlaybackSupported) {
-        final downloaded = await ref
-            .read(appDatabaseProvider)
-            .downloadedEpisode(key.releaseId, key.episodeId);
-        if (downloaded != null &&
-            downloaded.status == 'completed' &&
-            await File(downloaded.localFilePath).exists()) {
-          final release = DreamRelease(
-            id: key.releaseId,
-            title: downloaded.releaseTitle,
-            originalTitle: '',
-            url: '/home/release/${key.releaseId}',
-            posterUrl: downloaded.posterUrl,
-          );
-          final episode = DreamEpisode(
-            id: key.episodeId,
-            releaseId: key.releaseId,
-            ordinal: downloaded.episodeOrdinal,
-            title: downloaded.episodeTitle,
-            file: downloaded.localFilePath,
-          );
-          final stream = DreamStream(
-            id: 'local_${key.episodeId}',
-            releaseId: key.releaseId,
-            episodeId: key.episodeId,
-            url: Uri.file(downloaded.localFilePath),
-            type: DreamStreamType.hls,
-            quality: downloaded.streamQuality,
-          );
-          return PlaybackRequest(
-            release: release,
-            episode: episode,
-            streams: [stream],
-            initialStream: stream,
-          );
-        }
-      }
       final detail = await repository.getDetailById(
         key.releaseId,
         cancelToken: cancelToken,

@@ -1,4 +1,3 @@
-import 'package:dream_cast/app/widgets/tv_refresh.dart';
 import 'package:dream_cast/app/widgets/app_empty_state.dart';
 import 'package:dream_cast/app/router/app_routes.dart';
 import 'package:dream_cast/app/widgets/app_error_view.dart';
@@ -26,18 +25,22 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   final _scrollController = ScrollController();
+  final _searchFocus = FocusNode(debugLabel: 'home-search');
 
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _searchFocus.requestFocus();
       ref.read(episodeNotificationHistoryProvider.notifier).refresh();
     });
   }
 
   @override
   void dispose() {
+    _searchFocus.dispose();
     _scrollController
       ..removeListener(_onScroll)
       ..dispose();
@@ -55,6 +58,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         title: const Text('Dream Cast TV'),
         actions: [
           IconButton(
+            focusNode: _searchFocus,
+            autofocus: true,
             tooltip: 'Поиск',
             onPressed: () => context.push('/search'),
             icon: const Icon(Icons.search),
@@ -69,6 +74,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
               child: const Icon(Icons.notifications_none_outlined),
             ),
+          ),
+          IconButton(
+            tooltip: 'Библиотека',
+            onPressed: () => context.go('/library'),
+            icon: const Icon(Icons.collections_bookmark_outlined),
+          ),
+          IconButton(
+            tooltip: 'Календарь',
+            onPressed: () => context.go('/schedule'),
+            icon: const Icon(Icons.calendar_month_outlined),
+          ),
+          IconButton(
+            tooltip: 'Настройки',
+            onPressed: () => context.go('/settings'),
+            icon: const Icon(Icons.settings_outlined),
           ),
         ],
       ),
@@ -92,54 +112,46 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Widget _buildContent(ReleaseListState data) {
     if (data.items.isEmpty) {
-      return TvRefresh(
-        onRefresh: () => ref.read(latestReleasesProvider.notifier).refresh(),
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          children: [
-            const SizedBox(height: 72),
-            AppEmptyState(
-              icon: Icons.movie_filter_outlined,
-              title: 'Релизы не найдены',
-              message:
-                  'Попробуйте обновить страницу или проверить подключение.',
-            ),
-          ],
-        ),
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          const SizedBox(height: 72),
+          AppEmptyState(
+            icon: Icons.movie_filter_outlined,
+            title: 'Релизы не найдены',
+            message: 'Проверьте подключение или попробуйте позже.',
+          ),
+        ],
       );
     }
 
-    return TvRefresh(
-      onRefresh: () => ref.read(latestReleasesProvider.notifier).refresh(),
-      child: CustomScrollView(
-        controller: _scrollController,
-        physics: const AlwaysScrollableScrollPhysics(),
-        slivers: [
-          if (data.isStale) const SliverToBoxAdapter(child: StaleCacheBanner()),
-          const SliverToBoxAdapter(child: _ContinueWatchingSection()),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
-              child: Text(
-                'Последние обновления',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-              ),
+    return CustomScrollView(
+      controller: _scrollController,
+      physics: const AlwaysScrollableScrollPhysics(),
+      slivers: [
+        if (data.isStale) const SliverToBoxAdapter(child: StaleCacheBanner()),
+        const SliverToBoxAdapter(child: _ContinueWatchingSection()),
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+            child: Text(
+              'Последние обновления',
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
             ),
           ),
-          _ReleaseSliverGrid(releases: data.items, onTap: _openRelease),
-          SliverToBoxAdapter(
-            child: _LoadMoreFooter(
-              isLoading: data.isLoadingMore,
-              error: data.loadMoreError,
-              hasMore: data.hasMore,
-              onRetry: () =>
-                  ref.read(latestReleasesProvider.notifier).loadMore(),
-            ),
+        ),
+        _ReleaseSliverGrid(releases: data.items, onTap: _openRelease),
+        SliverToBoxAdapter(
+          child: _LoadMoreFooter(
+            isLoading: data.isLoadingMore,
+            error: data.loadMoreError,
+            hasMore: data.hasMore,
+            onRetry: () => ref.read(latestReleasesProvider.notifier).loadMore(),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
