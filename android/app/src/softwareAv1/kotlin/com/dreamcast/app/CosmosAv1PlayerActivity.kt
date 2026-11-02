@@ -68,6 +68,8 @@ class CosmosAv1PlayerActivity : Activity() {
     private var uiVisible = true
     private var voutCount = -1
     private var surfaceReady = false
+    private val activityStartedAt = android.os.SystemClock.elapsedRealtimeNanos()
+    private var outputTimingReported = false
     private var videoSurface: SurfaceView? = null
     private var episodeKey: String = ""
     private var episodeCompleted = false
@@ -234,6 +236,12 @@ class CosmosAv1PlayerActivity : Activity() {
                 when (event.type) {
                     MediaPlayer.Event.Vout -> {
                         voutCount = event.voutCount
+                        if (voutCount > 0 && !outputTimingReported &&
+                            applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+                            outputTimingReported = true
+                            val elapsedUs = (android.os.SystemClock.elapsedRealtimeNanos() - activityStartedAt) / 1000
+                            Log.i("DCTV_PERF", "{\"event\":\"player.software.output_created\",\"elapsedUs\":$elapsedUs,\"outcome\":\"ok\"}")
+                        }
                         Log.i("DCTV_AV1", "Vout event count=$voutCount surfaceReady=$surfaceReady")
                         uiHandler.post { syncVlcWindowSize("vout") }
                     }

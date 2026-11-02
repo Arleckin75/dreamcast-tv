@@ -1,4 +1,5 @@
 import 'package:dream_cast/app/widgets/app_empty_state.dart';
+import 'package:dream_cast/core/logging/performance_trace.dart';
 import 'package:dream_cast/app/router/app_routes.dart';
 import 'package:dream_cast/app/widgets/app_error_view.dart';
 import 'package:dream_cast/core/settings/app_ui_preferences.dart';
@@ -26,6 +27,8 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   final _scrollController = ScrollController();
   final _searchFocus = FocusNode(debugLabel: 'home-search');
+  final _catalogueFrame = PerformanceTrace('home.catalogue_framework_frame');
+  bool _catalogueFrameScheduled = false;
 
   @override
   void initState() {
@@ -111,6 +114,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Widget _buildContent(ReleaseListState data) {
+    if (!_catalogueFrameScheduled) {
+      _catalogueFrameScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _catalogueFrame.finish(items: data.items.length);
+      });
+    }
     if (data.items.isEmpty) {
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),

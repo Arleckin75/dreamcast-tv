@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:dream_cast/core/logging/performance_trace.dart';
 import 'package:dream_cast/core/cache/cache_repository.dart';
 import 'package:dream_cast/core/errors/app_exception.dart';
 import 'package:dream_cast/features/releases/data/dream_cast_api.dart';
@@ -332,47 +333,62 @@ final class ReleaseRepository {
     required int pageSize,
     required Future<DreamReleaseListDto> Function() request,
   }) async {
-    _checkCancellation(cancelToken);
-    final cached = await _cache.getJsonMap(cacheKey, maxAge: releasesTtl);
-    ReleasePage<DreamRelease>? cachedPage;
-    if (cached != null) {
+    final trace = PerformanceTrace('catalogue.load');
+    try {
+      _checkCancellation(cancelToken);
+      final cached = await _cache.getJsonMap(cacheKey, maxAge: releasesTtl);
+      ReleasePage<DreamRelease>? cachedPage;
+      if (cached != null) {
+        try {
+          cachedPage = _releasePageFromDto(
+            DreamReleaseListDto.fromJson(cached.value),
+            page: page,
+            pageSize: pageSize,
+          );
+        } on Object {
+          // Invalid records are cache misses; fetch a replacement from the API.
+        }
+      }
+      _checkCancellation(cancelToken);
+      if (!refresh && cachedPage != null && !cached!.isStale) {
+        trace.finish(source: 'cache', items: cachedPage.items.length);
+        return DreamData(value: cachedPage, isStale: false);
+      }
       try {
-        cachedPage = _releasePageFromDto(
-          DreamReleaseListDto.fromJson(cached.value),
+        final dto = await request();
+        _checkCancellation(cancelToken);
+        await _cache.putJson(cacheKey, dto.toJson(), ttl: releasesTtl);
+        final pageData = _releasePageFromDto(
+          dto,
           page: page,
           pageSize: pageSize,
         );
-      } on Object {
-        // Invalid records are cache misses; fetch a replacement from the API.
+        trace.finish(source: 'network', items: pageData.items.length);
+        logReleaseSample(
+          source: 'Repository releases network page=$page',
+          releases: pageData.items,
+          totalCount: pageData.totalCount,
+          isStale: false,
+        );
+        return DreamData(value: pageData, isStale: false);
+      } catch (error) {
+        _checkCancellation(cancelToken);
+        if (cachedPage == null) rethrow;
+        final pageData = cachedPage;
+        trace.finish(source: 'stale_cache', items: pageData.items.length);
+        logReleaseSample(
+          source: 'Repository releases cache page=$page',
+          releases: pageData.items,
+          totalCount: pageData.totalCount,
+          isStale: true,
+        );
+        return DreamData(value: pageData, isStale: true);
       }
-    }
-    _checkCancellation(cancelToken);
-    if (!refresh && cachedPage != null && !cached!.isStale) {
-      return DreamData(value: cachedPage, isStale: false);
-    }
-    try {
-      final dto = await request();
-      _checkCancellation(cancelToken);
-      await _cache.putJson(cacheKey, dto.toJson(), ttl: releasesTtl);
-      final pageData = _releasePageFromDto(dto, page: page, pageSize: pageSize);
-      logReleaseSample(
-        source: 'Repository releases network page=$page',
-        releases: pageData.items,
-        totalCount: pageData.totalCount,
-        isStale: false,
+    } catch (_) {
+      trace.finish(
+        outcome: cancelToken?.isCancelled == true ? 'cancelled' : 'error',
       );
-      return DreamData(value: pageData, isStale: false);
-    } catch (error) {
-      _checkCancellation(cancelToken);
-      if (cachedPage == null) rethrow;
-      final pageData = cachedPage;
-      logReleaseSample(
-        source: 'Repository releases cache page=$page',
-        releases: pageData.items,
-        totalCount: pageData.totalCount,
-        isStale: true,
-      );
-      return DreamData(value: pageData, isStale: true);
+      rethrow;
     }
   }
 

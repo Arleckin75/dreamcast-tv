@@ -1,4 +1,5 @@
 import 'package:dream_cast/app/widgets/tv_dialog.dart';
+import 'package:dream_cast/core/logging/performance_trace.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:dream_cast/core/settings/player_build.dart';
@@ -439,7 +440,10 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
         stream: stream,
       );
       if (!_ownsController(controller)) return;
-      await controller.initialize();
+      await PerformanceTrace.measure(
+        'player.hardware.initialize',
+        controller.initialize,
+      );
       if (!_ownsController(controller)) return;
       _diag(
         'initialize completed size=${controller.value.size} '
