@@ -18,12 +18,34 @@ class SearchScreen extends ConsumerStatefulWidget {
 
 class _SearchScreenState extends ConsumerState<SearchScreen> {
   final _controller = TextEditingController();
+  String _lastQuery = '';
   late final FocusNode _focusNode;
   late final FocusNode _firstResultFocusNode;
 
+  void _openKeyboard() {
+    if (!mounted) return;
+    _focusNode.requestFocus();
+    // Focus may already be on the field after Android has closed its IME.
+    // Request the IME explicitly after EditableText attaches its input client.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _focusNode.hasFocus) {
+        SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+      }
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
   KeyEventResult _handleSearchKey(FocusNode node, KeyEvent event) {
-    if (event is! KeyDownEvent ||
-        event.logicalKey != LogicalKeyboardKey.arrowDown) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.select ||
+        key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter) {
+      _openKeyboard();
+      return KeyEventResult.handled;
+    }
+    if (key != LogicalKeyboardKey.arrowDown ||
+        View.of(context).viewInsets.bottom > 0) {
       return KeyEventResult.ignored;
     }
     if (!_firstResultFocusNode.canRequestFocus ||
@@ -39,7 +61,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   KeyEventResult _handleFirstResultKey(FocusNode node, KeyEvent event) {
     if (event is KeyDownEvent &&
         event.logicalKey == LogicalKeyboardKey.arrowUp) {
-      _focusNode.requestFocus();
+      _openKeyboard();
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;
@@ -57,11 +79,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       onKeyEvent: _handleFirstResultKey,
     );
     _controller.addListener(() {
+      // Moving the caret or reopening the IME must not restart the search.
+      if (_controller.text == _lastQuery) return;
+      _lastQuery = _controller.text;
       ref.read(searchReleasesProvider.notifier).setQuery(_controller.text);
     });
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => _focusNode.requestFocus(),
-    );
+    WidgetsBinding.instance.addPostFrameCallback((_) => _openKeyboard());
   }
 
   @override
@@ -93,6 +116,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               ref.read(searchReleasesProvider.notifier).submit(value),
         ),
         actions: [
+          IconButton(
+            tooltip: 'Открыть клавиатуру',
+            onPressed: _openKeyboard,
+            icon: const Icon(Icons.keyboard_outlined),
+          ),
           if (_controller.text.isNotEmpty)
             IconButton(
               tooltip: 'Очистить',
