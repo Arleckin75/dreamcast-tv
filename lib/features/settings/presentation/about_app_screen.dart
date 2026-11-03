@@ -178,36 +178,10 @@ class _LinkButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Material(
-      color: theme.colorScheme.secondaryContainer,
-      borderRadius: BorderRadius.circular(999),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () => _open(context),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                link.icon,
-                size: 18,
-                color: theme.colorScheme.onSecondaryContainer,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                link.title,
-                style: theme.textTheme.labelLarge?.copyWith(
-                  color: theme.colorScheme.onSecondaryContainer,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return TextButton.icon(
+      onPressed: () => _open(context),
+      icon: Icon(link.icon, size: 18),
+      label: Text(link.title),
     );
   }
 

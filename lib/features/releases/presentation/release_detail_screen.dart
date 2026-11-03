@@ -334,19 +334,8 @@ class _BookmarkStatusButton extends ConsumerWidget {
           ),
         ),
       ],
-      child: Material(
-        color: theme.colorScheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(12),
-        clipBehavior: Clip.antiAlias,
-        child: SizedBox(
-          width: 52,
-          height: 52,
-          child: Icon(
-            status == null ? Icons.bookmark_border : Icons.bookmark,
-            color: theme.colorScheme.onSurface,
-          ),
-        ),
-      ),
+      style: theme.iconButtonTheme.style,
+      icon: Icon(status == null ? Icons.bookmark_border : Icons.bookmark),
     );
   }
 }
@@ -360,34 +349,16 @@ class _EpisodeNotificationButton extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
     final enabled = ref.watch(
       episodeNotificationSubscriptionProvider(release.id),
     );
-
-    return Tooltip(
-      message: enabled ? 'Уведомления включены' : 'Уведомлять о новых сериях',
-      child: Material(
-        color: enabled
-            ? theme.colorScheme.primaryContainer
-            : theme.colorScheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(12),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => _toggle(context, ref, enabled),
-          child: SizedBox(
-            width: 52,
-            height: 52,
-            child: Icon(
-              enabled
-                  ? Icons.notifications_active
-                  : Icons.notifications_none_outlined,
-              color: enabled
-                  ? theme.colorScheme.onPrimaryContainer
-                  : theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ),
+    return IconButton(
+      tooltip: enabled ? 'Уведомления включены' : 'Уведомлять о новых сериях',
+      onPressed: () => _toggle(context, ref, enabled),
+      icon: Icon(
+        enabled
+            ? Icons.notifications_active
+            : Icons.notifications_none_outlined,
       ),
     );
   }
@@ -629,17 +600,11 @@ class _EpisodeRowActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        IconButton.filled(
+        IconButton(
           tooltip: 'Смотреть',
-          style: IconButton.styleFrom(
-            backgroundColor: theme.colorScheme.primary,
-            foregroundColor: theme.colorScheme.onPrimary,
-          ),
           onPressed: onPlay,
           icon: const Icon(Icons.play_arrow_rounded),
         ),

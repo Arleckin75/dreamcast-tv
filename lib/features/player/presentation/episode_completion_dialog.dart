@@ -116,7 +116,7 @@ class _EpisodeCompletionDialogState extends State<EpisodeCompletionDialog>
             child: const Text('К тайтлу'),
           ),
           if (hasNext)
-            FilledButton(
+            TextButton(
               focusNode: _nextFocus,
               onPressed: () => _finish(EpisodeCompletionAction.next),
               child: const Text('Следующая серия'),

@@ -1,10 +1,11 @@
 import 'package:dream_cast/app/widgets/tv_dialog.dart';
 import 'package:dream_cast/core/logging/performance_trace.dart';
 import 'dart:async';
-import 'dart:io';
+import 'dart:io' show File;
 import 'package:dream_cast/core/settings/player_build.dart';
 import 'dart:ui' show FontFeature, ImageFilter;
-import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
+import 'package:flutter/foundation.dart'
+    show debugPrint, kDebugMode, defaultTargetPlatform;
 
 import 'package:dream_cast/features/player/data/player_providers.dart';
 import 'package:dream_cast/features/player/data/playback_repository.dart';
@@ -54,6 +55,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
   bool _isInitializing = true;
   bool _completionHandled = false;
   bool _nativeCompletionPending = false;
+  DreamEpisode? _nativeNextPending;
   bool _isTransitioning = false;
   DreamEpisode? _pendingNextEpisode;
   CancelToken? _transitionCancel;
@@ -177,10 +179,10 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
                     unawaited(_seekTo(position));
                     _scheduleControlsAutoHide();
                   },
-                  onSeekRelative: (offset) {
-                    unawaited(_seekRelative(offset));
-                    _scheduleControlsAutoHide();
-                  },
+                  onExit: () => unawaited(_closePlayer()),
+                  onNext: _nextEpisode() == null
+                      ? null
+                      : () => unawaited(_playNextEpisode(_nextEpisode()!)),
                   onStreamSelected: _switchStream,
                   onControlsReturned: _showControlsNow,
                 ),
@@ -223,7 +225,15 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
       _showControlsNow();
       return KeyEventResult.handled;
     }
-    if (!node.hasPrimaryFocus && _showControls) {
+    final transportSeek =
+        _playFocus.hasFocus &&
+        (key == LogicalKeyboardKey.arrowLeft ||
+            key == LogicalKeyboardKey.arrowRight);
+    if (!node.hasPrimaryFocus &&
+        _showControls &&
+        !transportSeek &&
+        key != LogicalKeyboardKey.mediaRewind &&
+        key != LogicalKeyboardKey.mediaFastForward) {
       return KeyEventResult.ignored;
     }
     if (key == LogicalKeyboardKey.arrowLeft ||
@@ -264,6 +274,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
       );
     } finally {
       _initializationInProgress = false;
+      _drainNativeNextEpisode();
       if (_nativeCompletionPending && mounted && !_isClosing) {
         _nativeCompletionPending = false;
         unawaited(_handlePlaybackCompleted());
@@ -298,7 +309,8 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
     _diagLastSecondBucket = -1;
     // Player backend is selected at compile time. Never switch engines at runtime.
     if (softwarePlayerBuild) {
-      if (!Platform.isAndroid || stream.url.isScheme('file')) {
+      if (defaultTargetPlatform != TargetPlatform.android ||
+          stream.url.isScheme('file')) {
         if (mounted) {
           setState(() {
             _error = StateError('LibVLC requires an Android network stream');
@@ -342,6 +354,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
                   : savedPosition?.updatedAt.millisecondsSinceEpoch ?? 0,
               'episodeKey': '${_request.release.id}:${_request.episode.id}',
               'title': _request.episode.title,
+              'nextTitle': _nextEpisode()?.title,
               'subtitle': displayReleaseTitle(_request.release),
               'accent': Theme.of(context).colorScheme.primary.toARGB32(),
               'onAccent': Theme.of(context).colorScheme.onPrimary.toARGB32(),
@@ -378,6 +391,11 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
             _diag(
               'native progress synced to home: positionMs=$positionMs durationMs=$durationMs completed=$completed',
             );
+          }
+          final nextEpisode = _nextEpisode();
+          if (nativeProgress['nextEpisode'] == true && nextEpisode != null) {
+            _nativeNextPending = nextEpisode;
+            return;
           }
           if (nativeProgress['playbackError'] == true) {
             setState(() {
@@ -776,6 +794,19 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
     }
   }
 
+  void _drainNativeNextEpisode() {
+    final next = _nativeNextPending;
+    if (next == null ||
+        !mounted ||
+        _isClosing ||
+        _initializationInProgress ||
+        _isTransitioning) {
+      return;
+    }
+    _nativeNextPending = null;
+    unawaited(_playNextEpisode(next));
+  }
+
   DreamEpisode? _nextEpisode() {
     final queue =
         _request.episodeQueue
@@ -858,6 +889,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
       });
     } finally {
       _isTransitioning = false;
+      _drainNativeNextEpisode();
     }
   }
 
@@ -946,7 +978,8 @@ class _PlayerControls extends StatelessWidget {
     required this.playFocus,
     required this.onTogglePlay,
     required this.onSeek,
-    required this.onSeekRelative,
+    required this.onExit,
+    required this.onNext,
     required this.onStreamSelected,
     required this.onControlsReturned,
   });
@@ -960,7 +993,8 @@ class _PlayerControls extends StatelessWidget {
   final FocusNode playFocus;
   final VoidCallback onTogglePlay;
   final ValueChanged<Duration> onSeek;
-  final ValueChanged<Duration> onSeekRelative;
+  final VoidCallback onExit;
+  final VoidCallback? onNext;
   final ValueChanged<DreamStream> onStreamSelected;
   final VoidCallback onControlsReturned;
 
@@ -1011,6 +1045,8 @@ class _PlayerControls extends StatelessWidget {
                       compact: compact,
                       currentStream: currentStream,
                       onQualityTap: () => _showQualitySheet(context),
+                      onExit: onExit,
+                      onNext: onNext,
                     ),
                     const Spacer(),
                     AnimatedScale(
@@ -1022,7 +1058,6 @@ class _PlayerControls extends StatelessWidget {
                         isPlaying: value.isPlaying,
                         compact: compact,
                         onTogglePlay: onTogglePlay,
-                        onSeekRelative: onSeekRelative,
                       ),
                     ),
                     const Spacer(),
@@ -1090,6 +1125,8 @@ class _TopBar extends StatelessWidget {
     required this.compact,
     required this.currentStream,
     required this.onQualityTap,
+    required this.onExit,
+    required this.onNext,
   });
 
   final String title;
@@ -1097,6 +1134,8 @@ class _TopBar extends StatelessWidget {
   final bool compact;
   final DreamStream? currentStream;
   final VoidCallback onQualityTap;
+  final VoidCallback onExit;
+  final VoidCallback? onNext;
 
   @override
   Widget build(BuildContext context) {
@@ -1104,6 +1143,13 @@ class _TopBar extends StatelessWidget {
 
     return Row(
       children: [
+        _FloatingIconButton(
+          tooltip: 'Назад',
+          icon: Icons.arrow_back,
+          onPressed: onExit,
+          size: compact ? 48 : 56,
+        ),
+        const SizedBox(width: 12),
         Expanded(
           child: _FloatingPill(
             minHeight: compact ? 48 : 56,
@@ -1141,13 +1187,21 @@ class _TopBar extends StatelessWidget {
         SizedBox(width: compact ? 8 : 12),
         _FloatingTextButton(
           tooltip: 'Качество',
-          label: stream == null
-              ? 'Поток'
-              : '${_streamLabel(stream.type)} ${stream.quality}p',
+          label: stream == null ? 'Поток' : '${stream.quality}p',
           icon: Icons.high_quality_outlined,
           compact: compact,
           onPressed: onQualityTap,
         ),
+        if (onNext != null) ...[
+          const SizedBox(width: 12),
+          TextButton(
+            onPressed: onNext,
+            child: Text(
+              'Следующая серия',
+              style: TextStyle(fontSize: compact ? 12 : 14),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -1158,50 +1212,25 @@ class _CenterTransportControls extends StatelessWidget {
     required this.isPlaying,
     required this.compact,
     required this.onTogglePlay,
-    required this.onSeekRelative,
     required this.playFocus,
   });
 
   final bool isPlaying;
   final bool compact;
   final VoidCallback onTogglePlay;
-  final ValueChanged<Duration> onSeekRelative;
   final FocusNode playFocus;
 
   @override
   Widget build(BuildContext context) {
-    final sideSize = compact ? 58.0 : 72.0;
     final playSize = compact ? 72.0 : 88.0;
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        _FloatingIconButton(
-          tooltip: 'Назад на 10 секунд',
-          icon: Icons.replay_10,
-          onPressed: () => onSeekRelative(const Duration(seconds: -10)),
-          size: sideSize,
-          iconSize: compact ? 30 : 34,
-        ),
-        SizedBox(width: compact ? 18 : 30),
-        _FloatingIconButton(
-          tooltip: isPlaying ? 'Пауза' : 'Воспроизвести',
-          focusNode: playFocus,
-          icon: isPlaying ? Icons.pause : Icons.play_arrow,
-          onPressed: onTogglePlay,
-          size: playSize,
-          iconSize: compact ? 42 : 50,
-          accent: true,
-        ),
-        SizedBox(width: compact ? 18 : 30),
-        _FloatingIconButton(
-          tooltip: 'Вперёд на 10 секунд',
-          icon: Icons.forward_10,
-          onPressed: () => onSeekRelative(const Duration(seconds: 10)),
-          size: sideSize,
-          iconSize: compact ? 30 : 34,
-        ),
-      ],
+    return _FloatingIconButton(
+      tooltip: isPlaying ? 'Пауза' : 'Воспроизвести',
+      focusNode: playFocus,
+      icon: isPlaying ? Icons.pause : Icons.play_arrow,
+      onPressed: onTogglePlay,
+      size: playSize,
+      iconSize: compact ? 42 : 50,
     );
   }
 }
@@ -1306,7 +1335,6 @@ class _FloatingIconButton extends StatelessWidget {
     required this.onPressed,
     required this.size,
     this.iconSize = 28,
-    this.accent = false,
     this.focusNode,
   });
 
@@ -1315,39 +1343,18 @@ class _FloatingIconButton extends StatelessWidget {
   final VoidCallback onPressed;
   final double size;
   final double iconSize;
-  final bool accent;
   final FocusNode? focusNode;
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-
-    return Tooltip(
-      message: tooltip,
-      child: SizedBox.square(
-        dimension: size,
-        child: Material(
-          color: accent
-              ? colors.primary.withValues(alpha: 0.86)
-              : Colors.black.withValues(alpha: 0.42),
-          shape: CircleBorder(
-            side: BorderSide(
-              color: accent
-                  ? colors.primaryContainer.withValues(alpha: 0.38)
-                  : Colors.white.withValues(alpha: 0.13),
-            ),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            focusNode: focusNode,
-            onTap: onPressed,
-            child: Icon(
-              icon,
-              color: accent ? colors.onPrimary : Colors.white,
-              size: iconSize,
-            ),
-          ),
-        ),
+    return SizedBox.square(
+      dimension: size,
+      child: IconButton(
+        tooltip: tooltip,
+        focusNode: focusNode,
+        onPressed: onPressed,
+        icon: Icon(icon, size: iconSize),
+        style: IconButton.styleFrom(minimumSize: Size.square(size)),
       ),
     );
   }
@@ -1372,36 +1379,14 @@ class _FloatingTextButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Tooltip(
       message: tooltip,
-      child: Material(
-        color: Colors.black.withValues(alpha: 0.42),
-        clipBehavior: Clip.antiAlias,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(999),
-          side: BorderSide(color: Colors.white.withValues(alpha: 0.13)),
-        ),
-        child: InkWell(
-          onTap: onPressed,
-          child: Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: compact ? 12 : 16,
-              vertical: compact ? 12 : 16,
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, color: Colors.white, size: compact ? 20 : 22),
-                if (!compact) ...[
-                  const SizedBox(width: 8),
-                  Text(
-                    label,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ],
-              ],
-            ),
+      child: TextButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: compact ? 20 : 22),
+        label: Text(label),
+        style: TextButton.styleFrom(
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 12 : 16,
+            vertical: compact ? 12 : 16,
           ),
         ),
       ),
@@ -1481,7 +1466,7 @@ class _TimeLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 54,
+      width: 64,
       child: Text(
         value,
         textAlign: TextAlign.center,

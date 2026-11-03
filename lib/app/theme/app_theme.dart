@@ -44,6 +44,37 @@ final class AppTheme {
           displayColor: scheme.onSurface,
         );
 
+    final buttonStyle = ButtonStyle(
+      minimumSize: const WidgetStatePropertyAll(Size(80, 52)),
+      elevation: const WidgetStatePropertyAll(0),
+      backgroundColor: const WidgetStatePropertyAll(Colors.transparent),
+      surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+      shadowColor: const WidgetStatePropertyAll(Colors.transparent),
+      foregroundColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.disabled)
+            ? scheme.onSurface.withValues(alpha: 0.38)
+            : scheme.primary,
+      ),
+      overlayColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.disabled)
+            ? Colors.transparent
+            : scheme.primary.withValues(
+                alpha: states.contains(WidgetState.pressed) ? 0.12 : 0.08,
+              ),
+      ),
+      shape: const WidgetStatePropertyAll(StadiumBorder()),
+      side: WidgetStateProperty.resolveWith(
+        (states) => BorderSide(
+          color:
+              states.contains(WidgetState.focused) &&
+                  !states.contains(WidgetState.disabled)
+              ? scheme.primary
+              : Colors.transparent,
+          width: 3,
+        ),
+      ),
+    );
+
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
@@ -63,30 +94,14 @@ final class AppTheme {
           fontWeight: FontWeight.w600,
         ),
       ),
-      textButtonTheme: TextButtonThemeData(
-        style: ButtonStyle(
-          minimumSize: const WidgetStatePropertyAll(Size(80, 52)),
-          side: WidgetStateProperty.resolveWith(
-            (states) => BorderSide(
-              color: states.contains(WidgetState.focused)
-                  ? scheme.primary
-                  : Colors.transparent,
-              width: 3,
-            ),
-          ),
-        ),
-      ),
+      textButtonTheme: TextButtonThemeData(style: buttonStyle),
+      filledButtonTheme: FilledButtonThemeData(style: buttonStyle),
+      outlinedButtonTheme: OutlinedButtonThemeData(style: buttonStyle),
+      elevatedButtonTheme: ElevatedButtonThemeData(style: buttonStyle),
       iconButtonTheme: IconButtonThemeData(
-        style: ButtonStyle(
+        style: buttonStyle.copyWith(
           minimumSize: const WidgetStatePropertyAll(Size(52, 52)),
-          side: WidgetStateProperty.resolveWith(
-            (states) => BorderSide(
-              color: states.contains(WidgetState.focused)
-                  ? scheme.primary
-                  : Colors.transparent,
-              width: 3,
-            ),
-          ),
+          shape: const WidgetStatePropertyAll(CircleBorder()),
         ),
       ),
       cardTheme: CardThemeData(
@@ -99,50 +114,7 @@ final class AppTheme {
         contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 2),
         minLeadingWidth: 28,
       ),
-      filledButtonTheme: FilledButtonThemeData(
-        style:
-            FilledButton.styleFrom(
-              minimumSize: const Size(80, 52),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-            ).copyWith(
-              side: WidgetStateProperty.resolveWith(
-                (states) => BorderSide(
-                  color: states.contains(WidgetState.focused)
-                      ? scheme.onPrimary
-                      : Colors.transparent,
-                  width: 3,
-                ),
-              ),
-            ),
-      ),
-      outlinedButtonTheme: OutlinedButtonThemeData(
-        style:
-            OutlinedButton.styleFrom(
-              minimumSize: const Size(80, 52),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-            ).copyWith(
-              side: WidgetStateProperty.resolveWith(
-                (states) => BorderSide(
-                  color: states.contains(WidgetState.focused)
-                      ? scheme.primary
-                      : scheme.outline,
-                  width: states.contains(WidgetState.focused) ? 3 : 1,
-                ),
-              ),
-            ),
-      ),
-      segmentedButtonTheme: SegmentedButtonThemeData(
-        style: ButtonStyle(
-          visualDensity: VisualDensity.standard,
-          shape: WidgetStatePropertyAll(
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-        ),
-      ),
+      segmentedButtonTheme: SegmentedButtonThemeData(style: buttonStyle),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.55),

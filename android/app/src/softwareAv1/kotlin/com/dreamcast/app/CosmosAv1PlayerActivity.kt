@@ -21,7 +21,7 @@ import org.videolan.libvlc.MediaPlayer
 
 /** AV1 software fallback, isolated from ExoPlayer on compatible devices. */
 object CosmosAv1Launcher {
-    @JvmStatic fun launch(activity: Activity, url: String, headers: Map<String, String>, positionMs: Long, episodeKey: String, quality: Int, positionUpdatedAtMs: Long, title: String = "", subtitle: String = "", accent: Int = 0xFFD0BCFF.toInt(), onAccent: Int = 0xFF381E72.toInt()) {
+    @JvmStatic fun launch(activity: Activity, url: String, headers: Map<String, String>, positionMs: Long, episodeKey: String, quality: Int, positionUpdatedAtMs: Long, title: String = "", subtitle: String = "", accent: Int = 0xFFD0BCFF.toInt(), onAccent: Int = 0xFF381E72.toInt(), nextTitle: String? = null) {
         val intent = Intent(activity, CosmosAv1PlayerActivity::class.java)
         intent.putExtra("url", url)
         intent.putExtra("positionMs", positionMs)
@@ -31,6 +31,7 @@ object CosmosAv1Launcher {
         intent.putExtra("subtitle", subtitle)
         intent.putExtra("accent", accent)
         intent.putExtra("onAccent", onAccent)
+        intent.putExtra("nextTitle", nextTitle)
         intent.putExtra("quality", if (quality in listOf(480, 720, 1080)) quality else 720)
         intent.putExtra("userAgent", headers.entries.firstOrNull { it.key.equals("user-agent", true) }?.value)
         intent.putExtra("referer", headers.entries.firstOrNull { it.key.equals("referer", true) }?.value)
@@ -59,6 +60,7 @@ class CosmosAv1PlayerActivity : Activity() {
         }
     }
     private var backExitRequested = false
+    private var nextEpisodeRequested = false
     private var shutdownStarted = false
     // Capture playback progress before VLC.stop()/release() invalidate player.time.
     private var exitPositionMs: Long? = null
@@ -273,7 +275,8 @@ class CosmosAv1PlayerActivity : Activity() {
         root.addView(surface, FrameLayout.LayoutParams(-1, -1))
         controls = SoftwarePlayerControls(this, root,
             intent.getIntExtra("accent", 0xFFD0BCFF.toInt()), intent.getIntExtra("onAccent", 0xFF381E72.toInt()),
-            ::togglePlayback, ::seekBy, ::retryPlayback, ::exitToEpisodes, ::selectQuality, ::reveal).apply {
+            ::togglePlayback, ::seekBy, ::retryPlayback, ::exitToEpisodes,
+            ::requestNextEpisode, intent.getStringExtra("nextTitle"), ::selectQuality, ::reveal).apply {
             title.text = intent.getStringExtra("title").orEmpty()
             subtitle.text = intent.getStringExtra("subtitle").orEmpty()
             setQuality(activeHeight)
@@ -461,6 +464,13 @@ class CosmosAv1PlayerActivity : Activity() {
         else exitToEpisodes()
     }
 
+    private fun requestNextEpisode() {
+        if (backExitRequested || retrying || isFinishing || isDestroyed || !intent.hasExtra("nextTitle") ||
+            intent.getStringExtra("nextTitle") == null) return
+        nextEpisodeRequested = true
+        exitToEpisodes()
+    }
+
     private fun exitToEpisodes() {
         if (backExitRequested || isFinishing || isDestroyed) return
         backExitRequested = true
@@ -573,6 +583,7 @@ class CosmosAv1PlayerActivity : Activity() {
             putExtra("positionMs", ms.coerceAtLeast(0L))
             putExtra("durationMs", duration.coerceAtLeast(0L))
             putExtra("completed", episodeCompleted)
+            putExtra("nextEpisode", nextEpisodeRequested)
             putExtra("playbackError", playbackError)
             if (qualityPreferenceChanged) putExtra("quality", activeHeight)
         })

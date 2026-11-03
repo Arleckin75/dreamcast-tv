@@ -163,17 +163,11 @@ class _EpisodeActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        IconButton.filled(
+        IconButton(
           tooltip: 'Смотреть',
-          style: IconButton.styleFrom(
-            backgroundColor: theme.colorScheme.primary,
-            foregroundColor: theme.colorScheme.onPrimary,
-          ),
           onPressed: onPlay,
           icon: const Icon(Icons.play_arrow_rounded),
         ),

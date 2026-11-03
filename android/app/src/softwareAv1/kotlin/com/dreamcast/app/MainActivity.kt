@@ -46,6 +46,7 @@ class MainActivity : FlutterActivity() {
                     "positionMs" to data.getLongExtra("positionMs", 0L),
                     "durationMs" to data.getLongExtra("durationMs", 0L),
                     "completed" to data.getBooleanExtra("completed", false),
+                    "nextEpisode" to data.getBooleanExtra("nextEpisode", false),
                     "playbackError" to data.getBooleanExtra("playbackError", false),
                     "quality" to if (data.hasExtra("quality")) data.getIntExtra("quality", 720) else null
                 )
@@ -75,7 +76,8 @@ class MainActivity : FlutterActivity() {
                                 CosmosAv1Launcher.launch(this, uri, headers, resumeMs, episodeKey, quality, positionUpdatedAtMs,
                                     call.argument<String>("title").orEmpty(), call.argument<String>("subtitle").orEmpty(),
                                     call.argument<Number>("accent")?.toInt() ?: 0xFFD0BCFF.toInt(),
-                                    call.argument<Number>("onAccent")?.toInt() ?: 0xFF381E72.toInt())
+                                    call.argument<Number>("onAccent")?.toInt() ?: 0xFF381E72.toInt(),
+                                    call.argument<String>("nextTitle"))
                             }
                             catch (error: Exception) { pendingSoftwarePlayerResult = null; throw error }
                         }

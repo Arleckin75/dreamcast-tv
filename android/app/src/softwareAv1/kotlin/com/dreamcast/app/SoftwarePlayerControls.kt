@@ -29,6 +29,8 @@ internal class SoftwarePlayerControls(
     private val onSeek: (Long) -> Unit,
     onRetry: () -> Unit,
     onExit: () -> Unit,
+    onNext: () -> Unit,
+    nextTitle: String?,
     private val onQuality: (Int) -> Unit,
     private val onInteraction: () -> Unit,
 ) {
@@ -41,6 +43,11 @@ internal class SoftwarePlayerControls(
     private fun pill(color: Int = 0x6B000000) = GradientDrawable().apply {
         setColor(color); cornerRadius = dp(999).toFloat(); setStroke(dp(1), 0x21FFFFFF)
     }
+    private fun buttonSurface(focused: Boolean = false) = GradientDrawable().apply {
+        setColor(if (focused) withAlpha(accent, 20) else Color.TRANSPARENT)
+        cornerRadius = dp(999).toFloat()
+        setStroke(dp(3), if (focused) accent else Color.TRANSPARENT)
+    }
     private val panel = FrameLayout(context).apply {
         background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
             intArrayOf(0x94000000.toInt(), 0x14000000, 0xA3000000.toInt()))
@@ -52,24 +59,34 @@ internal class SoftwarePlayerControls(
     private val top = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
     private val actions = LinearLayout(context).apply { gravity = Gravity.CENTER }
     private fun transport(kind: String, size: Int, description: String, action: () -> Unit) =
-        TransportButton(context, kind, accent, onAccent).apply {
+        TransportButton(context, kind, accent).apply {
             id = View.generateViewId(); contentDescription = description
             setOnClickListener { onInteraction(); action() }
             setOnFocusChangeListener { _, focused -> invalidate(); if (focused) onInteraction() }
             layoutParams = LinearLayout.LayoutParams(dp(size), dp(size))
         }
     private val back = transport("back", if (compact) 48 else 56, "Назад", onExit)
-    private val rewind = transport("rewind", if (compact) 58 else 72, "Назад на 10 секунд") { onSeek(-10_000L) }
     private val toggle = transport("pause", if (compact) 72 else 88, "Пауза", onToggle)
-    private val forward = transport("forward", if (compact) 58 else 72, "Вперёд на 10 секунд") { onSeek(10_000L) }
     private val quality = Button(context).apply {
-        id = View.generateViewId(); isAllCaps = false; setTextColor(Color.WHITE); textSize = 14f
+        id = View.generateViewId(); isAllCaps = false; setTextColor(accent); textSize = 14f
         setTypeface(null, Typeface.BOLD); minWidth = 0; minHeight = 0
-        setPadding(dp(16), dp(8), dp(16), dp(8)); background = pill()
+        setPadding(dp(16), dp(8), dp(16), dp(8)); background = buttonSurface()
         contentDescription = "Качество потока"
         setOnClickListener { showQualityDialog() }
         setOnFocusChangeListener { _, focused ->
-            background = pill(if (focused) withAlpha(accent, 150) else 0x6B000000)
+            background = buttonSurface(focused)
+            if (focused) onInteraction()
+        }
+    }
+    private val next = Button(context).apply {
+        id = View.generateViewId(); text = "Следующая серия"; isAllCaps = false
+        setTextColor(accent); textSize = if (compact) 12f else 14f
+        minWidth = 0; minHeight = 0; setPadding(dp(14), dp(8), dp(14), dp(8))
+        background = buttonSurface(); visibility = if (nextTitle == null) View.GONE else View.VISIBLE
+        contentDescription = "Следующая серия: ${nextTitle.orEmpty()}"
+        setOnClickListener { onInteraction(); onNext() }
+        setOnFocusChangeListener { _, focused ->
+            background = buttonSurface(focused)
             if (focused) onInteraction()
         }
     }
@@ -106,11 +123,11 @@ internal class SoftwarePlayerControls(
     }
     private val error = label(18f).apply { maxLines = 3; gravity = Gravity.CENTER }
     private fun errorButton(text: String, action: () -> Unit) = Button(context).apply {
-        id = View.generateViewId(); this.text = text; isAllCaps = false; setTextColor(Color.WHITE)
-        background = pill(withAlpha(accent, 90))
+        id = View.generateViewId(); this.text = text; isAllCaps = false; setTextColor(accent)
+        background = buttonSurface()
         setOnClickListener { onInteraction(); action() }
         setOnFocusChangeListener { _, focused ->
-            background = pill(withAlpha(accent, if (focused) 200 else 90)); if (focused) onInteraction()
+            background = buttonSurface(focused); if (focused) onInteraction()
         }
     }
     private val retry = errorButton("Повторить", onRetry)
@@ -140,12 +157,18 @@ internal class SoftwarePlayerControls(
         }
         top.addView(titles, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(12); marginEnd = dp(12) })
         top.addView(quality, LinearLayout.LayoutParams(-2, dp(if (compact) 48 else 56)))
+        top.addView(next, LinearLayout.LayoutParams(-2, dp(if (compact) 48 else 56)).apply { marginStart = dp(12) })
         panel.addView(top, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
-        actions.addView(rewind)
-        actions.addView(toggle, LinearLayout.LayoutParams(dp(if (compact) 72 else 88), dp(if (compact) 72 else 88)).apply {
-            marginStart = dp(if (compact) 18 else 30); marginEnd = dp(if (compact) 18 else 30)
-        })
-        actions.addView(forward)
+        actions.addView(toggle)
+        toggle.setOnKeyListener { _, key, event ->
+            if (key != KeyEvent.KEYCODE_DPAD_LEFT && key != KeyEvent.KEYCODE_DPAD_RIGHT) false
+            else {
+                if (event.action == KeyEvent.ACTION_DOWN) {
+                    onInteraction(); onSeek(if (key == KeyEvent.KEYCODE_DPAD_LEFT) -10_000L else 10_000L)
+                }
+                true
+            }
+        }
         panel.addView(actions, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
         bottom.addView(positionLabel, LinearLayout.LayoutParams(dp(64), dp(48)))
         bottom.addView(timeline, LinearLayout.LayoutParams(0, dp(48), 1f))
@@ -177,11 +200,13 @@ internal class SoftwarePlayerControls(
                 if (duration > 0) onSeek(target - position)
             }
         })
-        rewind.nextFocusRightId = toggle.id; toggle.nextFocusLeftId = rewind.id
-        toggle.nextFocusRightId = forward.id; forward.nextFocusLeftId = toggle.id
-        listOf(rewind, toggle, forward).forEach { it.nextFocusUpId = quality.id; it.nextFocusDownId = timeline.id }
+        toggle.nextFocusUpId = quality.id; toggle.nextFocusDownId = timeline.id
         timeline.nextFocusUpId = toggle.id; quality.nextFocusDownId = toggle.id
         quality.nextFocusLeftId = back.id; back.nextFocusRightId = quality.id; back.nextFocusDownId = toggle.id
+        if (nextTitle != null) {
+            quality.nextFocusRightId = next.id; next.nextFocusLeftId = quality.id
+            next.nextFocusDownId = toggle.id
+        }
         showError(null); root.isFocusableInTouchMode = true; root.requestFocus()
     }
 
@@ -208,6 +233,10 @@ internal class SoftwarePlayerControls(
             .setNegativeButton("Назад", null).create().apply {
                 setOnDismissListener { qualityDialog = null; quality.requestFocus(); onInteraction() }
                 show()
+                getButton(AlertDialog.BUTTON_NEGATIVE).apply {
+                    setTextColor(accent); background = buttonSurface()
+                    setOnFocusChangeListener { _, focused -> background = buttonSurface(focused) }
+                }
             }
     }
 
@@ -218,7 +247,7 @@ internal class SoftwarePlayerControls(
             timeline.progress = if (duration > 0) (position.coerceAtMost(duration) * 1000 / duration).toInt() else 0
         }
         durationLabel.text = if (duration > 0) formatTime(duration) else "--:--"
-        timeline.isEnabled = seekable && duration > 0; rewind.isEnabled = seekable; forward.isEnabled = seekable
+        timeline.isEnabled = seekable && duration > 0
         toggle.kind = if (playing) "pause" else "play"
         toggle.contentDescription = if (playing) "Пауза" else "Воспроизвести"; toggle.invalidate()
     }
@@ -254,23 +283,22 @@ internal class SoftwarePlayerControls(
 }
 
 /** Vector icons keep controls independent of fonts and image assets. */
-private class TransportButton(context: Context, var kind: String, private val accent: Int, private val onAccent: Int) : View(context) {
+private class TransportButton(context: Context, var kind: String, private val accent: Int) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     init { isFocusable = true; isClickable = true }
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val size = minOf(width, height).toFloat()
-        val main = kind == "pause" || kind == "play"
         canvas.save(); canvas.translate(width / 2f, height / 2f)
         paint.style = Paint.Style.FILL
-        paint.color = if (main || hasFocus()) (accent and 0x00FFFFFF) or (0xDB shl 24) else 0x6B000000
+        paint.color = if (hasFocus()) (accent and 0x00FFFFFF) or (20 shl 24) else Color.TRANSPARENT
         canvas.drawCircle(0f, 0f, size / 2f - 2f, paint)
         paint.style = Paint.Style.STROKE
-        paint.strokeWidth = (if (hasFocus()) 3f else 1f) * resources.displayMetrics.density
-        paint.color = if (hasFocus()) Color.WHITE else 0x36FFFFFF
+        paint.strokeWidth = 3f * resources.displayMetrics.density
+        paint.color = if (hasFocus()) accent else Color.TRANSPARENT
         canvas.drawCircle(0f, 0f, size / 2f - paint.strokeWidth, paint)
         canvas.scale(size / 72f, size / 72f)
-        paint.color = if (main || hasFocus()) onAccent else Color.WHITE
+        paint.color = accent
         paint.strokeWidth = 3f; paint.strokeCap = Paint.Cap.ROUND; paint.style = Paint.Style.FILL
         when (kind) {
             "pause" -> { canvas.drawRect(-11f, -17f, -4f, 17f, paint); canvas.drawRect(4f, -17f, 11f, 17f, paint) }
@@ -278,15 +306,6 @@ private class TransportButton(context: Context, var kind: String, private val ac
             "back" -> {
                 paint.style = Paint.Style.STROKE; canvas.drawLine(14f, 0f, -14f, 0f, paint)
                 canvas.drawPath(Path().apply { moveTo(-2f, -12f); lineTo(-14f, 0f); lineTo(-2f, 12f) }, paint)
-            }
-            else -> {
-                if (kind == "forward") canvas.scale(-1f, 1f)
-                paint.style = Paint.Style.STROKE; canvas.drawArc(-16f, -16f, 16f, 16f, -90f, 290f, false, paint)
-                paint.style = Paint.Style.FILL
-                canvas.drawPath(Path().apply { moveTo(-11f, -16f); lineTo(0f, -25f); lineTo(0f, -7f); close() }, paint)
-                if (kind == "forward") canvas.scale(-1f, 1f)
-                paint.textSize = 15f; paint.typeface = Typeface.DEFAULT_BOLD; paint.textAlign = Paint.Align.CENTER
-                canvas.drawText("10", 0f, 7f, paint)
             }
         }
         canvas.restore()
