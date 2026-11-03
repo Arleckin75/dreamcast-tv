@@ -19,7 +19,6 @@ class MainActivity : FlutterActivity() {
     private var pendingSoftwarePlayerResult: MethodChannel.Result? = null
 
     private var softwareChannel: MethodChannel? = null
-    private var searchInput: TvSearchInput? = null
     private val navigationChannelName = "dream_cast/tv_navigation"
     private var navigationChannel: MethodChannel? = null
     private val backHandler = Handler(Looper.getMainLooper())
@@ -57,7 +56,6 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        searchInput = TvSearchInput(this, flutterEngine.dartExecutor.binaryMessenger)
         softwareChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "dream_cast/media3_probe")
         softwareChannel?.setMethodCallHandler { call, result ->
             if (call.method == "playSoftwareAV1") {
@@ -140,8 +138,6 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
-        searchInput?.dispose()
-        searchInput = null
         backHandler.removeCallbacks(exitOnLongBack)
         navigationChannel = null
         softwareChannel?.setMethodCallHandler(null)
