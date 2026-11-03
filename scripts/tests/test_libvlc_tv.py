@@ -16,6 +16,9 @@ import zipfile
 SPEC = importlib.util.spec_from_file_location('libvlc_tv', Path(__file__).resolve().parents[1] / 'package_libvlc_tv.py')
 TV = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(TV)
+AUDIT_SPEC = importlib.util.spec_from_file_location('av1_audit', Path(__file__).resolve().parents[1] / 'audit_av1_apk.py')
+AUDIT = importlib.util.module_from_spec(AUDIT_SPEC)
+AUDIT_SPEC.loader.exec_module(AUDIT)
 
 
 def elf(abi, size):
@@ -119,7 +122,7 @@ class PackagingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Original LibVLC AAR checksum'):
             self.package()
 
-    def audit_fixture(self, include_profile=True, unchanged_core=False):
+    def audit_fixture(self, include_profile=True, unchanged_core=False, missing_track=False):
         aar = self.package()
         fixture = self.root / 'packaged-fixture.zip'
         with zipfile.ZipFile(aar) as source, zipfile.ZipFile(fixture, 'w') as target:
@@ -131,7 +134,9 @@ class PackagingTests(unittest.TestCase):
                     target.writestr(entry.filename.replace('jni/', 'lib/', 1), payload)
                 elif include_profile and entry.filename == 'assets/dreamcast-libvlc-tv.json':
                     target.writestr(entry.filename, source.read(entry))
-            target.writestr('classes.dex', b'Lorg/videolan/libvlc/MediaPlayer;')
+            target.writestr('classes.dex', b'\0'.join(
+                f'Lorg/videolan/libvlc/{name};'.encode() for name in AUDIT.VLC_JNI_CLASSES
+                if not (missing_track and name == 'interfaces/IMedia$Track')))
         dependencies = self.root / 'dependencies.txt'
         dependencies.write_text('+--- tv.dreamcast.libvlc:libvlc-tv:3.7.7-tv1\n')
         script = Path(__file__).resolve().parents[1] / 'audit_av1_apk.py'
@@ -142,6 +147,11 @@ class PackagingTests(unittest.TestCase):
     def test_packaged_engine_audit_accepts_reduced_profile(self):
         result = self.audit_fixture()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_packaged_engine_audit_rejects_stripped_jni_track(self):
+        result = self.audit_fixture(missing_track=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('missing JNI classes: interfaces/IMedia$Track', result.stdout)
 
     def test_packaged_engine_audit_rejects_missing_profile(self):
         result = self.audit_fixture(include_profile=False)

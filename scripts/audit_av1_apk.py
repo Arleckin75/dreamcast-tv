@@ -10,6 +10,15 @@ import re
 import sys
 import zipfile
 
+# JNI_OnLoad resolves these types by name, including types unused by Dart/Java.
+VLC_JNI_CLASSES = (
+    'VLCObject', 'Media', 'interfaces/IMedia$Track', 'interfaces/IMedia$Slave',
+    'MediaPlayer', 'MediaPlayer$Title', 'MediaPlayer$Chapter',
+    'MediaPlayer$TrackDescription', 'MediaPlayer$Equalizer',
+    'MediaDiscoverer', 'MediaDiscoverer$Description',
+    'RendererDiscoverer', 'RendererDiscoverer$Description', 'Dialog',
+)
+
 
 def run():
     ap = argparse.ArgumentParser()
@@ -57,13 +66,18 @@ def run():
             issues.append('No classes.dex found in APK')
         exo_dex_hits = []
         vlc_dex_hits = []
+        missing_jni = set(VLC_JNI_CLASSES)
         for n in dex_names:
             payload = z.read(n)
+            missing_jni = {name for name in missing_jni
+                           if f'Lorg/videolan/libvlc/{name};'.encode() not in payload}
             if any(x in payload for x in (b'Landroidx/media3/exoplayer/', b'Lcom/google/android/exoplayer2/')):
                 exo_dex_hits.append(n)
             if b'Lorg/videolan/libvlc/' in payload:
                 vlc_dex_hits.append(n)
     if args.player == 'software':
+        if missing_jni:
+            issues.append('software_AV1: missing JNI classes: ' + ', '.join(sorted(missing_jni)))
         if not vlc_native:
             issues.append('software_AV1: libvlc.so is MISSING')
         if not vlc_deps:
