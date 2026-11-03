@@ -1,45 +1,71 @@
-# Dream Cast TV v0.7 — полноценная Release-сборка
+# Подпись и выпуск Release APK
 
-Ветка: `develop`. Package ID: `com.dreamcast.app`. Flutter mode: `release`. Версия APK: `0.7.0`; versionCode: `700000 + GitHub run_number`.
+Основной workflow — `.github/workflows/build-tv-apk.yml`. Release собирается только
+из `main`, с постоянным ключом и версией из `pubspec.yaml`. Ключ не создаётся
+автоматически; debug-подпись вместо Release не подставляется.
 
-## Подпись
+## Ключ и GitHub Secrets
 
-Workflow **не создаёт временный ключ**: нужен постоянный Android keystore. Для обновления установленной v0.6.0 необходимо подписать v0.7 **тем же ключом**, что и v0.6.0. Если ключ другой, Android выдаст INSTALL_FAILED_UPDATE_INCOMPATIBLE. Не удаляйте установленную v0.6.0 ради проверки до резервного копирования её данных.
+Если приложение уже выпускалось, используйте прежний ключ для совместимого
+обновления. Для первого выпуска ключ можно создать через JDK 17:
 
-GitHub → Settings → Secrets and variables → Actions → New repository secret:
-
-- `DCTV_KEYSTORE_BASE64` — Base64 содержимого .jks/.keystore (без переносов строк)
-- `DCTV_STORE_PASSWORD` — пароль хранилища
-- `DCTV_KEY_ALIAS` — alias ключа
-- `DCTV_KEY_PASSWORD` — пароль самого ключа
-
-На Windows в PowerShell 5.1 получить Base64:
-
-```powershell
-[Convert]::ToBase64String([IO.File]::ReadAllBytes('C:\path\to\release.jks')) | Set-Clipboard
+```sh
+keytool -genkeypair -v -keystore dreamcast-tv-upload.jks -alias dreamcasttv -keyalg RSA -keysize 3072 -validity 10000
 ```
 
-Никогда не добавляйте keystore, пароль или `android/key.properties` в Git.
+Храните keystore вне репозитория с резервной копией. В **Settings → Secrets and
+variables → Actions** настройте имена, которые использует текущий workflow:
 
-## Сборка
+| Secret | Значение |
+| --- | --- |
+| `TV_RELEASE_KEYSTORE_BASE64` | Base64 содержимого keystore |
+| `TV_RELEASE_STORE_PASSWORD` | Пароль keystore |
+| `TV_RELEASE_KEY_PASSWORD` | Пароль ключа |
+| `TV_RELEASE_KEY_ALIAS` | Alias ключа |
 
-1. Заменить исходники `develop` из ZIP (при копировании удалить старый `.github/workflows/release-candidate.yml`, если он есть).
-2. Сохранить существующий workflow Debug в репозитории.
-3. Commit → Push в `develop`.
-4. GitHub Actions → **Build Dream Cast TV v0.7 Release** → Run workflow → `develop`.
-5. Artifact `dreamcast-tv-v0.7-release` содержит `app-release.apk` и SHA-256.
-
-Если secrets отсутствуют, job завершится с понятной ошибкой, а **не** создаст APK с непредсказуемой подписью.
-
-## Проверка обновления
-
-Перед установкой сравните сертификаты старого и нового APK:
+Получить Base64 в буфер обмена PowerShell:
 
 ```powershell
-apksigner verify --print-certs old-v0.6.0.apk
-apksigner verify --print-certs app-release.apk
+[Convert]::ToBase64String([IO.File]::ReadAllBytes('C:\path\to\dreamcast-tv-upload.jks')) | Set-Clipboard
 ```
 
-Значение `Signer #1 certificate SHA-256 digest` должно совпадать (если нет схемы смены подписи). Тогда `adb install -r app-release.apk` обновит существующее приложение.
+Не добавляйте ключи, пароли или `android/key.properties` в Git и артефакты.
 
-**Компиляция Flutter/Gradle здесь не выполнялась** — нужна проверка GitHub Actions.
+## Локальная подпись
+
+Создайте `android/key.properties` с реальными значениями:
+
+```properties
+storeFile=C:/path/to/dreamcast-tv-upload.jks
+storePassword=YOUR_STORE_PASSWORD
+keyAlias=dreamcasttv
+keyPassword=YOUR_KEY_PASSWORD
+```
+
+Далее используйте `dart run scripts/build_tv.dart hardware release` или
+`dart run scripts/build_tv.dart software release`. Требования к SDK и LibVLC —
+в [инструкции сборки](BUILD_TV.md).
+
+## Сборка и публикация
+
+1. Перенесите проверенные изменения в `main`.
+2. Запустите **Build Dream Cast TV APK** из `main` с `build_mode: release`.
+3. Для получения APK без публикации оставьте `publish: false`. Также можно
+   использовать **Build Dream Cast TV Release APK**, который передаёт это значение.
+4. Получите артефакты `dreamcast-tv-v0.7.1-software_AV1-signed-release` и
+   `dreamcast-tv-v0.7.1-hardware_AV1-signed-release`, проверьте отчёты и устройства.
+5. Публикация через основной workflow требует отдельного `publish: true`.
+
+Обе Release-сборки используют `com.dreamcast.app`; Debug устанавливается отдельно
+как `com.dreamcast.app.diagnostic`. Для обновления Release должны совпадать package
+ID и допустимая подпись, а versionCode должен соответствовать правилам обновления.
+
+Сравните сертификаты до установки:
+
+```sh
+apksigner verify --print-certs old.apk
+apksigner verify --print-certs new.apk
+```
+
+Компиляция, подпись и аудит APK не заменяют проверку воспроизведения, поиска,
+сохранения локальных данных и обновления на реальном TV.
