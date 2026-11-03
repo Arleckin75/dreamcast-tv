@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:dream_cast/core/utils/json_record.dart';
 
 import 'package:dream_cast/core/cache/cache_entry.dart';
 import 'package:dream_cast/core/cache/cache_retention.dart';
@@ -45,18 +46,24 @@ final class CacheRepository {
     );
   }
 
-  Future<CachedValue<Map<String, Object?>>?> getJsonMap(String key) async {
+  Future<CachedValue<Map<String, Object?>>?> getJsonMap(
+    String key, {
+    Duration? maxAge,
+  }) async {
     final row = await _database.cacheEntry(key);
     if (row == null) return null;
 
-    final decoded = jsonDecode(row.valueJson);
-    if (decoded is! Map) return null;
+    final decoded = readJsonRecord(row.valueJson, (value) => value);
+    if (decoded == null) return null;
 
     final expiresAt = row.expiresAt;
     return CachedValue<Map<String, Object?>>(
       value: decoded.cast<String, Object?>(),
       updatedAt: row.updatedAt,
-      isStale: expiresAt != null && DateTime.now().isAfter(expiresAt),
+      isStale:
+          (expiresAt != null && !DateTime.now().isBefore(expiresAt)) ||
+          (maxAge != null &&
+              !DateTime.now().isBefore(row.updatedAt.add(maxAge))),
     );
   }
 
@@ -69,28 +76,26 @@ final class CacheRepository {
   }
 
   Future<CacheStats> stats() async {
-    final entries = await _database.allCacheEntries();
-    var bytes = 0;
-    Duration? maxRetention;
-
-    for (final entry in entries) {
-      bytes += utf8.encode(entry.key).length;
-      bytes += utf8.encode(entry.valueJson).length;
-      bytes += utf8.encode(entry.etag ?? '').length;
-
-      final expiresAt = entry.expiresAt;
-      if (expiresAt != null && expiresAt.isAfter(entry.updatedAt)) {
-        final retention = expiresAt.difference(entry.updatedAt);
-        if (maxRetention == null || retention > maxRetention) {
-          maxRetention = retention;
-        }
-      }
-    }
-
+    // Aggregate inside SQLite instead of loading every cached JSON document
+    // into Dart memory just to display a byte count.
+    final row = await _database
+        .customSelect(
+          '''
+      SELECT COUNT(*) AS entry_count,
+        COALESCE(SUM(length(CAST(key AS BLOB)) + length(CAST(value_json AS BLOB))
+          + length(CAST(COALESCE(etag, '') AS BLOB))), 0) AS byte_count,
+        MAX(CASE WHEN expires_at > updated_at
+          THEN expires_at - updated_at END) AS retention_seconds
+      FROM cache_entries
+    ''',
+          readsFrom: {_database.cacheEntries},
+        )
+        .getSingle();
+    final seconds = row.readNullable<int>('retention_seconds');
     return CacheStats(
-      entriesCount: entries.length,
-      approximateBytes: bytes,
-      maxRetention: maxRetention,
+      entriesCount: row.read<int>('entry_count'),
+      approximateBytes: row.read<int>('byte_count'),
+      maxRetention: seconds == null ? null : Duration(seconds: seconds),
     );
   }
 

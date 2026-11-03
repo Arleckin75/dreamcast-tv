@@ -1,3 +1,4 @@
+import 'package:dream_cast/app/widgets/tv_refresh.dart';
 import 'package:dream_cast/app/widgets/app_empty_state.dart';
 import 'package:dream_cast/features/notifications/data/episode_notification_history.dart';
 import 'package:dream_cast/features/notifications/data/episode_notification_history_providers.dart';
@@ -31,6 +32,7 @@ class _NotificationHistoryScreenState
 
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: false,
         title: const Text('Уведомления'),
         actions: [
           IconButton(
@@ -47,16 +49,16 @@ class _NotificationHistoryScreenState
           ),
         ],
       ),
-      body: entries.isEmpty
-          ? const AppEmptyState(
-              icon: Icons.notifications_none_outlined,
-              title: 'Уведомлений нет',
-              message:
-                  'Когда в подписанных тайтлах появятся новые серии, они будут отображаться здесь.',
-            )
-          : RefreshIndicator(
-              onRefresh: controller.refresh,
-              child: ListView.separated(
+      body: TvRefresh(
+        onRefresh: controller.refresh,
+        child: entries.isEmpty
+            ? const AppEmptyState(
+                icon: Icons.notifications_none_outlined,
+                title: 'Уведомлений нет',
+                message:
+                    'Когда в подписанных тайтлах появятся новые серии, они будут отображаться здесь.',
+              )
+            : ListView.separated(
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
                 itemCount: entries.length,
@@ -73,7 +75,7 @@ class _NotificationHistoryScreenState
                   },
                 ),
               ),
-            ),
+      ),
     );
   }
 }

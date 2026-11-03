@@ -1,4 +1,5 @@
 import java.util.Properties
+import groovy.json.JsonSlurper
 
 plugins {
     id("com.android.application")
@@ -17,7 +18,7 @@ if (hasReleaseKeystore) {
 android {
     namespace = "com.dreamcast.app"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    ndkVersion = rootProject.file("../.android-ndk-version").readText().trim()
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -82,13 +83,40 @@ android {
             signingConfig = if (hasReleaseKeystore) {
                 signingConfigs.getByName("release")
             } else {
-                signingConfigs.getByName("debug")
+                null
             }
         }
     }
 }
 
 gradle.taskGraph.whenReady {
+    // Inspect requested targets: Flutter's dependency graph can also contain
+    // helper tasks mentioning a different flavor.
+    val softwareRequested = gradle.startParameter.taskNames.any { it.contains("SoftwareAv1", ignoreCase = true) }
+    val hardwareRequested = gradle.startParameter.taskNames.any { it.contains("HardwareAv1", ignoreCase = true) }
+    if (softwareRequested && hardwareRequested) {
+        throw GradleException("Build one AV1 flavor at a time using scripts/build_tv.dart.")
+    }
+    if (!softwareRequested && !hardwareRequested && allTasks.any {
+            it.project.path == ":app" && (it.name.startsWith("assemble") || it.name.startsWith("bundle"))
+        }) {
+        throw GradleException("Specify softwareAv1 or hardwareAv1 using scripts/build_tv.dart.")
+    }
+    if (softwareRequested || hardwareRequested) {
+        val packageConfig = rootProject.file("../.dart_tool/package_config.json")
+        val config = JsonSlurper().parse(packageConfig) as Map<*, *>
+        val packages = config["packages"] as List<*>
+        val videoPackage = packages.filterIsInstance<Map<*, *>>()
+            .firstOrNull { it["name"] == "video_player_android" }
+        val usesNoopPlayer = videoPackage?.get("rootUri").toString()
+            .contains("video_player_android_noop")
+        if (softwareRequested != usesNoopPlayer) {
+            throw GradleException(
+                "Flutter video plugin does not match the Android flavor. " +
+                    "Use dart run scripts/build_tv.dart software|hardware debug|release."
+            )
+        }
+    }
     val releaseTaskRequested = allTasks.any {
         it.name.contains("Release", ignoreCase = true) && (it.name.startsWith("assemble") || it.name.startsWith("bundle"))
     }
@@ -104,6 +132,18 @@ flutter {
     source = "../.."
 }
 
+repositories {
+    maven {
+        name = "dreamcastLibVlcTv"
+        url = uri(rootProject.file("../.tools/libvlc-tv/maven"))
+        content { includeGroup("tv.dreamcast.libvlc") }
+    }
+}
+
+val libvlcTvVersions = Properties().apply {
+    rootProject.file("../third_party/libvlc_tv/versions.env").inputStream().use { load(it) }
+}
+
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
     // Device video-track compatibility selection (same Media3 version as video_player_android).
@@ -111,5 +151,6 @@ dependencies {
     add("hardwareAv1Implementation", "androidx.media3:media3-exoplayer-hls:1.9.2")
     add("hardwareAv1Implementation", "androidx.media3:media3-exoplayer-dash:1.9.2")
     // LibVLC software AV1 fallback for devices without a supported hardware decoder.
-    add("softwareAv1Implementation", "org.videolan.android:libvlc-all:3.7.7")
+    // Produced by build-libvlc-tv.yml. No fallback to the unchanged full AAR.
+    add("softwareAv1Implementation", "tv.dreamcast.libvlc:libvlc-tv:${libvlcTvVersions.getProperty("TV_VERSION")}")
 }

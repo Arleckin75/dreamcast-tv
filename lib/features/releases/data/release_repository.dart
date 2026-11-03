@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:dream_cast/core/logging/performance_trace.dart';
 import 'package:dream_cast/core/cache/cache_repository.dart';
 import 'package:dream_cast/core/errors/app_exception.dart';
 import 'package:dream_cast/features/releases/data/dream_cast_api.dart';
@@ -38,6 +39,10 @@ final class ReleaseRepository {
   final CacheRepository _cache;
   final DreamCastParserService _parser;
 
+  void _checkCancellation(CancelToken? token) {
+    if (token?.isCancelled == true) throw token!.cancelError!;
+  }
+
   Future<ReleasePage<DreamRelease>> ongoing({
     int page = 1,
     int pageSize = 16,
@@ -53,10 +58,13 @@ final class ReleaseRepository {
   Future<DreamData<ReleasePage<DreamRelease>>> ongoingCached({
     int page = 1,
     int pageSize = 16,
+    bool refresh = false,
     CancelToken? cancelToken,
   }) {
     return _getReleasePage(
       cacheKey: 'dreamcast:releases:ongoing:$page:$pageSize',
+      refresh: refresh,
+      cancelToken: cancelToken,
       page: page,
       pageSize: pageSize,
       request: () => _api.getReleases(
@@ -90,6 +98,7 @@ final class ReleaseRepository {
     final normalized = query.trim().toLowerCase();
     return _getReleasePage(
       cacheKey: 'dreamcast:releases:search:$normalized:$page:$pageSize',
+      cancelToken: cancelToken,
       page: page,
       pageSize: pageSize,
       request: () => _api.getReleases(
@@ -118,8 +127,14 @@ final class ReleaseRepository {
         'thumb="${parsed.thumbnailUrl}", script="${parsed.playerScriptUrl}", '
         'payloadLength=${parsed.playerPayload.length}, payloadPreview="${_snippet(parsed.playerPayload)}"',
       );
+      final hydratedRelease = _hydrateRelease(
+        release,
+        title: parsed.title,
+        thumbnailUrl: parsed.thumbnailUrl,
+        description: parsed.description,
+      );
       final detail = DreamReleaseDetail(
-        release: release,
+        release: hydratedRelease,
         title: parsed.title,
         description: parsed.description,
         thumbnailUrl: parsed.thumbnailUrl,
@@ -134,16 +149,53 @@ final class ReleaseRepository {
         'Repository detail parse failed: release=${release.id}, '
         'errorType=${error.runtimeType}, error=$error, stackTrace=$stackTrace',
       );
+      _checkCancellation(cancelToken);
       final cached = await _detailFromCache(cacheKey, release);
       if (cached != null) return cached;
       rethrow;
     }
   }
 
-  Future<DreamData<ReleaseSchedule>> getSchedule({
+  /// Restores a release by numeric id after process death or a deep link.
+  /// [seed] is the in-memory object from GoRouter extra when the user just
+  /// opened the card from a list; it is ignored if the id does not match.
+  Future<DreamRelease> resolveRelease(int id, {DreamRelease? seed}) async {
+    if (seed != null && seed.id == id && seed.url.trim().isNotEmpty) {
+      return seed;
+    }
+
+    final cached = await _releaseFromDetailCache(id);
+    if (cached != null && cached.url.trim().isNotEmpty) return cached;
+
+    return DreamRelease(
+      id: id,
+      title: cached?.title ?? '',
+      originalTitle: cached?.originalTitle ?? '',
+      url: '/home/release/$id',
+      posterUrl: cached?.posterUrl,
+      wallUrl: cached?.wallUrl,
+      description: cached?.description,
+    );
+  }
+
+  Future<DreamData<DreamReleaseDetail>> getDetailById(
+    int id, {
+    DreamRelease? seed,
     CancelToken? cancelToken,
   }) async {
+    final release = await resolveRelease(id, seed: seed);
+    return getDetail(release, cancelToken: cancelToken);
+  }
+
+  Future<DreamData<ReleaseSchedule>> getSchedule({
+    CancelToken? cancelToken,
+    bool refresh = false,
+  }) async {
     const cacheKey = 'dreamcast:schedule';
+    _checkCancellation(cancelToken);
+    final cached = await _scheduleFromCache(cacheKey);
+    _checkCancellation(cancelToken);
+    if (!refresh && cached != null && !cached.isStale) return cached;
 
     try {
       final html = await _api.getScheduleHtml(cancelToken: cancelToken);
@@ -172,8 +224,8 @@ final class ReleaseRepository {
         'Repository schedule failed: errorType=${error.runtimeType}, '
         'error=$error, stackTrace=$stackTrace',
       );
-      final cached = await _scheduleFromCache(cacheKey);
-      if (cached != null) return cached;
+      _checkCancellation(cancelToken);
+      if (cached != null) return DreamData(value: cached.value, isStale: true);
       rethrow;
     }
   }
@@ -220,6 +272,7 @@ final class ReleaseRepository {
         'errorType=${error.runtimeType}, error=$error, stackTrace=$stackTrace, '
         'payloadSnippet="${_snippet(detail.playerPayload)}"',
       );
+      _checkCancellation(cancelToken);
       final cached = await _episodesFromCache(cacheKey);
       if (cached != null) {
         logDreamCastDiagnostic(
@@ -239,11 +292,23 @@ final class ReleaseRepository {
     }
   }
 
-  Future<DreamData<List<DreamStream>>> getStreams(DreamEpisode episode) async {
+  Future<DreamData<List<DreamStream>>> getStreams(
+    DreamEpisode episode, {
+    bool refresh = false,
+  }) async {
     final cacheKey = 'dreamcast:streams:${episode.releaseId}:${episode.id}';
 
     final cached = await _streamsFromCache(cacheKey);
-    if (cached != null && !cached.isStale) return cached;
+    if (!refresh &&
+        cached != null &&
+        !cached.isStale &&
+        cached.value.every(
+          (stream) =>
+              stream.expiresAt == null ||
+              stream.expiresAt!.isAfter(DateTime.now()),
+        )) {
+      return cached;
+    }
 
     final streams = _parser.extractStreams(episode);
     logDreamCastDiagnostic(
@@ -262,33 +327,68 @@ final class ReleaseRepository {
 
   Future<DreamData<ReleasePage<DreamRelease>>> _getReleasePage({
     required String cacheKey,
+    bool refresh = false,
+    CancelToken? cancelToken,
     required int page,
     required int pageSize,
     required Future<DreamReleaseListDto> Function() request,
   }) async {
+    final trace = PerformanceTrace('catalogue.load');
     try {
-      final dto = await request();
-      await _cache.putJson(cacheKey, dto.toJson(), ttl: releasesTtl);
-      final pageData = _releasePageFromDto(dto, page: page, pageSize: pageSize);
-      logReleaseSample(
-        source: 'Repository releases network page=$page',
-        releases: pageData.items,
-        totalCount: pageData.totalCount,
-        isStale: false,
+      _checkCancellation(cancelToken);
+      final cached = await _cache.getJsonMap(cacheKey, maxAge: releasesTtl);
+      ReleasePage<DreamRelease>? cachedPage;
+      if (cached != null) {
+        try {
+          cachedPage = _releasePageFromDto(
+            DreamReleaseListDto.fromJson(cached.value),
+            page: page,
+            pageSize: pageSize,
+          );
+        } on Object {
+          // Invalid records are cache misses; fetch a replacement from the API.
+        }
+      }
+      _checkCancellation(cancelToken);
+      if (!refresh && cachedPage != null && !cached!.isStale) {
+        trace.finish(source: 'cache', items: cachedPage.items.length);
+        return DreamData(value: cachedPage, isStale: false);
+      }
+      try {
+        final dto = await request();
+        _checkCancellation(cancelToken);
+        await _cache.putJson(cacheKey, dto.toJson(), ttl: releasesTtl);
+        final pageData = _releasePageFromDto(
+          dto,
+          page: page,
+          pageSize: pageSize,
+        );
+        trace.finish(source: 'network', items: pageData.items.length);
+        logReleaseSample(
+          source: 'Repository releases network page=$page',
+          releases: pageData.items,
+          totalCount: pageData.totalCount,
+          isStale: false,
+        );
+        return DreamData(value: pageData, isStale: false);
+      } catch (error) {
+        _checkCancellation(cancelToken);
+        if (cachedPage == null) rethrow;
+        final pageData = cachedPage;
+        trace.finish(source: 'stale_cache', items: pageData.items.length);
+        logReleaseSample(
+          source: 'Repository releases cache page=$page',
+          releases: pageData.items,
+          totalCount: pageData.totalCount,
+          isStale: true,
+        );
+        return DreamData(value: pageData, isStale: true);
+      }
+    } catch (_) {
+      trace.finish(
+        outcome: cancelToken?.isCancelled == true ? 'cancelled' : 'error',
       );
-      return DreamData(value: pageData, isStale: false);
-    } catch (error) {
-      final cached = await _cache.getJsonMap(cacheKey);
-      if (cached == null) rethrow;
-      final dto = DreamReleaseListDto.fromJson(cached.value);
-      final pageData = _releasePageFromDto(dto, page: page, pageSize: pageSize);
-      logReleaseSample(
-        source: 'Repository releases cache page=$page',
-        releases: pageData.items,
-        totalCount: pageData.totalCount,
-        isStale: true,
-      );
-      return DreamData(value: pageData, isStale: true);
+      rethrow;
     }
   }
 
@@ -319,6 +419,14 @@ final class ReleaseRepository {
     );
   }
 
+  Future<DreamRelease?> _releaseFromDetailCache(int id) async {
+    final cached = await _cache.getJsonMap('dreamcast:detail:$id');
+    if (cached == null) return null;
+    final raw = cached.value['release'];
+    if (raw is! Map) return null;
+    return _releaseFromJson(raw.cast<String, Object?>());
+  }
+
   Future<DreamData<List<DreamEpisode>>?> _episodesFromCache(
     String cacheKey,
   ) async {
@@ -339,7 +447,7 @@ final class ReleaseRepository {
   Future<DreamData<List<DreamStream>>?> _streamsFromCache(
     String cacheKey,
   ) async {
-    final cached = await _cache.getJsonMap(cacheKey);
+    final cached = await _cache.getJsonMap(cacheKey, maxAge: streamsTtl);
     if (cached == null) return null;
     final raw = cached.value['streams'];
     if (raw is! List) return null;
@@ -355,21 +463,27 @@ final class ReleaseRepository {
   Future<DreamData<ReleaseSchedule>?> _scheduleFromCache(
     String cacheKey,
   ) async {
-    final cached = await _cache.getJsonMap(cacheKey);
+    final cached = await _cache.getJsonMap(cacheKey, maxAge: scheduleTtl);
     if (cached == null) return null;
     final daysRaw = cached.value['days'];
     if (daysRaw is! List) return null;
-
-    final days = daysRaw
-        .whereType<Map>()
-        .map((item) => _scheduleDayFromJson(item.cast<String, Object?>()))
-        .toList(growable: false);
-    if (days.every((day) => day.releases.isEmpty)) return null;
-
-    return DreamData(value: ReleaseSchedule(days: days), isStale: true);
+    try {
+      final days = daysRaw
+          .whereType<Map>()
+          .map((item) => _scheduleDayFromJson(item.cast<String, Object?>()))
+          .toList(growable: false);
+      if (days.every((day) => day.releases.isEmpty)) return null;
+      return DreamData(
+        value: ReleaseSchedule(days: days),
+        isStale: cached.isStale,
+      );
+    } on TypeError {
+      return null;
+    }
   }
 
   Map<String, Object?> _detailToJson(DreamReleaseDetail detail) => {
+    'release': _releaseToJson(detail.release),
     'title': detail.title,
     'description': detail.description,
     'thumbnailUrl': detail.thumbnailUrl,
@@ -388,9 +502,14 @@ final class ReleaseRepository {
       throw const CacheException('Кэш страницы релиза повреждён.');
     }
 
+    final rawRelease = json['release'];
+    final cachedRelease = rawRelease is Map
+        ? _releaseFromJson(rawRelease.cast<String, Object?>())
+        : null;
+
     return DreamReleaseDetail(
-      release: release,
-      title: json['title'] as String? ?? release.title,
+      release: cachedRelease ?? release,
+      title: json['title'] as String? ?? (cachedRelease ?? release).title,
       description: json['description'] as String?,
       thumbnailUrl: json['thumbnailUrl'] as String?,
       playerPayload: playerPayload,
@@ -398,6 +517,42 @@ final class ReleaseRepository {
       fetchedAt:
           DateTime.tryParse(json['fetchedAt'] as String? ?? '') ??
           DateTime.now(),
+    );
+  }
+
+  DreamRelease _hydrateRelease(
+    DreamRelease release, {
+    required String title,
+    required String? thumbnailUrl,
+    required String? description,
+  }) {
+    final needsTitle = release.title.trim().isEmpty;
+    final needsPoster = release.posterUrl == null || release.posterUrl!.isEmpty;
+    final needsDescription =
+        release.description == null || release.description!.trim().isEmpty;
+    if (!needsTitle && !needsPoster && !needsDescription) return release;
+
+    return DreamRelease(
+      id: release.id,
+      title: needsTitle ? title : release.title,
+      originalTitle: release.originalTitle,
+      url: release.url.trim().isEmpty
+          ? '/home/release/${release.id}'
+          : release.url,
+      posterUrl: needsPoster ? thumbnailUrl : release.posterUrl,
+      wallUrl: release.wallUrl,
+      description: needsDescription ? description : release.description,
+      status: release.status,
+      type: release.type,
+      year: release.year,
+      season: release.season,
+      genres: release.genres,
+      studio: release.studio,
+      durationMinutes: release.durationMinutes,
+      totalEpisodes: release.totalEpisodes,
+      currentEpisodes: release.currentEpisodes,
+      rating: release.rating,
+      raw: release.raw,
     );
   }
 

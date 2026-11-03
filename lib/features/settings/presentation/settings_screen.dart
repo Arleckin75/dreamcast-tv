@@ -1,3 +1,4 @@
+import 'package:dream_cast/app/widgets/tv_dialog.dart';
 import 'package:dream_cast/app/theme/theme_mode_label.dart';
 import 'package:dream_cast/app/widgets/app_screen.dart';
 import 'package:dream_cast/app/widgets/settings_tile.dart';
@@ -20,13 +21,7 @@ class SettingsScreen extends ConsumerWidget {
 
     return AppScreen(
       title: 'Настройки',
-      leading: MediaQuery.sizeOf(context).width >= 720
-          ? IconButton(
-              tooltip: 'К каталогу',
-              onPressed: () => context.go('/home'),
-              icon: const Icon(Icons.arrow_back),
-            )
-          : null,
+
       child: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [
@@ -91,9 +86,8 @@ class SettingsScreen extends ConsumerWidget {
   void _showThemeSheet(BuildContext context, WidgetRef ref) {
     final selected = ref.read(appSettingsProvider).themeMode;
 
-    showModalBottomSheet<void>(
+    showTvDialog<void>(
       context: context,
-      showDragHandle: true,
       builder: (context) {
         return SafeArea(
           child: Column(
@@ -101,6 +95,7 @@ class SettingsScreen extends ConsumerWidget {
             children: ThemeMode.values.map((mode) {
               return ListTile(
                 title: Text(mode.russianLabel),
+                autofocus: selected == mode,
                 trailing: selected == mode ? const Icon(Icons.check) : null,
                 onTap: () {
                   ref.read(appSettingsProvider.notifier).setThemeMode(mode);
@@ -117,9 +112,8 @@ class SettingsScreen extends ConsumerWidget {
   void _showAccentSheet(BuildContext context, WidgetRef ref) {
     final selected = ref.read(appSettingsProvider).accent;
 
-    showModalBottomSheet<void>(
+    showTvDialog<void>(
       context: context,
-      showDragHandle: true,
       builder: (context) {
         return SafeArea(
           child: Column(
@@ -127,6 +121,7 @@ class SettingsScreen extends ConsumerWidget {
             children: AppAccent.values.map((accent) {
               return ListTile(
                 title: Text(accent.label),
+                autofocus: selected == accent,
                 leading: CircleAvatar(backgroundColor: accent.seedColor),
                 trailing: selected == accent ? const Icon(Icons.check) : null,
                 onTap: () {
@@ -144,9 +139,8 @@ class SettingsScreen extends ConsumerWidget {
   void _showStreamTechnologySheet(BuildContext context, WidgetRef ref) {
     final selected = ref.read(preferredStreamTechnologyProvider);
 
-    showModalBottomSheet<void>(
+    showTvDialog<void>(
       context: context,
-      showDragHandle: true,
       builder: (context) {
         return SafeArea(
           child: Column(
@@ -154,6 +148,7 @@ class SettingsScreen extends ConsumerWidget {
             children: PreferredStreamTechnology.values.map((technology) {
               return ListTile(
                 title: Text(technology.label),
+                autofocus: selected == technology,
                 subtitle: technology == PreferredStreamTechnology.none
                     ? const Text('Выбирать вручную при запуске серии')
                     : const Text('Запускать серии сразу с этим потоком'),

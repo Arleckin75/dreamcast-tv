@@ -80,6 +80,7 @@ class WatchEntries extends Table {
   Set<Column<Object>> get primaryKey => {releaseId, episodeId};
 }
 
+// Legacy table retained for database compatibility; the download feature is removed.
 class DownloadedEpisodes extends Table {
   IntColumn get releaseId => integer()();
   TextColumn get episodeId => text()();
@@ -127,66 +128,6 @@ class AppDatabase extends _$AppDatabase {
       }
     },
   );
-
-  Future<void> saveDownloadedEpisode(DownloadedEpisodesCompanion entry) {
-    return into(downloadedEpisodes).insertOnConflictUpdate(entry);
-  }
-
-  Future<int> updateDownloadedEpisode(
-    int releaseId,
-    String episodeId,
-    DownloadedEpisodesCompanion changes,
-  ) {
-    return (update(downloadedEpisodes)..where(
-          (row) =>
-              row.releaseId.equals(releaseId) & row.episodeId.equals(episodeId),
-        ))
-        .write(changes);
-  }
-
-  Future<DownloadedEpisode?> downloadedEpisode(
-    int releaseId,
-    String episodeId,
-  ) {
-    return (select(downloadedEpisodes)..where(
-          (row) =>
-              row.releaseId.equals(releaseId) & row.episodeId.equals(episodeId),
-        ))
-        .getSingleOrNull();
-  }
-
-  Stream<DownloadedEpisode?> watchDownloadedEpisode(
-    int releaseId,
-    String episodeId,
-  ) {
-    return (select(downloadedEpisodes)..where(
-          (row) =>
-              row.releaseId.equals(releaseId) & row.episodeId.equals(episodeId),
-        ))
-        .watchSingleOrNull();
-  }
-
-  Future<List<DownloadedEpisode>> allDownloadedEpisodes() {
-    return select(downloadedEpisodes).get();
-  }
-
-  Stream<List<DownloadedEpisode>> watchAllDownloadedEpisodes() {
-    return (select(
-      downloadedEpisodes,
-    )..orderBy([(row) => OrderingTerm.desc(row.createdAt)])).watch();
-  }
-
-  Future<int> deleteDownloadedEpisode(int releaseId, String episodeId) {
-    return (delete(downloadedEpisodes)..where(
-          (row) =>
-              row.releaseId.equals(releaseId) & row.episodeId.equals(episodeId),
-        ))
-        .go();
-  }
-
-  Future<int> deleteAllDownloadedEpisodes() {
-    return delete(downloadedEpisodes).go();
-  }
 
   Future<Profile?> activeProfile() {
     return (select(
@@ -310,7 +251,10 @@ class AppDatabase extends _$AppDatabase {
 
   Stream<List<WatchEntry>> watchRecentEntries({int limit = 12}) {
     return (select(watchEntries)
-          ..orderBy([(row) => OrderingTerm.desc(row.updatedAt)])
+          ..orderBy([
+            (row) => OrderingTerm.desc(row.updatedAt),
+            (row) => OrderingTerm.desc(row.rowId),
+          ])
           ..limit(limit))
         .watch();
   }
@@ -320,6 +264,12 @@ LazyDatabase _openConnection() {
   return LazyDatabase(() async {
     final directory = await getApplicationDocumentsDirectory();
     final file = File(p.join(directory.path, 'dream_cast.sqlite'));
-    return NativeDatabase.createInBackground(file);
+    return NativeDatabase.createInBackground(
+      file,
+      setup: (database) {
+        database.execute('PRAGMA busy_timeout = 15000');
+        database.execute('PRAGMA journal_mode = WAL');
+      },
+    );
   });
 }

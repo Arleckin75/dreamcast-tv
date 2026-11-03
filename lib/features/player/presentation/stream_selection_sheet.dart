@@ -73,6 +73,7 @@ class _StreamSelectionSheetState extends ConsumerState<StreamSelectionSheet> {
           const SizedBox(height: 8),
           for (final stream in streams)
             ListTile(
+              autofocus: stream == streams.first,
               leading: Icon(
                 technologyFromStreamType(stream.type) == preference
                     ? Icons.verified_outlined

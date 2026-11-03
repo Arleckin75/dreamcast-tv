@@ -4,6 +4,7 @@
 Fails closed when forbidden engine classes or dependencies are present.
 """
 import argparse
+import json
 import pathlib
 import re
 import sys
@@ -30,11 +31,27 @@ def run():
         vlc_deps = re.findall(r'(?im)org\.videolan(?:\.android)?:libvlc[^\s]*', dep)
     if not vlc_deps:
         vlc_deps = re.findall(r"(?im)org\.videolan(?:\.android)?:[^\s]+libvlc[^\s]*", dep)
+    if not vlc_deps:
+        vlc_deps = re.findall(r'(?im)tv\.dreamcast\.libvlc:libvlc-tv:[^\s]+', dep)
     if not exo_deps:
         exo_deps = re.findall(r'(?im)(?:androidx\.media3:media3-exoplayer[^\s]*|com\.google\.android\.exoplayer:exoplayer[^\s]*)', dep)
     with zipfile.ZipFile(args.apk) as z:
         names = z.namelist()
         vlc_native = [n for n in names if re.search(r'/libvlc(?:jni)?\.so$', n, re.I)]
+        if args.player == 'software':
+            try:
+                profile = json.loads(z.read('assets/dreamcast-libvlc-tv.json'))
+                expected_abis = {'armeabi-v7a', 'arm64-v8a'}
+                recorded_abis = {entry['abi'] for entry in profile['armComparison']}
+                if recorded_abis != expected_abis:
+                    raise ValueError('Incomplete ARM comparison')
+                for abi in profile['armComparison']:
+                    core = next(item for item in abi['libraries'] if item['library'] == 'libvlc.so')
+                    packaged = z.getinfo(f"lib/{abi['abi']}/libvlc.so").file_size
+                    if not packaged < core['originalBytes']:
+                        issues.append(f"software_AV1: packaged LibVLC did not get smaller for {abi['abi']}")
+            except (KeyError, ValueError, TypeError, StopIteration):
+                issues.append('software_AV1: verified reduced LibVLC profile is missing or invalid')
         dex_names = [n for n in names if re.fullmatch(r'classes(?:\d+)?\.dex', n)]
         if not dex_names:
             issues.append('No classes.dex found in APK')
@@ -67,7 +84,7 @@ def run():
         if not exo_dex_hits:
             issues.append('hardware_AV1: ExoPlayer class descriptors MISSING in DEX')
     report = [
-        'Dream Cast TV v0.7.1 - packaged AV1 engine audit',
+        'Dream Cast TV v0.8.4 - packaged AV1 engine audit',
         f'Variant: {args.player}',
         f'APK: {args.apk}',
         f'LibVLC .so: {len(vlc_native)} ({", ".join(vlc_native) if vlc_native else "none"})',

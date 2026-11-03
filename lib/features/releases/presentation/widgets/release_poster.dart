@@ -47,54 +47,62 @@ class ReleasePoster extends StatelessWidget {
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 4),
                       child: Text(
-                        normalizedUrl == null ? 'NULL URL' : 'INVALID URL',
+                        'Нет постера',
                         textAlign: TextAlign.center,
                         style: theme.textTheme.labelSmall?.copyWith(
                           color: theme.colorScheme.error,
-                          fontSize: 8,
+                          fontSize: 14,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                     ),
                   ],
                 )
-              : CachedNetworkImage(
-                  imageUrl: normalizedUrl,
-                  fit: BoxFit.cover,
-                  fadeInDuration: const Duration(milliseconds: 160),
-                  fadeOutDuration: const Duration(milliseconds: 80),
-                  placeholder: (context, url) => const _PosterPlaceholder(),
-                  errorWidget: (context, url, error) => Container(
-                    color: theme.colorScheme.errorContainer,
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.broken_image_outlined,
-                          color: theme.colorScheme.onErrorContainer,
-                          size: 32,
-                        ),
-                        const SizedBox(height: 4),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          child: Text(
-                            'LOAD ERROR',
-                            textAlign: TextAlign.center,
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: theme.colorScheme.onErrorContainer,
-                              fontSize: 8,
-                              fontWeight: FontWeight.bold,
+              : LayoutBuilder(
+                  builder: (context, constraints) => CachedNetworkImage(
+                    imageUrl: normalizedUrl,
+                    memCacheWidth: constraints.hasBoundedWidth
+                        ? (constraints.maxWidth *
+                                  MediaQuery.devicePixelRatioOf(context))
+                              .ceil()
+                              .clamp(1, 1920)
+                        : null,
+                    fit: BoxFit.cover,
+                    fadeInDuration: const Duration(milliseconds: 160),
+                    fadeOutDuration: const Duration(milliseconds: 80),
+                    placeholder: (context, url) => const _PosterPlaceholder(),
+                    errorWidget: (context, url, error) => Container(
+                      color: theme.colorScheme.errorContainer,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.broken_image_outlined,
+                            color: theme.colorScheme.onErrorContainer,
+                            size: 32,
+                          ),
+                          const SizedBox(height: 4),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: Text(
+                              'Нет постера',
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.onErrorContainer,
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
+                    errorListener: (error) {
+                      logDreamCastDiagnostic(
+                        'Poster load failed: url="$normalizedUrl", error=$error',
+                      );
+                    },
                   ),
-                  errorListener: (error) {
-                    logDreamCastDiagnostic(
-                      'Poster load failed: url="$normalizedUrl", error=$error',
-                    );
-                  },
                 ),
         ),
       ),

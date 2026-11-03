@@ -2,6 +2,9 @@ import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:dream_cast/app/bootstrap/dream_cast_app.dart';
+import 'package:dream_cast/core/errors/app_exception.dart';
+import 'package:dream_cast/features/player/data/stream_preference_providers.dart';
+import 'package:dream_cast/features/player/domain/playback_request.dart';
 import 'package:dream_cast/features/releases/data/dream_cast_diagnostics.dart';
 import 'package:dream_cast/features/releases/data/release_providers.dart';
 import 'package:dream_cast/features/releases/data/release_repository.dart';
@@ -19,6 +22,13 @@ final searchReleasesProvider =
       SearchReleasesController.new,
     );
 
+final releaseByIdProvider = FutureProvider.autoDispose
+    .family<DreamRelease, ({int id, DreamRelease? seed})>((ref, key) {
+      return ref
+          .watch(releaseRepositoryProvider)
+          .resolveRelease(key.id, seed: key.seed);
+    });
+
 final releaseDetailProvider = FutureProvider.autoDispose
     .family<DreamData<DreamReleaseDetail>, DreamRelease>((ref, release) {
       final cancelToken = CancelToken();
@@ -26,6 +36,55 @@ final releaseDetailProvider = FutureProvider.autoDispose
       return ref
           .watch(releaseRepositoryProvider)
           .getDetail(release, cancelToken: cancelToken);
+    });
+
+final releaseDetailByIdProvider = FutureProvider.autoDispose
+    .family<DreamData<DreamReleaseDetail>, ({int id, DreamRelease? seed})>((
+      ref,
+      key,
+    ) {
+      final cancelToken = CancelToken();
+      ref.onDispose(cancelToken.cancel);
+      return ref
+          .watch(releaseRepositoryProvider)
+          .getDetailById(key.id, seed: key.seed, cancelToken: cancelToken);
+    });
+
+typedef WatchRouteKey = ({int releaseId, String episodeId});
+
+final watchPlaybackRequestProvider = FutureProvider.autoDispose
+    .family<PlaybackRequest, WatchRouteKey>((ref, key) async {
+      final cancelToken = CancelToken();
+      ref.onDispose(cancelToken.cancel);
+      final repository = ref.watch(releaseRepositoryProvider);
+      final detail = await repository.getDetailById(
+        key.releaseId,
+        cancelToken: cancelToken,
+      );
+      final episodes = await repository.getEpisodes(
+        detail.value,
+        cancelToken: cancelToken,
+      );
+      DreamEpisode? episode;
+      for (final item in episodes.value) {
+        if (item.id == key.episodeId ||
+            item.ordinal.toString() == key.episodeId) {
+          episode = item;
+          break;
+        }
+      }
+      if (episode == null) {
+        throw const ParserException('Серия не найдена. Откройте релиз снова.');
+      }
+      final streams = await repository.getStreams(episode, refresh: true);
+      final preference = ref.read(preferredStreamTechnologyProvider);
+      return PlaybackRequest(
+        release: detail.value.release,
+        episode: episode,
+        streams: streams.value,
+        initialStream: pickPreferredStream(streams.value, preference),
+        episodeQueue: episodes.value,
+      );
     });
 
 final releaseEpisodesProvider = FutureProvider.autoDispose
@@ -61,6 +120,7 @@ final episodeStreamsProvider = FutureProvider.autoDispose
 
 class LatestReleasesController extends AsyncNotifier<ReleaseListState> {
   CancelToken? _cancelToken;
+  int _generation = 0;
 
   @override
   Future<ReleaseListState> build() async {
@@ -69,14 +129,17 @@ class LatestReleasesController extends AsyncNotifier<ReleaseListState> {
   }
 
   Future<void> refresh() async {
+    final generation = ++_generation;
     _cancelToken?.cancel();
     state = const AsyncLoading<ReleaseListState>();
-    state = await AsyncValue.guard(() => _loadPage(1));
+    final result = await AsyncValue.guard(() => _loadPage(1, refresh: true));
+    if (ref.mounted && generation == _generation) state = result;
   }
 
   Future<void> loadMore() async {
     final current = state.valueOrNullCompat;
     if (current == null || current.isLoadingMore || !current.hasMore) return;
+    final generation = _generation;
 
     state = AsyncData(
       current.copyWith(isLoadingMore: true, clearLoadMoreError: true),
@@ -84,6 +147,7 @@ class LatestReleasesController extends AsyncNotifier<ReleaseListState> {
 
     try {
       final next = await _loadPage(current.page + 1);
+      if (!ref.mounted || generation != _generation) return;
       state = AsyncData(
         next.copyWith(
           items: [...current.items, ...next.items],
@@ -91,17 +155,23 @@ class LatestReleasesController extends AsyncNotifier<ReleaseListState> {
         ),
       );
     } catch (error) {
+      if (!ref.mounted || generation != _generation) return;
       state = AsyncData(
         current.copyWith(isLoadingMore: false, loadMoreError: error),
       );
     }
   }
 
-  Future<ReleaseListState> _loadPage(int page) async {
+  Future<ReleaseListState> _loadPage(int page, {bool refresh = false}) async {
     _cancelToken = CancelToken();
     final data = await ref
         .read(releaseRepositoryProvider)
-        .ongoingCached(page: page, pageSize: 16, cancelToken: _cancelToken);
+        .ongoingCached(
+          page: page,
+          pageSize: 16,
+          refresh: refresh,
+          cancelToken: _cancelToken,
+        );
     final value = data.value;
     logReleaseSample(
       source: 'Provider latest page=$page',
@@ -226,7 +296,8 @@ final class SearchReleasesController extends AsyncNotifier<SearchState> {
   Future<void> _search(String query, {bool saveHistory = false}) async {
     final current =
         state.valueOrNullCompat ?? SearchState.initial(history: _readHistory());
-    _cancelToken = CancelToken();
+    _cancelToken?.cancel();
+    final token = _cancelToken = CancelToken();
     state = AsyncData(
       current.copyWith(query: query, isSearching: true, clearError: true),
     );
@@ -234,7 +305,8 @@ final class SearchReleasesController extends AsyncNotifier<SearchState> {
     try {
       final result = await ref
           .read(releaseRepositoryProvider)
-          .searchCached(query, cancelToken: _cancelToken);
+          .searchCached(query, cancelToken: token);
+      if (!ref.mounted || token.isCancelled) return;
       logReleaseSample(
         source: 'Provider search "$query"',
         releases: result.value.items,
@@ -242,6 +314,7 @@ final class SearchReleasesController extends AsyncNotifier<SearchState> {
         isStale: result.isStale,
       );
       final history = saveHistory ? await _saveHistory(query) : _readHistory();
+      if (!ref.mounted || token.isCancelled) return;
       state = AsyncData(
         current.copyWith(
           query: query,
@@ -253,7 +326,7 @@ final class SearchReleasesController extends AsyncNotifier<SearchState> {
         ),
       );
     } catch (error) {
-      if (_cancelToken?.isCancelled == true) return;
+      if (!ref.mounted || token.isCancelled) return;
       state = AsyncData(
         current.copyWith(query: query, isSearching: false, error: error),
       );

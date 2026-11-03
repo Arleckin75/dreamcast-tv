@@ -1,4 +1,6 @@
 import 'package:dream_cast/app/widgets/app_empty_state.dart';
+import 'package:dream_cast/core/logging/performance_trace.dart';
+import 'package:dream_cast/app/router/app_routes.dart';
 import 'package:dream_cast/app/widgets/app_error_view.dart';
 import 'package:dream_cast/core/settings/app_ui_preferences.dart';
 import 'package:dream_cast/features/notifications/data/episode_notification_history_providers.dart';
@@ -24,18 +26,24 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   final _scrollController = ScrollController();
+  final _searchFocus = FocusNode(debugLabel: 'home-search');
+  final _catalogueFrame = PerformanceTrace('home.catalogue_framework_frame');
+  bool _catalogueFrameScheduled = false;
 
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _searchFocus.requestFocus();
       ref.read(episodeNotificationHistoryProvider.notifier).refresh();
     });
   }
 
   @override
   void dispose() {
+    _searchFocus.dispose();
     _scrollController
       ..removeListener(_onScroll)
       ..dispose();
@@ -49,25 +57,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Dream Cast'),
+        automaticallyImplyLeading: false,
+        title: const Text('Dream Cast TV'),
         actions: [
           IconButton(
+            focusNode: _searchFocus,
+            autofocus: true,
             tooltip: 'Поиск',
             onPressed: () => context.push('/search'),
             icon: const Icon(Icons.search),
           ),
-          if (MediaQuery.sizeOf(context).width >= 720) ...[
-            IconButton(
-              tooltip: 'Библиотека',
-              onPressed: () => context.go('/library'),
-              icon: const Icon(Icons.collections_bookmark_outlined),
-            ),
-            IconButton(
-              tooltip: 'Календарь',
-              onPressed: () => context.go('/schedule'),
-              icon: const Icon(Icons.calendar_month_outlined),
-            ),
-          ],
           IconButton(
             tooltip: 'Уведомления',
             onPressed: () => context.push('/notifications'),
@@ -79,12 +78,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               child: const Icon(Icons.notifications_none_outlined),
             ),
           ),
-          if (MediaQuery.sizeOf(context).width >= 720)
-            IconButton(
-              tooltip: 'Настройки',
-              onPressed: () => context.go('/settings'),
-              icon: const Icon(Icons.settings_outlined),
-            ),
+          IconButton(
+            tooltip: 'Библиотека',
+            onPressed: () => context.go('/library'),
+            icon: const Icon(Icons.collections_bookmark_outlined),
+          ),
+          IconButton(
+            tooltip: 'Календарь',
+            onPressed: () => context.go('/schedule'),
+            icon: const Icon(Icons.calendar_month_outlined),
+          ),
+          IconButton(
+            tooltip: 'Настройки',
+            onPressed: () => context.go('/settings'),
+            icon: const Icon(Icons.settings_outlined),
+          ),
         ],
       ),
       body: Column(
@@ -106,61 +114,53 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Widget _buildContent(ReleaseListState data) {
+    if (!_catalogueFrameScheduled) {
+      _catalogueFrameScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _catalogueFrame.finish(items: data.items.length);
+      });
+    }
     if (data.items.isEmpty) {
-      return RefreshIndicator(
-        onRefresh: () => ref.read(latestReleasesProvider.notifier).refresh(),
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          children: [
-            const SizedBox(height: 72),
-            AppEmptyState(
-              icon: Icons.movie_filter_outlined,
-              title: 'Релизы не найдены',
-              message:
-                  'Попробуйте обновить страницу или проверить подключение.',
-              action: FilledButton.icon(
-                onPressed: () =>
-                    ref.read(latestReleasesProvider.notifier).refresh(),
-                icon: const Icon(Icons.refresh),
-                label: const Text('Обновить'),
-              ),
-            ),
-          ],
-        ),
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          const SizedBox(height: 72),
+          AppEmptyState(
+            icon: Icons.movie_filter_outlined,
+            title: 'Релизы не найдены',
+            message: 'Проверьте подключение или попробуйте позже.',
+          ),
+        ],
       );
     }
 
-    return RefreshIndicator(
-      onRefresh: () => ref.read(latestReleasesProvider.notifier).refresh(),
-      child: CustomScrollView(
-        controller: _scrollController,
-        physics: const AlwaysScrollableScrollPhysics(),
-        slivers: [
-          if (data.isStale) const SliverToBoxAdapter(child: StaleCacheBanner()),
-          const SliverToBoxAdapter(child: _ContinueWatchingSection()),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
-              child: Text(
-                'Последние обновления',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-              ),
+    return CustomScrollView(
+      controller: _scrollController,
+      physics: const AlwaysScrollableScrollPhysics(),
+      slivers: [
+        if (data.isStale) const SliverToBoxAdapter(child: StaleCacheBanner()),
+        const SliverToBoxAdapter(child: _ContinueWatchingSection()),
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+            child: Text(
+              'Последние обновления',
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
             ),
           ),
-          _ReleaseSliverGrid(releases: data.items, onTap: _openRelease),
-          SliverToBoxAdapter(
-            child: _LoadMoreFooter(
-              isLoading: data.isLoadingMore,
-              error: data.loadMoreError,
-              hasMore: data.hasMore,
-              onRetry: () =>
-                  ref.read(latestReleasesProvider.notifier).loadMore(),
-            ),
+        ),
+        _ReleaseSliverGrid(releases: data.items, onTap: _openRelease),
+        SliverToBoxAdapter(
+          child: _LoadMoreFooter(
+            isLoading: data.isLoadingMore,
+            error: data.loadMoreError,
+            hasMore: data.hasMore,
+            onRetry: () => ref.read(latestReleasesProvider.notifier).loadMore(),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -184,7 +184,9 @@ class _ReleaseSliverGrid extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final configuredColumns = ref.watch(appUiPreferencesProvider).homeGridColumns;
+    final configuredColumns = ref
+        .watch(appUiPreferencesProvider)
+        .homeGridColumns;
     final availableWidth = MediaQuery.sizeOf(context).width;
     final isWideLayout = availableWidth >= 900;
     final crossAxisCount = isWideLayout
@@ -276,21 +278,9 @@ class _ContinueWatchingSection extends ConsumerWidget {
     WidgetRef ref,
     ContinueWatchingItem item,
   ) async {
-    final request = await ref
-        .read(playbackRepositoryProvider)
-        .restorePlaybackRequest(item);
-    if (!context.mounted) return;
-    if (request == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Не удалось восстановить поток. Откройте серию из карточки релиза.',
-          ),
-        ),
-      );
-      return;
-    }
-    context.push('/watch', extra: request);
+    final releaseId = int.tryParse(item.releaseId);
+    if (releaseId == null) return;
+    await context.push(watchLocation(releaseId, item.episodeId));
   }
 }
 

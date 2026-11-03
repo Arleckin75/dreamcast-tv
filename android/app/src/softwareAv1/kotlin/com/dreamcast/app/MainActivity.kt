@@ -45,7 +45,10 @@ class MainActivity : FlutterActivity() {
                 mapOf(
                     "positionMs" to data.getLongExtra("positionMs", 0L),
                     "durationMs" to data.getLongExtra("durationMs", 0L),
-                    "completed" to data.getBooleanExtra("completed", false)
+                    "completed" to data.getBooleanExtra("completed", false),
+                    "nextEpisode" to data.getBooleanExtra("nextEpisode", false),
+                    "playbackError" to data.getBooleanExtra("playbackError", false),
+                    "quality" to if (data.hasExtra("quality")) data.getIntExtra("quality", 720) else null
                 )
             } else null)
         }
@@ -53,6 +56,8 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        flutterEngine.platformViewsController.registry.registerViewFactory(
+            "dream_cast/tv_search_field", TvSearchFieldFactory(flutterEngine.dartExecutor.binaryMessenger))
         softwareChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "dream_cast/media3_probe")
         softwareChannel?.setMethodCallHandler { call, result ->
             if (call.method == "playSoftwareAV1") {
@@ -60,6 +65,7 @@ class MainActivity : FlutterActivity() {
                     val uri = call.argument<String>("url")
                     val headers = call.argument<Map<String, String>>("headers") ?: emptyMap()
                     val resumeMs = call.argument<Number>("positionMs")?.toLong() ?: 0L
+                    val positionUpdatedAtMs = call.argument<Number>("positionUpdatedAtMs")?.toLong() ?: 0L
                     val episodeKey = call.argument<String>("episodeKey").orEmpty()
                     val quality = call.argument<Int>("quality")?.takeIf { it in listOf(480, 720, 1080) } ?: 720
                     if (uri.isNullOrBlank()) result.error("NO_URL", "No video URL", null)
@@ -68,7 +74,13 @@ class MainActivity : FlutterActivity() {
                             result.error("PLAYER_BUSY", "Software player already running", null)
                         } else {
                             pendingSoftwarePlayerResult = result
-                            try { CosmosAv1Launcher.launch(this, uri, headers, resumeMs, episodeKey, quality) }
+                            try {
+                                CosmosAv1Launcher.launch(this, uri, headers, resumeMs, episodeKey, quality, positionUpdatedAtMs,
+                                    call.argument<String>("title").orEmpty(), call.argument<String>("subtitle").orEmpty(),
+                                    call.argument<Number>("accent")?.toInt() ?: 0xFFD0BCFF.toInt(),
+                                    call.argument<Number>("onAccent")?.toInt() ?: 0xFF381E72.toInt(),
+                                    call.argument<String>("nextTitle"))
+                            }
                             catch (error: Exception) { pendingSoftwarePlayerResult = null; throw error }
                         }
                     }

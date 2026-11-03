@@ -42,6 +42,7 @@ class AppErrorView extends StatelessWidget {
             if (onRetry != null) ...[
               const SizedBox(height: 20),
               FilledButton.icon(
+                autofocus: true,
                 onPressed: onRetry,
                 icon: const Icon(Icons.refresh),
                 label: const Text('Повторить'),

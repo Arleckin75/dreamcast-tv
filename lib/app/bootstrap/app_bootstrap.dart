@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:dream_cast/core/database/app_database.dart';
 import 'package:dream_cast/core/logging/app_logger.dart';
+import 'package:dream_cast/core/logging/performance_trace.dart';
 import 'package:dream_cast/features/notifications/data/episode_notification_service.dart';
 import 'package:dream_cast/features/notifications/data/episode_notification_worker.dart';
 import 'package:flutter/widgets.dart';
@@ -18,20 +19,19 @@ final class AppBootstrap {
   const AppBootstrap._();
 
   static Future<AppBootstrapResult> start() async {
+    final trace = PerformanceTrace('startup.bootstrap');
     WidgetsFlutterBinding.ensureInitialized();
     configureAppLogging();
 
     final preferences = await SharedPreferences.getInstance();
     final database = AppDatabase();
-    try {
-      await EpisodeNotificationScheduler.initialize();
-    } catch (error, stackTrace) {
-      appLogger(
-        'bootstrap',
-      ).warning('WorkManager startup failed: $error', stackTrace);
-    }
-    unawaited(_startBackgroundServices(preferences));
+    // Notification scheduling is not needed to render the catalogue.
+    // syncFromPreferences initializes WorkManager itself when it runs below.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_startBackgroundServices(preferences));
+    });
 
+    trace.finish();
     return AppBootstrapResult(preferences: preferences, database: database);
   }
 

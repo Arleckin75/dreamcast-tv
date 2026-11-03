@@ -35,9 +35,44 @@ final class AppTheme {
   }
 
   static ThemeData _theme(ColorScheme scheme) {
-    final textTheme = Typography.material2021().black.apply(
-      bodyColor: scheme.onSurface,
-      displayColor: scheme.onSurface,
+    final typography = Typography.material2021();
+    final textTheme = typography.englishLike
+        .merge(typography.black)
+        .apply(
+          fontSizeFactor: 1.1,
+          bodyColor: scheme.onSurface,
+          displayColor: scheme.onSurface,
+        );
+
+    final buttonStyle = ButtonStyle(
+      minimumSize: const WidgetStatePropertyAll(Size(80, 52)),
+      elevation: const WidgetStatePropertyAll(0),
+      backgroundColor: const WidgetStatePropertyAll(Colors.transparent),
+      surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+      shadowColor: const WidgetStatePropertyAll(Colors.transparent),
+      foregroundColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.disabled)
+            ? scheme.onSurface.withValues(alpha: 0.38)
+            : scheme.primary,
+      ),
+      overlayColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.disabled)
+            ? Colors.transparent
+            : scheme.primary.withValues(
+                alpha: states.contains(WidgetState.pressed) ? 0.12 : 0.08,
+              ),
+      ),
+      shape: const WidgetStatePropertyAll(StadiumBorder()),
+      side: WidgetStateProperty.resolveWith(
+        (states) => BorderSide(
+          color:
+              states.contains(WidgetState.focused) &&
+                  !states.contains(WidgetState.disabled)
+              ? scheme.primary
+              : Colors.transparent,
+          width: 3,
+        ),
+      ),
     );
 
     return ThemeData(
@@ -45,6 +80,7 @@ final class AppTheme {
       colorScheme: scheme,
       textTheme: textTheme,
       visualDensity: VisualDensity.standard,
+      focusColor: scheme.primary.withValues(alpha: 0.30),
       splashFactory: InkSparkle.splashFactory,
       scaffoldBackgroundColor: scheme.surface,
       appBarTheme: AppBarTheme(
@@ -58,25 +94,14 @@ final class AppTheme {
           fontWeight: FontWeight.w600,
         ),
       ),
-      navigationBarTheme: NavigationBarThemeData(
-        height: 68,
-        indicatorShape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-        ),
-        labelTextStyle: WidgetStateProperty.resolveWith(
-          (states) => textTheme.labelMedium?.copyWith(
-            fontWeight: states.contains(WidgetState.selected)
-                ? FontWeight.w600
-                : FontWeight.w500,
-          ),
-        ),
-      ),
-      navigationRailTheme: NavigationRailThemeData(
-        indicatorShape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-        ),
-        selectedLabelTextStyle: textTheme.labelMedium?.copyWith(
-          fontWeight: FontWeight.w600,
+      textButtonTheme: TextButtonThemeData(style: buttonStyle),
+      filledButtonTheme: FilledButtonThemeData(style: buttonStyle),
+      outlinedButtonTheme: OutlinedButtonThemeData(style: buttonStyle),
+      elevatedButtonTheme: ElevatedButtonThemeData(style: buttonStyle),
+      iconButtonTheme: IconButtonThemeData(
+        style: buttonStyle.copyWith(
+          minimumSize: const WidgetStatePropertyAll(Size(52, 52)),
+          shape: const WidgetStatePropertyAll(CircleBorder()),
         ),
       ),
       cardTheme: CardThemeData(
@@ -89,30 +114,7 @@ final class AppTheme {
         contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 2),
         minLeadingWidth: 28,
       ),
-      filledButtonTheme: FilledButtonThemeData(
-        style: FilledButton.styleFrom(
-          minimumSize: const Size(64, 44),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-        ),
-      ),
-      outlinedButtonTheme: OutlinedButtonThemeData(
-        style: OutlinedButton.styleFrom(
-          minimumSize: const Size(64, 44),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-        ),
-      ),
-      segmentedButtonTheme: SegmentedButtonThemeData(
-        style: ButtonStyle(
-          visualDensity: VisualDensity.compact,
-          shape: WidgetStatePropertyAll(
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-        ),
-      ),
+      segmentedButtonTheme: SegmentedButtonThemeData(style: buttonStyle),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
@@ -122,7 +124,7 @@ final class AppTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: scheme.primary, width: 1.4),
+          borderSide: BorderSide(color: scheme.primary, width: 3),
         ),
       ),
     );

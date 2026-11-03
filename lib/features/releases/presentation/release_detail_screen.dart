@@ -1,8 +1,6 @@
+import 'package:dream_cast/app/widgets/tv_dialog.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dream_cast/app/widgets/app_error_view.dart';
-import 'package:dream_cast/core/database/app_database.dart';
-import 'package:dream_cast/features/downloads/data/download_providers.dart';
-import 'package:dream_cast/features/downloads/data/download_service.dart';
 import 'package:dream_cast/features/library/data/release_bookmark_providers.dart';
 import 'package:dream_cast/features/notifications/data/episode_notification_providers.dart';
 import 'package:dream_cast/features/player/data/player_providers.dart';
@@ -79,10 +77,8 @@ class _ReleaseDetailScreenState extends ConsumerState<ReleaseDetailScreen> {
   }
 
   void _showEpisodeList(BuildContext context, DreamReleaseDetail detail) {
-    showModalBottomSheet<void>(
+    showTvDialog<void>(
       context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
       builder: (context) => _EpisodeListSheet(detail: detail),
     );
   }
@@ -100,6 +96,7 @@ class _HeaderSliver extends StatelessWidget {
         detail?.thumbnailUrl ?? release.wallUrl ?? release.posterUrl;
 
     return SliverAppBar(
+      automaticallyImplyLeading: false,
       pinned: true,
       expandedHeight: 280,
       title: Text(
@@ -337,19 +334,8 @@ class _BookmarkStatusButton extends ConsumerWidget {
           ),
         ),
       ],
-      child: Material(
-        color: theme.colorScheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(12),
-        clipBehavior: Clip.antiAlias,
-        child: SizedBox(
-          width: 52,
-          height: 52,
-          child: Icon(
-            status == null ? Icons.bookmark_border : Icons.bookmark,
-            color: theme.colorScheme.onSurface,
-          ),
-        ),
-      ),
+      style: theme.iconButtonTheme.style,
+      icon: Icon(status == null ? Icons.bookmark_border : Icons.bookmark),
     );
   }
 }
@@ -363,34 +349,16 @@ class _EpisodeNotificationButton extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
     final enabled = ref.watch(
       episodeNotificationSubscriptionProvider(release.id),
     );
-
-    return Tooltip(
-      message: enabled ? 'Уведомления включены' : 'Уведомлять о новых сериях',
-      child: Material(
-        color: enabled
-            ? theme.colorScheme.primaryContainer
-            : theme.colorScheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(12),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => _toggle(context, ref, enabled),
-          child: SizedBox(
-            width: 52,
-            height: 52,
-            child: Icon(
-              enabled
-                  ? Icons.notifications_active
-                  : Icons.notifications_none_outlined,
-              color: enabled
-                  ? theme.colorScheme.onPrimaryContainer
-                  : theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ),
+    return IconButton(
+      tooltip: enabled ? 'Уведомления включены' : 'Уведомлять о новых сериях',
+      onPressed: () => _toggle(context, ref, enabled),
+      icon: Icon(
+        enabled
+            ? Icons.notifications_active
+            : Icons.notifications_none_outlined,
       ),
     );
   }
@@ -444,7 +412,10 @@ class _EpisodeListSheetState extends ConsumerState<_EpisodeListSheet> {
     SharedPreferences.getInstance().then((prefs) {
       if (!mounted) return;
       final value = prefs.getInt('software_av1_quality') ?? 0;
-      setState(() => _selectedQuality = {0, 480, 720, 1080}.contains(value) ? value : 0);
+      setState(
+        () =>
+            _selectedQuality = {0, 480, 720, 1080}.contains(value) ? value : 0,
+      );
     });
   }
 
@@ -455,11 +426,9 @@ class _EpisodeListSheetState extends ConsumerState<_EpisodeListSheet> {
     );
   }
 
-
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(releaseEpisodesProvider(widget.detail));
-    final downloadsState = ref.watch(downloadedEpisodesStreamProvider);
     final theme = Theme.of(context);
 
     return SafeArea(
@@ -488,9 +457,9 @@ class _EpisodeListSheetState extends ConsumerState<_EpisodeListSheet> {
                       ButtonSegment(value: 1080, label: Text('1080p')),
                     ],
                     selected: {_selectedQuality},
-                    onSelectionChanged: (values) => _changeQuality(values.first),
+                    onSelectionChanged: (values) =>
+                        _changeQuality(values.first),
                   ),
-
                 ],
               ),
             ),
@@ -503,92 +472,29 @@ class _EpisodeListSheetState extends ConsumerState<_EpisodeListSheet> {
                       ref.invalidate(releaseEpisodesProvider(widget.detail)),
                 ),
                 data: (data) {
-                  final completedDownloads = downloadsState.value
-                      ?.where(
-                        (download) =>
-                            download.releaseId == widget.detail.release.id &&
-                            download.status == 'completed',
-                      )
-                      .map((download) => download.episodeId)
-                      .toSet();
-                  final offlineOnly =
-                      data.isStale && completedDownloads != null;
-                  final queue =
-                      (offlineOnly
-                              ? data.value.where(
-                                  (episode) =>
-                                      completedDownloads.contains(episode.id),
-                                )
-                              : data.value)
-                          .toList()
-                        ..sort((a, b) => a.ordinal.compareTo(b.ordinal));
+                  final queue = data.value.toList()
+                    ..sort((a, b) => a.ordinal.compareTo(b.ordinal));
                   final visible = queue;
 
                   return Column(
                     children: [
                       if (data.isStale) const StaleCacheBanner(),
                       Expanded(
-                        child: visible.isEmpty && offlineOnly
-                            ? const _OfflineEpisodesEmptyState()
-                            : ListView.separated(
-                                padding: const EdgeInsets.only(bottom: 12),
-                                itemCount: visible.length,
-                                separatorBuilder: (context, index) =>
-                                    const Divider(height: 1, indent: 72),
-                                itemBuilder: (context, index) => _EpisodeRow(
-                                  release: widget.detail.release,
-                                  episode: visible[index],
-                                  episodeQueue: queue,
-                                ),
-                              ),
+                        child: ListView.separated(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          itemCount: visible.length,
+                          separatorBuilder: (context, index) =>
+                              const Divider(height: 1, indent: 72),
+                          itemBuilder: (context, index) => _EpisodeRow(
+                            release: widget.detail.release,
+                            episode: visible[index],
+                            episodeQueue: queue,
+                          ),
+                        ),
                       ),
                     ],
                   );
                 },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-
-}
-
-class _OfflineEpisodesEmptyState extends StatelessWidget {
-  const _OfflineEpisodesEmptyState();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.wifi_off_rounded,
-              size: 48,
-              color: theme.colorScheme.primary,
-            ),
-            const SizedBox(height: 14),
-            Text(
-              'Нет скачанных серий',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Возможно у вас нет доступа к интернету. В офлайн-режиме здесь отображаются только скачанные серии.',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-                height: 1.35,
               ),
             ),
           ],
@@ -614,15 +520,8 @@ class _EpisodeRow extends ConsumerWidget {
     final progress = ref.watch(
       episodeWatchEntryProvider((release: release, episode: episode)),
     );
-    final downloadState = ref.watch(
-      downloadedEpisodeStreamProvider((
-        releaseId: release.id,
-        episodeId: episode.id,
-      )),
-    );
-    final download = downloadState.value;
-
     return ListTile(
+      autofocus: episodeQueue.isNotEmpty && episode.id == episodeQueue.first.id,
       minVerticalPadding: 10,
       leading: _EpisodeNumberBadge(episode.ordinal),
       title: Text(episode.title, maxLines: 2, overflow: TextOverflow.ellipsis),
@@ -635,22 +534,6 @@ class _EpisodeRow extends ConsumerWidget {
         ),
       ),
       trailing: _EpisodeRowActions(
-        download: download,
-        onDownload: () => startEpisodeDownload(
-          context: context,
-          ref: ref,
-          release: release,
-          episode: episode,
-        ),
-        onCancelDownload: () => ref
-            .read(downloadServiceProvider)
-            .cancelDownload(release.id, episode.id),
-        onDeleteDownload: () => confirmDeleteDownload(
-          context: context,
-          ref: ref,
-          release: release,
-          episode: episode,
-        ),
         onPlay: () => playEpisode(
           context: context,
           ref: ref,
@@ -712,117 +595,20 @@ class _EpisodeRowSubtitle extends StatelessWidget {
 }
 
 class _EpisodeRowActions extends StatelessWidget {
-  const _EpisodeRowActions({
-    required this.download,
-    required this.onDownload,
-    required this.onCancelDownload,
-    required this.onDeleteDownload,
-    required this.onPlay,
-  });
-
-  final DownloadedEpisode? download;
-  final VoidCallback onDownload;
-  final VoidCallback onCancelDownload;
-  final VoidCallback onDeleteDownload;
+  const _EpisodeRowActions({required this.onPlay});
   final VoidCallback onPlay;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _EpisodeDownloadButton(
-          download: download,
-          onDownload: onDownload,
-          onCancelDownload: onCancelDownload,
-          onDeleteDownload: onDeleteDownload,
-        ),
-        const SizedBox(width: 4),
-        IconButton.filled(
+        IconButton(
           tooltip: 'Смотреть',
-          style: IconButton.styleFrom(
-            backgroundColor: theme.colorScheme.primary,
-            foregroundColor: theme.colorScheme.onPrimary,
-          ),
           onPressed: onPlay,
           icon: const Icon(Icons.play_arrow_rounded),
         ),
       ],
-    );
-  }
-}
-
-class _EpisodeDownloadButton extends StatelessWidget {
-  const _EpisodeDownloadButton({
-    required this.download,
-    required this.onDownload,
-    required this.onCancelDownload,
-    required this.onDeleteDownload,
-  });
-
-  final DownloadedEpisode? download;
-  final VoidCallback onDownload;
-  final VoidCallback onCancelDownload;
-  final VoidCallback onDeleteDownload;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final status = download?.status;
-
-    if (status == 'pending') {
-      return const SizedBox.square(
-        dimension: 40,
-        child: Padding(
-          padding: EdgeInsets.all(10),
-          child: CircularProgressIndicator(strokeWidth: 2),
-        ),
-      );
-    }
-
-    if (status == 'downloading') {
-      final total = download!.fileSize;
-      final value = total > 0 ? download!.downloadedBytes / total : null;
-      return IconButton(
-        tooltip: 'Отменить загрузку',
-        onPressed: onCancelDownload,
-        icon: Stack(
-          alignment: Alignment.center,
-          children: [
-            SizedBox.square(
-              dimension: 28,
-              child: CircularProgressIndicator(value: value, strokeWidth: 2.4),
-            ),
-            const Icon(Icons.close_rounded, size: 16),
-          ],
-        ),
-      );
-    }
-
-    if (status == 'completed') {
-      return IconButton(
-        tooltip: 'Удалить офлайн-копию',
-        color: theme.colorScheme.primary,
-        onPressed: onDeleteDownload,
-        icon: const Icon(Icons.offline_pin_rounded),
-      );
-    }
-
-    if (status == 'failed') {
-      return IconButton(
-        tooltip: 'Повторить загрузку',
-        color: theme.colorScheme.error,
-        onPressed: onDownload,
-        icon: const Icon(Icons.error_outline_rounded),
-      );
-    }
-
-    return IconButton(
-      tooltip: 'Скачать',
-      onPressed: onDownload,
-      icon: const Icon(Icons.download_outlined),
     );
   }
 }

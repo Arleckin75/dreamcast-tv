@@ -1,6 +1,5 @@
 // Software-only build: deliberately does not provide an Android video player.
 // The application's softwareAv1 flavor launches LibVLC via its native channel.
-import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 
 class VideoPlayerAndroidNoop {
   static void registerWith() {

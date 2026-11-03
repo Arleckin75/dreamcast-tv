@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dream_cast/app/bootstrap/dream_cast_app.dart';
 import 'package:dream_cast/features/home/presentation/home_screen.dart';
 import 'package:dream_cast/features/releases/domain/release.dart';
@@ -20,6 +22,11 @@ class FakeLatestReleasesController extends LatestReleasesController {
 
   @override
   Future<void> refresh() async {}
+}
+
+class LoadingLatestReleasesController extends LatestReleasesController {
+  @override
+  Future<ReleaseListState> build() => Completer<ReleaseListState>().future;
 }
 
 void main() {
@@ -74,14 +81,17 @@ void main() {
     testWidgets('renders loading state with skeleton', (tester) async {
       await tester.pumpWidget(
         ProviderScope(
-          overrides: [sharedPreferencesProvider.overrideWithValue(preferences)],
+          overrides: [
+            sharedPreferencesProvider.overrideWithValue(preferences),
+            latestReleasesProvider.overrideWith(
+              LoadingLatestReleasesController.new,
+            ),
+          ],
           child: const MaterialApp(home: HomeScreen()),
         ),
       );
 
       expect(find.byType(ReleaseGridSkeleton), findsOneWidget);
-      expect(find.textContaining('GPLv3'), findsOneWidget);
-      expect(find.textContaining('GitHub'), findsOneWidget);
     });
 
     testWidgets('renders empty state when provider returns 0 items', (
@@ -91,7 +101,18 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Релизы не найдены'), findsOneWidget);
-      expect(find.text('Обновить'), findsOneWidget);
+      expect(find.text('Обновить'), findsNothing);
+      final appBar = find.byType(AppBar);
+      final buttons = tester.widgetList<IconButton>(
+        find.descendant(of: appBar, matching: find.byType(IconButton)),
+      );
+      expect(buttons.map((button) => button.tooltip), [
+        'Поиск',
+        'Уведомления',
+        'Библиотека',
+        'Календарь',
+        'Настройки',
+      ]);
     });
 
     testWidgets('renders populated releases in grid view without diagnostics', (
