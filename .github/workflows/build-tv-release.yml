@@ -1,13 +1,19 @@
 name: Build Dream Cast TV Release APK
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish v0.8.4 on GitHub Releases (main only)'
+        type: boolean
+        default: true
 permissions:
-  # Permission ceiling for the reusable workflow; publishing is disabled below.
+  # Permission ceiling for release publication in the reusable workflow.
   contents: write
 jobs:
   build:
+    if: github.ref == 'refs/heads/main'
     uses: ./.github/workflows/build-tv-apk.yml
     with:
       build_mode: release
-      publish: false
+      publish: ${{ inputs.publish }}
     secrets: inherit

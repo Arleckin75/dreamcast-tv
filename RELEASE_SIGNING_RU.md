@@ -53,12 +53,18 @@ keyPassword=YOUR_KEY_PASSWORD
 1. Перенесите проверенные изменения в `main`.
    Версия этого выпуска — `0.8.4`, Android versionCode — `804001`.
    Описание для GitHub Releases берётся из [заметок к релизу](RELEASE_NOTES_v0.8.4.md).
-2. Запустите **Build Dream Cast TV APK** из `main` с `build_mode: release`.
-3. Для получения APK без публикации оставьте `publish: false`. Также можно
-   использовать **Build Dream Cast TV Release APK**, который передаёт это значение.
+2. Запустите **Build Dream Cast TV Release APK** из `main`.
+3. Флажок **Publish v0.8.4 on GitHub Releases (main only)** включён по умолчанию.
+   Для получения APK без публикации снимите его (`publish: false`).
 4. Получите артефакты `dreamcast-tv-v0.8.4-software_AV1-signed-release` и
    `dreamcast-tv-v0.8.4-hardware_AV1-signed-release`, проверьте отчёты и устройства.
-5. Публикация через основной workflow требует отдельного `publish: true`.
+5. При включённом флажке (`publish: true`) после успешных проверок автоматически
+   создаётся GitHub Release v0.8.4. Для предварительной проверки APK сначала
+   выполните запуск без публикации.
+
+Release workflow передаёт секреты через `secrets: inherit`. Задания подписи
+используют прежнее окружение `release-signing`; переносить или создавать
+секреты заново не требуется.
 
 Перед публикацией проверьте поиск с системной клавиатурой на old ATV и Google TV,
 воспроизведение, сохранение позиции и переходы между сериями в обеих сборках.

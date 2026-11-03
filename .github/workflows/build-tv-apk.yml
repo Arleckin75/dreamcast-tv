@@ -10,36 +10,23 @@ on:
         type: boolean
         default: false
   workflow_dispatch:
-    inputs:
-      publish:
-        description: 'Publish the verified release (main only)'
-        type: boolean
-        default: false
-      build_mode:
-        description: 'Build mode'
-        required: true
-        type: choice
-        default: debug
-        options:
-          - debug
-          - release
 
 permissions:
   contents: read
 
 concurrency:
-  group: dreamcast-tv-${{ github.ref }}-${{ inputs.build_mode }}
+  group: dreamcast-tv-${{ github.ref }}-${{ inputs.build_mode || 'debug' }}
   cancel-in-progress: false
 
 jobs:
   libvlc_tv:
     name: Prepare reduced software player
-    if: (inputs.build_mode == 'debug' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main')) || (inputs.build_mode == 'release' && github.ref == 'refs/heads/main')
+    if: ((inputs.build_mode || 'debug') == 'debug' && github.ref == 'refs/heads/develop') || (inputs.build_mode == 'release' && github.ref == 'refs/heads/main')
     uses: ./.github/workflows/build-libvlc-tv.yml
   debug_v084:
     needs: libvlc_tv
     name: Debug v0.8.4 (${{ matrix.variant }})
-    if: inputs.build_mode == 'debug' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main')
+    if: (inputs.build_mode || 'debug') == 'debug' && github.ref == 'refs/heads/develop'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:

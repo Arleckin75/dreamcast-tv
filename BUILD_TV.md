@@ -3,7 +3,7 @@
 ## GitHub Actions
 
 1. Откройте **Actions → Build Dream Cast TV APK → Run workflow**.
-2. Для тестовой сборки выберите `develop` и режим `debug`.
+2. Для тестовой сборки выберите `develop`. Этот workflow вручную собирает только Debug из develop.
 3. После успешного запуска скачайте нужный ZIP из **Artifacts**:
    `dreamcast-tv-v0.8.4-software_AV1-debug` или
    `dreamcast-tv-v0.8.4-hardware_AV1-debug`.
@@ -14,9 +14,16 @@
 Перед software-сборкой вызывается reusable workflow `build-libvlc-tv.yml`, который
 собирает либо восстанавливает проверенный сокращённый LibVLC.
 
-Release разрешён только из `main` при настроенной подписи. Параметр `publish`
-отдельно разрешает публикацию. Ручная точка **Build Dream Cast TV Release APK**
-запускает тот же workflow с `publish: false`.
+Для выпуска откройте **Build Dream Cast TV Release APK** и выберите `main`.
+Параметр **Publish v0.8.4 on GitHub Releases (main only)** включён по умолчанию:
+после сборки и проверок будет опубликован релиз. Снимите флажок, если нужны
+только подписанные APK без публикации. Используются прежние секреты подписи
+и окружение `release-signing`.
+
+Ручных точек запуска две: **Build Dream Cast TV APK** для develop и
+**Build Dream Cast TV Release APK** для main. **Build reduced TV LibVLC** —
+внутренняя зависимость software-сборки, отдельно не запускается.
+**Verify** автоматически проверяет код при push и Pull Request.
 
 ## Локально
 
@@ -29,7 +36,7 @@ dart run scripts/build_tv.dart hardware debug --check
 ```
 
 Для software сначала скачайте артефакт **libvlc-tv-maven** из успешного запуска
-**Build reduced TV LibVLC** или основного процесса сборки. Распакуйте так, чтобы
+сборки APK. Распакуйте так, чтобы
 Maven-репозиторий находился в `.tools/libvlc-tv/maven`:
 
 ```sh

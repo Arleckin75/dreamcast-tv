@@ -15,7 +15,7 @@ Main объединена с develop для устранения конфлик�
 | Файл | Итоговое содержимое |
 | --- | --- |
 | `.github/workflows/build-tv-apk.yml` | Подготовленная версия develop: v0.8.4, обе сборки, сокращённый LibVLC, сборка Release только из main, проверка сертификата и заметки из файла |
-| `.github/workflows/build-tv-release.yml` | Короткий вызов основного workflow из develop, с `publish: false` |
+| `.github/workflows/build-tv-release.yml` | Вызов основного workflow с передачей секретов и выбором публикации; флажок публикации включён по умолчанию |
 | `README.md` | Краткая версия develop без скриншотов, с изменениями v0.8.4 и полными сведениями об авторстве и лицензии |
 | `.gitignore` | Правила develop вместе с защитой `*.jks`, `*.keystore` и `**/key.properties` из main; они уже добавлены в подготовленную версию |
 | `BUILD_TV.md` | Сохранена актуальная инструкция сборки v0.8.4 из develop вместо удаления в main |
@@ -40,7 +40,8 @@ git diff --check
 
 Workflow Verify запускается для main и develop, включая Pull Request.
 После слияния сначала соберите Release с `publish: false` и проверьте оба APK.
-Публикация требует отдельного запуска с `publish: true`.
+Для публикации запустите **Build Dream Cast TV Release APK** из main
+с включённым флажком публикации (`publish: true`).
 
 ## Проверки на телевизорах
 
