@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:dream_cast/app/bootstrap/dream_cast_app.dart';
 import 'package:dream_cast/app/theme/app_theme.dart';
 import 'package:dream_cast/core/settings/app_settings.dart';
+import 'package:dream_cast/core/settings/player_build.dart';
+import 'package:dream_cast/features/releases/presentation/widgets/tv_search_field.dart';
 import 'package:dream_cast/features/releases/presentation/search_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -16,6 +20,40 @@ void main() {
         SharedPreferences.setMockInitialValues({});
         final prefs = await SharedPreferences.getInstance();
         var nativeEditorCalls = 0;
+        int? platformId;
+        final inlineCalls = <MethodCall>[];
+        var createdViews = 0;
+        if (softwarePlayerBuild) {
+          tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            SystemChannels.platform_views,
+            (call) async {
+              if (call.method == 'create') {
+                createdViews++;
+                platformId = (call.arguments as Map)['id'] as int;
+                tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+                  MethodChannel('dream_cast/tv_search_field/$platformId'),
+                  (call) async {
+                    inlineCalls.add(call);
+                    return null;
+                  },
+                );
+              }
+              return null;
+            },
+          );
+          addTearDown(() {
+            tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+              SystemChannels.platform_views,
+              null,
+            );
+            if (platformId != null) {
+              tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+                MethodChannel('dream_cast/tv_search_field/$platformId'),
+                null,
+              );
+            }
+          });
+        }
         const nativeChannel = MethodChannel('dream_cast/tv_search_input');
         tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
           nativeChannel,
@@ -50,6 +88,50 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
+        if (softwarePlayerBuild) {
+          expect(createdViews, 1);
+          expect(find.byType(TvSearchField), findsOneWidget);
+          expect(find.byType(TextField), findsNothing);
+          expect(find.byType(Dialog), findsNothing);
+          expect(inlineCalls.any((call) => call.method == 'focus'), isTrue);
+          // These keys must leave Flutter unhandled so Android/Gboard receives them.
+          expect(
+            await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight),
+            isFalse,
+          );
+          final reply = Completer<void>();
+          tester.binding.channelBuffers.push(
+            'dream_cast/tv_search_field/$platformId',
+            const StandardMethodCodec().encodeMethodCall(
+              const MethodCall('changed', 'x'),
+            ),
+            (_) => reply.complete(),
+          );
+          await tester.pump();
+          await reply.future;
+          await tester.pumpAndSettle();
+          expect(
+            tester
+                .widget<TvSearchField>(find.byType(TvSearchField))
+                .controller
+                .text,
+            'x',
+          );
+          await tester.tap(find.byTooltip('Очистить'));
+          await tester.pumpAndSettle();
+          expect(
+            inlineCalls.any(
+              (call) => call.method == 'text' && call.arguments == '',
+            ),
+            isTrue,
+          );
+          expect(createdViews, 1);
+          expect(nativeEditorCalls, 0);
+          await tester.pumpWidget(const SizedBox());
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull);
+          return;
+        }
         expect(find.byType(TextField), findsOneWidget);
         expect(
           tester.widget<TextField>(find.byType(TextField)).readOnly,

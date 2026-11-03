@@ -1,5 +1,7 @@
 import 'package:dream_cast/app/widgets/app_empty_state.dart';
 import 'package:dream_cast/app/widgets/app_error_view.dart';
+import 'package:dream_cast/core/settings/player_build.dart';
+import 'package:dream_cast/features/releases/presentation/widgets/tv_search_field.dart';
 import 'package:dream_cast/features/releases/domain/release.dart';
 import 'package:dream_cast/features/releases/presentation/release_list_providers.dart';
 import 'package:dream_cast/features/releases/presentation/widgets/release_card.dart';
@@ -17,7 +19,11 @@ class SearchScreen extends ConsumerStatefulWidget {
 }
 
 class _SearchScreenState extends ConsumerState<SearchScreen> {
+  bool get _nativeField =>
+      softwarePlayerBuild &&
+      Theme.of(context).platform == TargetPlatform.android;
   final _controller = TextEditingController();
+  String _lastQuery = '';
   late final FocusNode _focusNode;
   late final FocusNode _firstResultFocusNode;
 
@@ -48,15 +54,14 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   @override
   void initState() {
     super.initState();
-    _focusNode = FocusNode(
-      debugLabel: 'search-input',
-      onKeyEvent: _handleSearchKey,
-    );
+    _focusNode = FocusNode(debugLabel: 'search-input');
     _firstResultFocusNode = FocusNode(
       debugLabel: 'first-search-result',
       onKeyEvent: _handleFirstResultKey,
     );
     _controller.addListener(() {
+      if (_controller.text == _lastQuery) return;
+      _lastQuery = _controller.text;
       ref.read(searchReleasesProvider.notifier).setQuery(_controller.text);
     });
     WidgetsBinding.instance.addPostFrameCallback(
@@ -80,18 +85,33 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       appBar: AppBar(
         automaticallyImplyLeading: false,
         titleSpacing: 0,
-        title: TextField(
-          controller: _controller,
-          focusNode: _focusNode,
-          textInputAction: TextInputAction.search,
-          decoration: const InputDecoration(
-            hintText: 'Название релиза',
-            border: InputBorder.none,
-            filled: false,
-          ),
-          onSubmitted: (value) =>
-              ref.read(searchReleasesProvider.notifier).submit(value),
-        ),
+        title: _nativeField
+            ? TvSearchField(
+                controller: _controller,
+                focusNode: _focusNode,
+                onSubmitted: (value) =>
+                    ref.read(searchReleasesProvider.notifier).submit(value),
+                onResults: () {
+                  if (_firstResultFocusNode.context != null) {
+                    _firstResultFocusNode.requestFocus();
+                  }
+                },
+              )
+            : Focus(
+                onKeyEvent: _handleSearchKey,
+                child: TextField(
+                  controller: _controller,
+                  focusNode: _focusNode,
+                  textInputAction: TextInputAction.search,
+                  decoration: const InputDecoration(
+                    hintText: 'Название релиза',
+                    border: InputBorder.none,
+                    filled: false,
+                  ),
+                  onSubmitted: (value) =>
+                      ref.read(searchReleasesProvider.notifier).submit(value),
+                ),
+              ),
         actions: [
           if (_controller.text.isNotEmpty)
             IconButton(

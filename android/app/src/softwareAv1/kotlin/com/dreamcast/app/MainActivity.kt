@@ -56,6 +56,8 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        flutterEngine.platformViewsController.registry.registerViewFactory(
+            "dream_cast/tv_search_field", TvSearchFieldFactory(flutterEngine.dartExecutor.binaryMessenger))
         softwareChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "dream_cast/media3_probe")
         softwareChannel?.setMethodCallHandler { call, result ->
             if (call.method == "playSoftwareAV1") {
