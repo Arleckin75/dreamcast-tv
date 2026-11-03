@@ -11,6 +11,7 @@ permissions:
   contents: write
 jobs:
   build:
+    if: github.ref == 'refs/heads/main'
     uses: ./.github/workflows/build-tv-apk.yml
     with:
       build_mode: release

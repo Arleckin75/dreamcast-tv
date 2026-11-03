@@ -1,7 +1,6 @@
 name: Build reduced TV LibVLC
 on:
   workflow_call:
-  workflow_dispatch:
 permissions:
   contents: read
 jobs:
