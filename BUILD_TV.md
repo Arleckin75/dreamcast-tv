@@ -5,8 +5,8 @@
 1. Откройте **Actions → Build Dream Cast TV APK → Run workflow**.
 2. Для тестовой сборки выберите `develop` и режим `debug`.
 3. После успешного запуска скачайте нужный ZIP из **Artifacts**:
-   `dreamcast-tv-v0.7.1-software_AV1-debug` или
-   `dreamcast-tv-v0.7.1-hardware_AV1-debug`.
+   `dreamcast-tv-v0.8.4-software_AV1-debug` или
+   `dreamcast-tv-v0.8.4-hardware_AV1-debug`.
 4. Распакуйте APK и `.sha256`, проверьте контрольную сумму и установите на TV.
 
 Основной workflow находится в `.github/workflows/build-tv-apk.yml`. Он собирает

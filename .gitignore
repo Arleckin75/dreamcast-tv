@@ -49,6 +49,10 @@ android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
 /android/key.properties
 /android/app/*.jks
 /android/app/*.keystore
+# Protect signing keys anywhere in the repository.
+*.jks
+*.keystore
+**/key.properties
 # Local verification SDK and package cache.
 .tools/
 /pubspec_overrides.yaml

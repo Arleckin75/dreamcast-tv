@@ -84,7 +84,7 @@ def run():
         if not exo_dex_hits:
             issues.append('hardware_AV1: ExoPlayer class descriptors MISSING in DEX')
     report = [
-        'Dream Cast TV v0.7.1 - packaged AV1 engine audit',
+        'Dream Cast TV v0.8.4 - packaged AV1 engine audit',
         f'Variant: {args.player}',
         f'APK: {args.apk}',
         f'LibVLC .so: {len(vlc_native)} ({", ".join(vlc_native) if vlc_native else "none"})',

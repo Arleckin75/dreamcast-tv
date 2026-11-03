@@ -48,13 +48,24 @@ keyPassword=YOUR_KEY_PASSWORD
 
 ## Сборка и публикация
 
+Особенности слияния веток описаны в [плане переноса v0.8.4 в main](docs/MAIN_MIGRATION_RU.md).
+
 1. Перенесите проверенные изменения в `main`.
+   Версия этого выпуска — `0.8.4`, Android versionCode — `804001`.
+   Описание для GitHub Releases берётся из [заметок к релизу](RELEASE_NOTES_v0.8.4.md).
 2. Запустите **Build Dream Cast TV APK** из `main` с `build_mode: release`.
 3. Для получения APK без публикации оставьте `publish: false`. Также можно
    использовать **Build Dream Cast TV Release APK**, который передаёт это значение.
-4. Получите артефакты `dreamcast-tv-v0.7.1-software_AV1-signed-release` и
-   `dreamcast-tv-v0.7.1-hardware_AV1-signed-release`, проверьте отчёты и устройства.
+4. Получите артефакты `dreamcast-tv-v0.8.4-software_AV1-signed-release` и
+   `dreamcast-tv-v0.8.4-hardware_AV1-signed-release`, проверьте отчёты и устройства.
 5. Публикация через основной workflow требует отдельного `publish: true`.
+
+Перед публикацией проверьте поиск с системной клавиатурой на old ATV и Google TV,
+воспроизведение, сохранение позиции и переходы между сериями в обеих сборках.
+Неподтверждённые проверки перечислены в заметках к релизу.
+
+Workflow сохраняет проверку подписи относительно опубликованного v0.7.0:
+сертификаты должны совпадать, а новый versionCode — быть больше прежнего.
 
 Обе Release-сборки используют `com.dreamcast.app`; Debug устанавливается отдельно
 как `com.dreamcast.app.diagnostic`. Для обновления Release должны совпадать package
