@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: 'Publish v0.8.4 on GitHub Releases (main only)'
+        description: 'Publish v0.8.5 on GitHub Releases (main only)'
         type: boolean
         default: true
 permissions:

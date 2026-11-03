@@ -23,9 +23,9 @@ jobs:
     name: Prepare reduced software player
     if: ((inputs.build_mode || 'debug') == 'debug' && github.ref == 'refs/heads/develop') || (inputs.build_mode == 'release' && github.ref == 'refs/heads/main')
     uses: ./.github/workflows/build-libvlc-tv.yml
-  debug_v084:
+  debug_v085:
     needs: libvlc_tv
-    name: Debug v0.8.4 (${{ matrix.variant }})
+    name: Debug v0.8.5 (${{ matrix.variant }})
     if: (inputs.build_mode || 'debug') == 'debug' && github.ref == 'refs/heads/develop'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -112,7 +112,7 @@ jobs:
             ls -lah build/app/outputs/flutter-apk || true
             exit 1
           fi
-          OUTPUT="dist/DreamCast-TV-v0.8.4-${{ matrix.variant }}-debug.apk"
+          OUTPUT="dist/DreamCast-TV-v0.8.5-${{ matrix.variant }}-debug.apk"
           cp "$APK" "$OUTPUT"
           (cd dist && sha256sum "$(basename "$OUTPUT")" > "$(basename "$OUTPUT").sha256")
       - name: Verify packaged APK excludes x86 ABIs
@@ -122,7 +122,7 @@ jobs:
           python3 - <<'PYCODE'
           from pathlib import Path
           import zipfile
-          apk = Path('dist/DreamCast-TV-v0.8.4-${{ matrix.variant }}-debug.apk')
+          apk = Path('dist/DreamCast-TV-v0.8.5-${{ matrix.variant }}-debug.apk')
           with zipfile.ZipFile(apk) as z:
               native = [n for n in z.namelist() if n.startswith('lib/') and n.endswith('.so')]
               abis = sorted({n.split('/')[1] for n in native})
@@ -141,18 +141,18 @@ jobs:
           chmod +x android/gradlew
           (cd android && ./gradlew :app:dependencies --configuration "${{ matrix.flavor }}DebugRuntimeClasspath" > ../av1-runtime-dependencies.txt)
           python3 scripts/audit_av1_apk.py \
-            --apk "dist/DreamCast-TV-v0.8.4-${{ matrix.variant }}-debug.apk" \
+            --apk "dist/DreamCast-TV-v0.8.5-${{ matrix.variant }}-debug.apk" \
             --dependencies av1-runtime-dependencies.txt \
             --player "${{ matrix.player }}"
       - name: Inspect packaged LibVLC size and debug sections
         if: matrix.player == 'software'
         shell: pwsh
-        run: ./scripts/audit_libvlc_size.ps1 -Archive 'dist/DreamCast-TV-v0.8.4-${{ matrix.variant }}-debug.apk' -Report 'dist/libvlc-size-debug.json'
+        run: ./scripts/audit_libvlc_size.ps1 -Archive 'dist/DreamCast-TV-v0.8.5-${{ matrix.variant }}-debug.apk' -Report 'dist/libvlc-size-debug.json'
       - name: Upload AV1 audit report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: dreamcast-tv-v0.8.4-${{ matrix.variant }}-audit
+          name: dreamcast-tv-v0.8.5-${{ matrix.variant }}-audit
           path: |
             dist/av1-audit-*.txt
             dist/libvlc-size-*.json
@@ -162,14 +162,14 @@ jobs:
       - name: Upload flavor Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: dreamcast-tv-v0.8.4-${{ matrix.variant }}-debug
+          name: dreamcast-tv-v0.8.5-${{ matrix.variant }}-debug
           path: dist/*
           if-no-files-found: error
           retention-days: 14
 
-  release_v084:
+  release_v085:
     needs: libvlc_tv
-    name: Release v0.8.4 (${{ matrix.variant }})
+    name: Release v0.8.5 (${{ matrix.variant }})
     if: inputs.build_mode == 'release' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 75
@@ -280,7 +280,7 @@ jobs:
             ls -lah build/app/outputs/flutter-apk || true
             exit 1
           fi
-          DEST='dist/DreamCast-TV-v0.8.4-${{ matrix.variant }}-release.apk'
+          DEST='dist/DreamCast-TV-v0.8.5-${{ matrix.variant }}-release.apk'
           cp "$APK" "$DEST"
           (cd dist && sha256sum "$(basename "$DEST")" > "$(basename "$DEST").sha256")
           du -h "$DEST"
@@ -288,7 +288,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APK='dist/DreamCast-TV-v0.8.4-${{ matrix.variant }}-release.apk'
+          APK='dist/DreamCast-TV-v0.8.5-${{ matrix.variant }}-release.apk'
           SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/opt/android-sdk}}"
           APKSIGNER="$(find "$SDK/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -1)"
           AAPT="$(find "$SDK/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -1)"
@@ -302,8 +302,8 @@ jobs:
           m = re.search(r"package: name='([^']+)' versionCode='(\d+)' versionName='([^']+)'", out)
           assert m, 'Missing package metadata'
           assert m.group(1) == 'com.dreamcast.app', f'Unexpected package: {m.group(1)}'
-          assert int(m.group(2)) == 804001, f'Unexpected version code: {m.group(2)}'
-          assert m.group(3) == '0.8.4', f'Unexpected version name: {m.group(3)}'
+          assert int(m.group(2)) == 805001, f'Unexpected version code: {m.group(2)}'
+          assert m.group(3) == '0.8.5', f'Unexpected version name: {m.group(3)}'
           with zipfile.ZipFile(apk) as z:
               libs = [n for n in z.namelist() if n.startswith('lib/') and n.endswith('.so')]
               abis = {n.split('/')[1] for n in libs}
@@ -317,18 +317,18 @@ jobs:
           chmod +x android/gradlew
           (cd android && ./gradlew :app:dependencies --configuration '${{ matrix.flavor }}ReleaseRuntimeClasspath' > ../av1-runtime-dependencies.txt)
           python3 scripts/audit_av1_apk.py \
-            --apk 'dist/DreamCast-TV-v0.8.4-${{ matrix.variant }}-release.apk' \
+            --apk 'dist/DreamCast-TV-v0.8.5-${{ matrix.variant }}-release.apk' \
             --dependencies av1-runtime-dependencies.txt \
             --player '${{ matrix.player }}'
       - name: Inspect packaged Release LibVLC size and debug sections
         if: matrix.player == 'software'
         shell: pwsh
-        run: ./scripts/audit_libvlc_size.ps1 -Archive 'dist/DreamCast-TV-v0.8.4-${{ matrix.variant }}-release.apk' -Report 'dist/libvlc-size-release.json'
+        run: ./scripts/audit_libvlc_size.ps1 -Archive 'dist/DreamCast-TV-v0.8.5-${{ matrix.variant }}-release.apk' -Report 'dist/libvlc-size-release.json'
       - name: Upload Release audit report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: dreamcast-tv-v0.8.4-${{ matrix.variant }}-release-audit
+          name: dreamcast-tv-v0.8.5-${{ matrix.variant }}-release-audit
           path: |
             dist/av1-audit-*.txt
             dist/signature-*.txt
@@ -340,10 +340,10 @@ jobs:
       - name: Upload signed Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: dreamcast-tv-v0.8.4-${{ matrix.variant }}-signed-release
+          name: dreamcast-tv-v0.8.5-${{ matrix.variant }}-signed-release
           path: |
-            dist/DreamCast-TV-v0.8.4-${{ matrix.variant }}-release.apk
-            dist/DreamCast-TV-v0.8.4-${{ matrix.variant }}-release.apk.sha256
+            dist/DreamCast-TV-v0.8.5-${{ matrix.variant }}-release.apk
+            dist/DreamCast-TV-v0.8.5-${{ matrix.variant }}-release.apk.sha256
           if-no-files-found: error
           retention-days: 30
       - name: Remove signing files
@@ -352,9 +352,9 @@ jobs:
         run: |
           rm -f android/key.properties android/app/upload-keystore.jks
 
-  publish_v084:
-    name: Publish v0.8.4 on GitHub Releases
-    needs: [release_v084]
+  publish_v085:
+    name: Publish v0.8.5 on GitHub Releases
+    needs: [release_v085]
     if: inputs.build_mode == 'release' && inputs.publish && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:
@@ -368,7 +368,7 @@ jobs:
       - name: Download both verified signed Release APKs
         uses: actions/download-artifact@v4
         with:
-          pattern: dreamcast-tv-v0.8.4-*-signed-release
+          pattern: dreamcast-tv-v0.8.5-*-signed-release
           path: dist
           merge-multiple: true
       - name: Validate release assets and checksums
@@ -378,9 +378,9 @@ jobs:
           test "${GITHUB_REF}" = 'refs/heads/main' || { echo '::error::Public release requires main'; exit 1; }
           cd dist
           for variant in software_AV1 hardware_AV1; do
-            test -s "DreamCast-TV-v0.8.4-${variant}-release.apk"
-            test -s "DreamCast-TV-v0.8.4-${variant}-release.apk.sha256"
-            sha256sum -c "DreamCast-TV-v0.8.4-${variant}-release.apk.sha256"
+            test -s "DreamCast-TV-v0.8.5-${variant}-release.apk"
+            test -s "DreamCast-TV-v0.8.5-${variant}-release.apk.sha256"
+            sha256sum -c "DreamCast-TV-v0.8.5-${variant}-release.apk.sha256"
           done
       - name: Verify certificate continuity against v0.7.0 and monotonic versionCode
         shell: bash
@@ -418,12 +418,12 @@ jobs:
           baseline_pkg="$("$AAPT" dump badging "$baseline_apk" | sed -n "s/.*package: name='\([^']*\)'.*/\1/p" | head -1)"
           test -n "$baseline_cert" && test -n "$baseline_code"
           test "$baseline_pkg" = 'com.dreamcast.app'
-          if (( 10#$baseline_code >= 804001 )); then
-            echo "::error::v0.7.0 versionCode $baseline_code is not lower than 804001"
+          if (( 10#$baseline_code >= 805001 )); then
+            echo "::error::v0.7.0 versionCode $baseline_code is not lower than 805001"
             exit 1
           fi
           for variant in software_AV1 hardware_AV1; do
-            apk="dist/DreamCast-TV-v0.8.4-${variant}-release.apk"
+            apk="dist/DreamCast-TV-v0.8.5-${variant}-release.apk"
             "$APKSIGNER" verify "$apk"
             cert="$(certificate_sha256 "$apk")"
             if [[ -z "$cert" || "$cert" != "$baseline_cert" ]]; then
@@ -439,14 +439,14 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          if gh release view v0.8.4 --repo "$GH_REPO" >/dev/null 2>&1; then
-            echo '::error::GitHub Release v0.8.4 already exists: refusing to overwrite it.'
+          if gh release view v0.8.5 --repo "$GH_REPO" >/dev/null 2>&1; then
+            echo '::error::GitHub Release v0.8.5 already exists: refusing to overwrite it.'
             exit 1
           fi
-          gh release create v0.8.4 \
-            dist/DreamCast-TV-v0.8.4-software_AV1-release.apk \
-            dist/DreamCast-TV-v0.8.4-software_AV1-release.apk.sha256 \
-            dist/DreamCast-TV-v0.8.4-hardware_AV1-release.apk \
-            dist/DreamCast-TV-v0.8.4-hardware_AV1-release.apk.sha256 \
+          gh release create v0.8.5 \
+            dist/DreamCast-TV-v0.8.5-software_AV1-release.apk \
+            dist/DreamCast-TV-v0.8.5-software_AV1-release.apk.sha256 \
+            dist/DreamCast-TV-v0.8.5-hardware_AV1-release.apk \
+            dist/DreamCast-TV-v0.8.5-hardware_AV1-release.apk.sha256 \
             --repo "$GH_REPO" --target "$GITHUB_SHA" \
-            --title 'Dream Cast TV v0.8.4' --notes-file RELEASE_NOTES_v0.8.4.md --latest
+            --title 'Dream Cast TV v0.8.5' --notes-file RELEASE_NOTES_v0.8.5.md --latest

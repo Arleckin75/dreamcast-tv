@@ -29,8 +29,17 @@ private class TvSearchField(private val context: Context, id: Int, params: Map<*
     private var disposed = false
     private var syncing = false
     private var keyboardDismissed = false
+    private var focusRequested = false
     private var accent = (params["accent"] as? Number)?.toInt() ?: Color.WHITE
     private val editor = object : EditText(context) {
+        override fun onAttachedToWindow() {
+            super.onAttachedToWindow()
+            if (focusRequested) post { showKeyboard() }
+        }
+        override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+            super.onWindowFocusChanged(hasWindowFocus)
+            if (hasWindowFocus && focusRequested) post { showKeyboard() }
+        }
         override fun onKeyPreIme(keyCode: Int, event: KeyEvent): Boolean {
             if (keyCode == KeyEvent.KEYCODE_BACK) {
                 if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) hideKeyboard()
@@ -42,11 +51,13 @@ private class TvSearchField(private val context: Context, id: Int, params: Map<*
     private fun editorBackground(focused: Boolean) = GradientDrawable().apply {
         setColor(Color.TRANSPARENT)
         cornerRadius = 14 * context.resources.displayMetrics.density
-        setStroke((3 * context.resources.displayMetrics.density).toInt(), if (focused) accent else Color.TRANSPARENT)
+        setStroke(((if (focused) 3 else 1) * context.resources.displayMetrics.density).toInt(), accent)
     }
 
     init {
         editor.apply {
+            isFocusable = true
+            isFocusableInTouchMode = true
             setSingleLine(true)
             inputType = InputType.TYPE_CLASS_TEXT
             imeOptions = EditorInfo.IME_ACTION_SEARCH or EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
@@ -121,11 +132,18 @@ private class TvSearchField(private val context: Context, id: Int, params: Map<*
 
     private fun showKeyboard() {
         if (disposed) return
+        focusRequested = true
+        if (!editor.isAttachedToWindow || !editor.hasWindowFocus()) return
         keyboardDismissed = false
         editor.requestFocus()
-        editor.post { if (!disposed && editor.hasFocus()) imm.showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT) }
+        editor.post {
+            if (!disposed && focusRequested && editor.hasFocus() && editor.hasWindowFocus()) {
+                imm.showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT)
+            }
+        }
     }
     private fun hideKeyboard() {
+        focusRequested = false
         keyboardDismissed = true
         imm.hideSoftInputFromWindow(editor.windowToken, 0)
     }

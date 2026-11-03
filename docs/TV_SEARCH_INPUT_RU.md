@@ -34,6 +34,16 @@ privateImeOptions Gboard `noDecoding` / `noMicrophoneKey`. Другие IME мо
 
 ## Проверка
 
+На old ATV проверено по ADB: при открытии поиска поле EditText было без фокуса,
+а Android обслуживал Flutter View без подключения для ввода. OK не менял это
+состояние. После касания EditText получил фокус и подключение ввода; текст
+появился в поле. Поэтому начальный фокус перенесён на кадр после создания
+поверхности, нативная часть ожидает присоединения к окну, а OK из Flutter
+явно активирует редактор. Контур поля виден и без фокуса.
+
+Эта проверка выполнена на прежнем APK; новый код требует установки и повторной
+проверки открытия поиска и OK на устройстве.
+
 ```sh
 flutter test --no-pub test/features/releases/search_keyboard_test.dart
 flutter test --no-pub test/features/releases/search_keyboard_test.dart --flavor softwareAv1

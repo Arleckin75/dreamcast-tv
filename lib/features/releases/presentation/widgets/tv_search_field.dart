@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show PlatformViewHitTestBehavior;
 import 'package:flutter/services.dart';
 
-/// Inline Android editor for Cosmos: Android owns IME input and remote events.
+/// Inline Android editor for old ATV: Android owns IME input and remote events.
 class TvSearchField extends StatefulWidget {
   const TvSearchField({
     required this.controller,
@@ -22,7 +22,12 @@ class TvSearchField extends StatefulWidget {
 
 class _TvSearchFieldState extends State<TvSearchField> {
   MethodChannel? _channel;
+  bool _nativeReady = false;
   bool _syncing = false;
+  void _focusEditor() {
+    if (_nativeReady) unawaited(_channel?.invokeMethod<void>('focus'));
+  }
+
   Map<String, int> get _colors {
     final colors = Theme.of(context).colorScheme;
     return {
@@ -56,9 +61,19 @@ class _TvSearchFieldState extends State<TvSearchField> {
     child: Focus(
       focusNode: widget.focusNode,
       onFocusChange: (focused) {
-        if (focused) unawaited(_channel?.invokeMethod<void>('focus'));
+        if (focused) _focusEditor();
       },
       onKeyEvent: (_, event) {
+        // The platform view may not own Android focus yet. Activate it from
+        // Flutter instead of forwarding OK to an unfocused native editor.
+        if (event.logicalKey == LogicalKeyboardKey.select ||
+            event.logicalKey == LogicalKeyboardKey.enter ||
+            event.logicalKey == LogicalKeyboardKey.numpadEnter) {
+          if (event is KeyDownEvent) {
+            _focusEditor();
+          }
+          return KeyEventResult.handled;
+        }
         const keys = [
           LogicalKeyboardKey.arrowUp,
           LogicalKeyboardKey.arrowDown,
@@ -114,10 +129,15 @@ class _TvSearchFieldState extends State<TvSearchField> {
             onFocus: () => params.onFocusChanged(true),
           );
           controller.addOnPlatformViewCreatedListener((id) {
+            _nativeReady = true;
             params.onPlatformViewCreated(id);
-            if (mounted && widget.focusNode.hasFocus) {
-              unawaited(channel.invokeMethod<void>('focus'));
-            }
+            // Creation precedes the frame that installs AndroidViewSurface.
+            // Focusing during creation lets Flutter's placeholder take it back.
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted && widget.focusNode.hasFocus) {
+                _focusEditor();
+              }
+            });
           });
           return controller;
         },

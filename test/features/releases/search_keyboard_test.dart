@@ -94,6 +94,14 @@ void main() {
           expect(find.byType(TextField), findsNothing);
           expect(find.byType(Dialog), findsNothing);
           expect(inlineCalls.any((call) => call.method == 'focus'), isTrue);
+          inlineCalls.clear();
+          // OK must activate the Android editor even while Flutter owns focus.
+          expect(await tester.sendKeyEvent(LogicalKeyboardKey.select), isTrue);
+          await tester.pump();
+          expect(
+            inlineCalls.where((call) => call.method == 'focus'),
+            hasLength(1),
+          );
           // These keys must leave Flutter unhandled so Android/Gboard receives them.
           expect(
             await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight),

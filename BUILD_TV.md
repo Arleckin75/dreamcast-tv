@@ -5,8 +5,8 @@
 1. Откройте **Actions → Build Dream Cast TV APK → Run workflow**.
 2. Для тестовой сборки выберите `develop`. Этот workflow вручную собирает только Debug из develop.
 3. После успешного запуска скачайте нужный ZIP из **Artifacts**:
-   `dreamcast-tv-v0.8.4-software_AV1-debug` или
-   `dreamcast-tv-v0.8.4-hardware_AV1-debug`.
+   `dreamcast-tv-v0.8.5-software_AV1-debug` или
+   `dreamcast-tv-v0.8.5-hardware_AV1-debug`.
 4. Распакуйте APK и `.sha256`, проверьте контрольную сумму и установите на TV.
 
 Основной workflow находится в `.github/workflows/build-tv-apk.yml`. Он собирает
@@ -15,7 +15,7 @@
 собирает либо восстанавливает проверенный сокращённый LibVLC.
 
 Для выпуска откройте **Build Dream Cast TV Release APK** и выберите `main`.
-Параметр **Publish v0.8.4 on GitHub Releases (main only)** включён по умолчанию:
+Параметр **Publish v0.8.5 on GitHub Releases (main only)** включён по умолчанию:
 после сборки и проверок будет опубликован релиз. Снимите флажок, если нужны
 только подписанные APK без публикации. Используются прежние секреты подписи
 и окружение `release-signing`.

@@ -48,18 +48,18 @@ keyPassword=YOUR_KEY_PASSWORD
 
 ## Сборка и публикация
 
-Особенности слияния веток описаны в [плане переноса v0.8.4 в main](docs/MAIN_MIGRATION_RU.md).
+Особенности слияния веток описаны в [плане переноса v0.8.5 в main](docs/MAIN_MIGRATION_RU.md).
 
 1. Перенесите проверенные изменения в `main`.
-   Версия этого выпуска — `0.8.4`, Android versionCode — `804001`.
-   Описание для GitHub Releases берётся из [заметок к релизу](RELEASE_NOTES_v0.8.4.md).
+   Версия этого выпуска — `0.8.5`, Android versionCode — `805001`.
+   Описание для GitHub Releases берётся из [заметок к релизу](RELEASE_NOTES_v0.8.5.md).
 2. Запустите **Build Dream Cast TV Release APK** из `main`.
-3. Флажок **Publish v0.8.4 on GitHub Releases (main only)** включён по умолчанию.
+3. Флажок **Publish v0.8.5 on GitHub Releases (main only)** включён по умолчанию.
    Для получения APK без публикации снимите его (`publish: false`).
-4. Получите артефакты `dreamcast-tv-v0.8.4-software_AV1-signed-release` и
-   `dreamcast-tv-v0.8.4-hardware_AV1-signed-release`, проверьте отчёты и устройства.
+4. Получите артефакты `dreamcast-tv-v0.8.5-software_AV1-signed-release` и
+   `dreamcast-tv-v0.8.5-hardware_AV1-signed-release`, проверьте отчёты и устройства.
 5. При включённом флажке (`publish: true`) после успешных проверок автоматически
-   создаётся GitHub Release v0.8.4. Для предварительной проверки APK сначала
+   создаётся GitHub Release v0.8.5. Для предварительной проверки APK сначала
    выполните запуск без публикации.
 
 Release workflow передаёт секреты через `secrets: inherit`. Задания подписи
