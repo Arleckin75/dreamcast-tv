@@ -21,13 +21,16 @@ import org.videolan.libvlc.MediaPlayer
 
 /** AV1 software fallback, isolated from ExoPlayer on compatible devices. */
 object CosmosAv1Launcher {
-    @JvmStatic fun launch(activity: Activity, url: String, headers: Map<String, String>, positionMs: Long, episodeKey: String, quality: Int, positionUpdatedAtMs: Long, title: String = "") {
+    @JvmStatic fun launch(activity: Activity, url: String, headers: Map<String, String>, positionMs: Long, episodeKey: String, quality: Int, positionUpdatedAtMs: Long, title: String = "", subtitle: String = "", accent: Int = 0xFFD0BCFF.toInt(), onAccent: Int = 0xFF381E72.toInt()) {
         val intent = Intent(activity, CosmosAv1PlayerActivity::class.java)
         intent.putExtra("url", url)
         intent.putExtra("positionMs", positionMs)
         intent.putExtra("positionUpdatedAtMs", positionUpdatedAtMs)
         intent.putExtra("episodeKey", episodeKey)
         intent.putExtra("title", title)
+        intent.putExtra("subtitle", subtitle)
+        intent.putExtra("accent", accent)
+        intent.putExtra("onAccent", onAccent)
         intent.putExtra("quality", if (quality in listOf(480, 720, 1080)) quality else 720)
         intent.putExtra("userAgent", headers.entries.firstOrNull { it.key.equals("user-agent", true) }?.value)
         intent.putExtra("referer", headers.entries.firstOrNull { it.key.equals("referer", true) }?.value)
@@ -65,6 +68,8 @@ class CosmosAv1PlayerActivity : Activity() {
     private var controls: SoftwarePlayerControls? = null
     private var loading = false
     private var retrying = false
+    private var qualityPreferenceChanged = false
+    private var pauseAfterRestart = false
     private val uiHandler = Handler(Looper.getMainLooper())
     private var voutCount = -1
     private var surfaceReady = false
@@ -79,6 +84,7 @@ class CosmosAv1PlayerActivity : Activity() {
     private var lastPersistedMs = -1L
     private val progressPrefs by lazy { getSharedPreferences("dream_cast_vlc_progress", Context.MODE_PRIVATE) }
     private fun persistPosition(force: Boolean = false) {
+        if (retrying) return
         val mp = player ?: return
         if (episodeKey.isBlank()) return
         if (episodeCompleted || playbackError || (!hasRestoredPosition && resumeMs > 5000L)) return
@@ -93,7 +99,7 @@ class CosmosAv1PlayerActivity : Activity() {
         Log.i("DCTV_PROGRESS", "saved positionMs=$ms durationMs=$length")
     }
     private fun restorePosition(mp: MediaPlayer) {
-        if (hasRestoredPosition || resumeMs <= 5000L || !mp.isSeekable) return
+        if (hasRestoredPosition || resumeMs <= 0L || !mp.isSeekable) return
         val length = runCatching { mp.length }.getOrDefault(0L)
         val target = if (length > 0L && resumeMs >= length - 1000L) 0L else resumeMs
         runCatching { mp.time = target }
@@ -116,7 +122,7 @@ class CosmosAv1PlayerActivity : Activity() {
         }
     }
     private val hideUi = Runnable {
-        if (!loading && !playbackError && player?.isPlaying == true) controls?.hide()
+        if (!loading && !playbackError && controls?.modalVisible != true && player?.isPlaying == true) controls?.hide()
     }
     private val controlsTicker = object : Runnable {
         override fun run() {
@@ -167,24 +173,53 @@ class CosmosAv1PlayerActivity : Activity() {
         if (!mp.isSeekable) return
         val end = mp.length.takeIf { it > 0L } ?: Long.MAX_VALUE
         mp.time = (mp.time.coerceAtLeast(0L) + deltaMs).coerceIn(0L, end)
+        if (kotlin.math.abs(deltaMs) == 10_000L) controls?.showSeekFeedback(deltaMs)
         uiHandler.postDelayed({ if (player === mp) persistPosition(true) }, 500L)
         reveal()
     }
 
     private fun retryPlayback() {
-        if (!playbackError || retrying || backExitRequested) return
-        retrying = true
-        resumeMs = if (episodeKey.isNotBlank()) progressPrefs.getLong(episodeKey, resumeMs) else resumeMs
-        hasRestoredPosition = false
-        controls?.showError(null)
-        showLoading("Повторное подключение…")
+        if (!playbackError) return
+        restartPlayback()
+    }
+
+    private fun selectQuality(height: Int) {
+        if (height !in listOf(480, 720, 1080) || height == activeHeight) return
+        restartPlayback(height)
+    }
+
+    private fun restartPlayback(height: Int? = null) {
+        if (retrying || backExitRequested || isFinishing || isDestroyed) return
         val mp = player
+        val wasPlaying = mp?.isPlaying == true
+        persistPosition(true)
+        val currentPosition = runCatching { mp?.time ?: -1L }.getOrDefault(-1L)
+        val savedPosition = if (episodeKey.isNotBlank()) progressPrefs.getLong(episodeKey, resumeMs) else resumeMs
+        resumeMs = when {
+            !hasRestoredPosition && resumeMs > 5000L -> resumeMs
+            !playbackError && currentPosition >= 0L -> currentPosition
+            else -> savedPosition
+        }
+        pauseAfterRestart = height != null && !playbackError && mp != null && !wasPlaying
+        if (height != null) {
+            activeHeight = height
+            qualityPreferenceChanged = true
+            controls?.setQuality(height)
+        }
+        retrying = true
+        requestSerial++
+        uiHandler.removeCallbacks(progressSaver)
+        uiHandler.removeCallbacks(hideUi)
+        controls?.showError(null)
+        showLoading(if (height == null) "Повторное подключение…" else "Переключение на ${height}p…")
         mp?.setEventListener(null)
         runCatching { mp?.stop() }
         // Preserve the existing delay before detaching VLC's SurfaceView on Cosmos.
         uiHandler.postDelayed({
             if (backExitRequested || isFinishing || isDestroyed) return@postDelayed
             releasePlayer(alreadyStopped = true)
+            hasRestoredPosition = false
+            lastPersistedMs = -1L
             retrying = false
             playbackError = false
             startSelectedQuality(intent.getStringExtra("url") ?: return@postDelayed)
@@ -236,10 +271,12 @@ class CosmosAv1PlayerActivity : Activity() {
             }
         })
         root.addView(surface, FrameLayout.LayoutParams(-1, -1))
-        controls = SoftwarePlayerControls(this, root, ::togglePlayback, ::seekBy,
-            ::retryPlayback, ::exitToEpisodes, ::reveal).apply {
-            title.text = listOfNotNull(intent.getStringExtra("title")?.takeIf { it.isNotBlank() },
-                "AV1 ${activeHeight}p").joinToString(" · ")
+        controls = SoftwarePlayerControls(this, root,
+            intent.getIntExtra("accent", 0xFFD0BCFF.toInt()), intent.getIntExtra("onAccent", 0xFF381E72.toInt()),
+            ::togglePlayback, ::seekBy, ::retryPlayback, ::exitToEpisodes, ::selectQuality, ::reveal).apply {
+            title.text = intent.getStringExtra("title").orEmpty()
+            subtitle.text = intent.getStringExtra("subtitle").orEmpty()
+            setQuality(activeHeight)
         }
         setContentView(root)
         uiHandler.post(controlsTicker)
@@ -334,7 +371,11 @@ class CosmosAv1PlayerActivity : Activity() {
                     MediaPlayer.Event.Playing -> {
                         setPlaybackScreenOn(true)
                         Log.i("DCTV_AV1", "LibVLC playing; software decode requested")
-                        postPlayerUpdate(mp) { restorePosition(mp); showLoading(null); reveal() }
+                        postPlayerUpdate(mp) {
+                            restorePosition(mp)
+                            if (pauseAfterRestart) { pauseAfterRestart = false; mp.pause() }
+                            showLoading(null); reveal()
+                        }
                     }
                     MediaPlayer.Event.EncounteredError -> {
                         setPlaybackScreenOn(false)
@@ -386,7 +427,7 @@ class CosmosAv1PlayerActivity : Activity() {
         uiHandler.removeCallbacks(controlsTicker)
         uiHandler.postDelayed(controlsTicker, 1000L)
         uiHandler.removeCallbacks(hideUi)
-        uiHandler.postDelayed(hideUi, 6000)
+        uiHandler.postDelayed(hideUi, 10_000L)
     }
 
     // Consume BOTH DOWN and UP in this Activity. Finishing on DOWN can send the
@@ -400,10 +441,12 @@ class CosmosAv1PlayerActivity : Activity() {
             return true
         }
         if (backExitRequested || retrying) return true
+        if (event.action == KeyEvent.ACTION_DOWN && controls?.visible == true) reveal()
         // Handle shortcuts before Android's default focus search can move from
         // the video to an arbitrary button in the newly revealed panel.
         val direction = event.keyCode
-        if (direction == KeyEvent.KEYCODE_DPAD_UP || direction == KeyEvent.KEYCODE_DPAD_DOWN ||
+        if (((direction == KeyEvent.KEYCODE_DPAD_UP || direction == KeyEvent.KEYCODE_DPAD_DOWN) &&
+                controls?.hasActionFocus != true) ||
             ((direction == KeyEvent.KEYCODE_DPAD_LEFT || direction == KeyEvent.KEYCODE_DPAD_RIGHT) &&
                 controls?.hasActionFocus != true)) {
             if (event.action == KeyEvent.ACTION_DOWN && !event.isCanceled) onKeyDown(direction, event)
@@ -428,6 +471,7 @@ class CosmosAv1PlayerActivity : Activity() {
         // crash AWindowHandler if that happens while VLC is still rendering.
         val mp = player
         if (mp == null) {
+            exitPositionMs = resumeMs
             finish()
             return
         }
@@ -440,6 +484,7 @@ class CosmosAv1PlayerActivity : Activity() {
         val savedMs = if (episodeKey.isNotBlank()) progressPrefs.getLong(episodeKey, 0L) else 0L
         exitPositionMs = when {
             episodeCompleted -> 0L
+            retrying -> resumeMs
             !hasRestoredPosition && resumeMs > 5000L -> resumeMs
             playbackError -> savedMs
             currentMs >= 0L -> currentMs
@@ -467,6 +512,7 @@ class CosmosAv1PlayerActivity : Activity() {
         val p = player
         when (keyCode) {
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
+                if (controls?.hasActionFocus == true) return super.onKeyDown(keyCode, event)
                 reveal()
                 controls?.show(true)
                 return true
@@ -528,12 +574,14 @@ class CosmosAv1PlayerActivity : Activity() {
             putExtra("durationMs", duration.coerceAtLeast(0L))
             putExtra("completed", episodeCompleted)
             putExtra("playbackError", playbackError)
+            if (qualityPreferenceChanged) putExtra("quality", activeHeight)
         })
         Log.i("DCTV_PROGRESS", "return to Flutter positionMs=$ms durationMs=$duration completed=$episodeCompleted")
         super.finish()
     }
 
     override fun onDestroy() {
+        controls?.dispose()
         uiHandler.removeCallbacksAndMessages(null)
         uiHandler.removeCallbacks(hideUi)
         uiHandler.removeCallbacks(progressSaver)

@@ -341,12 +341,19 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
                   ? DateTime.now().millisecondsSinceEpoch
                   : savedPosition?.updatedAt.millisecondsSinceEpoch ?? 0,
               'episodeKey': '${_request.release.id}:${_request.episode.id}',
-              'title':
-                  '${displayReleaseTitle(_request.release)} · ${_request.episode.title}',
+              'title': _request.episode.title,
+              'subtitle': displayReleaseTitle(_request.release),
+              'accent': Theme.of(context).colorScheme.primary.toARGB32(),
+              'onAccent': Theme.of(context).colorScheme.onPrimary.toARGB32(),
               'quality': requestedQuality,
             });
         if (!mounted || _isClosing) return;
         if (nativeProgress != null) {
+          final nativeQuality = (nativeProgress['quality'] as num?)?.toInt();
+          if (const [480, 720, 1080].contains(nativeQuality)) {
+            await qualityPrefs.setInt('software_av1_quality', nativeQuality!);
+            if (!mounted || _isClosing) return;
+          }
           final positionMs =
               (nativeProgress['positionMs'] as num?)?.toInt() ?? 0;
           final durationMs =

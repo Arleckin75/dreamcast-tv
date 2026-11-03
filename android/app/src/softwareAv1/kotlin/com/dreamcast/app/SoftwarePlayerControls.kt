@@ -1,8 +1,16 @@
 package com.dreamcast.app
 
+import android.app.AlertDialog
 import android.content.Context
+import android.content.res.ColorStateList
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.widget.Button
 import android.widget.FrameLayout
@@ -11,126 +19,277 @@ import android.widget.ProgressBar
 import android.widget.SeekBar
 import android.widget.TextView
 
-/** Native overlay: video stays on VLC's existing SurfaceView. */
+/** Hardware player layout rendered above VLC's existing SurfaceView. */
 internal class SoftwarePlayerControls(
     private val context: Context,
     private val root: FrameLayout,
+    private val accent: Int,
+    private val onAccent: Int,
     onToggle: () -> Unit,
-    onSeek: (Long) -> Unit,
+    private val onSeek: (Long) -> Unit,
     onRetry: () -> Unit,
     onExit: () -> Unit,
+    private val onQuality: (Int) -> Unit,
     private val onInteraction: () -> Unit,
 ) {
+    private val compact = context.resources.configuration.let { it.screenWidthDp < 640 || it.screenHeightDp < 420 }
     private fun dp(value: Int) = (value * context.resources.displayMetrics.density).toInt()
     private fun label(size: Float) = TextView(context).apply {
-        setTextColor(Color.WHITE)
-        textSize = size
-    }
-    private val panel = LinearLayout(context).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(28), dp(16), dp(28), dp(20))
-        setBackgroundColor(0xE6202020.toInt())
-    }
-    val title = label(20f).apply {
-        maxLines = 2
+        setTextColor(Color.WHITE); textSize = size; maxLines = 1
         ellipsize = android.text.TextUtils.TruncateAt.END
     }
-    private val time = label(16f)
-    private val timeline = SeekBar(context).apply { max = 1000; isFocusable = false }
+    private fun pill(color: Int = 0x6B000000) = GradientDrawable().apply {
+        setColor(color); cornerRadius = dp(999).toFloat(); setStroke(dp(1), 0x21FFFFFF)
+    }
+    private val panel = FrameLayout(context).apply {
+        background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(0x94000000.toInt(), 0x14000000, 0xA3000000.toInt()))
+        setPadding(dp(if (compact) 12 else 28), dp(if (compact) 8 else 12),
+            dp(if (compact) 12 else 28), dp(if (compact) 8 else 14))
+    }
+    val title = label(if (compact) 15f else 17f).apply { setTypeface(null, Typeface.BOLD) }
+    val subtitle = label(13f).apply { setTextColor(0xB3FFFFFF.toInt()); visibility = if (compact) View.GONE else View.VISIBLE }
+    private val top = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
     private val actions = LinearLayout(context).apply { gravity = Gravity.CENTER }
-    private fun button(text: String, action: () -> Unit) = Button(context).apply {
-        this.text = text
-        isAllCaps = false
-        setTextColor(Color.WHITE)
-        setPadding(dp(16), dp(8), dp(16), dp(8))
-        setOnClickListener { onInteraction(); action() }
-        setOnFocusChangeListener { view, focused ->
-            view.setBackgroundColor(if (focused) 0xFF3867C8.toInt() else 0xFF383838.toInt())
+    private fun transport(kind: String, size: Int, description: String, action: () -> Unit) =
+        TransportButton(context, kind, accent, onAccent).apply {
+            id = View.generateViewId(); contentDescription = description
+            setOnClickListener { onInteraction(); action() }
+            setOnFocusChangeListener { _, focused -> invalidate(); if (focused) onInteraction() }
+            layoutParams = LinearLayout.LayoutParams(dp(size), dp(size))
+        }
+    private val back = transport("back", if (compact) 48 else 56, "Назад", onExit)
+    private val rewind = transport("rewind", if (compact) 58 else 72, "Назад на 10 секунд") { onSeek(-10_000L) }
+    private val toggle = transport("pause", if (compact) 72 else 88, "Пауза", onToggle)
+    private val forward = transport("forward", if (compact) 58 else 72, "Вперёд на 10 секунд") { onSeek(10_000L) }
+    private val quality = Button(context).apply {
+        id = View.generateViewId(); isAllCaps = false; setTextColor(Color.WHITE); textSize = 14f
+        setTypeface(null, Typeface.BOLD); minWidth = 0; minHeight = 0
+        setPadding(dp(16), dp(8), dp(16), dp(8)); background = pill()
+        contentDescription = "Качество потока"
+        setOnClickListener { showQualityDialog() }
+        setOnFocusChangeListener { _, focused ->
+            background = pill(if (focused) withAlpha(accent, 150) else 0x6B000000)
             if (focused) onInteraction()
         }
-        setBackgroundColor(0xFF383838.toInt())
-        actions.addView(this, LinearLayout.LayoutParams(-2, dp(52)).apply {
-            marginStart = dp(6); marginEnd = dp(6)
-        })
     }
-    private val rewind = button("−10 сек") { onSeek(-10_000L) }
-    private val toggle = button("Пауза", onToggle)
-    private val forward = button("+10 сек") { onSeek(10_000L) }
-    private val retry = button("Повторить", onRetry)
-    private val exit = button("Назад", onExit)
+    private fun timeLabel() = label(14f).apply { gravity = Gravity.CENTER; setTypeface(null, Typeface.BOLD) }
+    private val positionLabel = timeLabel()
+    private val durationLabel = timeLabel()
+    private val timeline = SeekBar(context).apply {
+        id = View.generateViewId(); max = 1000
+        progressTintList = ColorStateList.valueOf(accent); thumbTintList = ColorStateList.valueOf(accent)
+        progressBackgroundTintList = ColorStateList.valueOf(0x42FFFFFF)
+        setOnFocusChangeListener { _, focused ->
+            background = if (focused) pill(withAlpha(accent, 46)) else null
+            if (focused) onInteraction()
+        }
+        setOnKeyListener { _, key, event ->
+            if (key != KeyEvent.KEYCODE_DPAD_LEFT && key != KeyEvent.KEYCODE_DPAD_RIGHT) false
+            else {
+                if (event.action == KeyEvent.ACTION_DOWN) {
+                    onInteraction(); onSeek(if (key == KeyEvent.KEYCODE_DPAD_LEFT) -10_000L else 10_000L)
+                }
+                true
+            }
+        }
+    }
+    private val bottom = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
     private val loading = LinearLayout(context).apply {
-        orientation = LinearLayout.VERTICAL
-        gravity = Gravity.CENTER
-        setPadding(dp(24), dp(16), dp(24), dp(16))
-        setBackgroundColor(0xCC202020.toInt())
+        orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
+        setPadding(dp(24), dp(16), dp(24), dp(16)); background = pill(0xCC202020.toInt())
     }
-    private val loadingText = label(18f)
-    private val error = label(18f)
+    private val loadingText = label(16f)
+    private val errorPanel = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
+        setPadding(dp(24), dp(20), dp(24), dp(20)); background = pill(0xE6202020.toInt())
+    }
+    private val error = label(18f).apply { maxLines = 3; gravity = Gravity.CENTER }
+    private fun errorButton(text: String, action: () -> Unit) = Button(context).apply {
+        id = View.generateViewId(); this.text = text; isAllCaps = false; setTextColor(Color.WHITE)
+        background = pill(withAlpha(accent, 90))
+        setOnClickListener { onInteraction(); action() }
+        setOnFocusChangeListener { _, focused ->
+            background = pill(withAlpha(accent, if (focused) 200 else 90)); if (focused) onInteraction()
+        }
+    }
+    private val retry = errorButton("Повторить", onRetry)
+    private val errorExit = errorButton("Назад", onExit)
+    private val feedback = label(16f).apply {
+        gravity = Gravity.CENTER; setTextColor(onAccent); setTypeface(null, Typeface.BOLD)
+        setPadding(dp(18), dp(11), dp(18), dp(11)); background = pill(withAlpha(accent, 224)); visibility = View.GONE
+    }
+    private val hideFeedback = Runnable { feedback.visibility = View.GONE }
+    private var qualityDialog: AlertDialog? = null
+    private var activeQuality = 720
     private var duration = 0L
+    private var position = 0L
+    private var dragging = false
+    private var errorVisible = false
     val visible: Boolean get() = panel.visibility == View.VISIBLE
-    val hasActionFocus: Boolean get() = actions.hasFocus()
+    val hasActionFocus: Boolean get() = panel.hasFocus()
+    val modalVisible: Boolean get() = qualityDialog?.isShowing == true
 
     init {
-        panel.addView(title)
-        panel.addView(error)
-        panel.addView(time)
-        panel.addView(timeline, LinearLayout.LayoutParams(-1, dp(36)))
-        panel.addView(actions)
-        root.addView(panel, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
-        loading.addView(ProgressBar(context), LinearLayout.LayoutParams(dp(44), dp(44)))
+        top.addView(back)
+        val titles = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(if (compact) 48 else 56)
+            setPadding(dp(if (compact) 14 else 18), dp(7), dp(18), dp(7)); background = pill()
+            addView(title); addView(subtitle)
+        }
+        top.addView(titles, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(12); marginEnd = dp(12) })
+        top.addView(quality, LinearLayout.LayoutParams(-2, dp(if (compact) 48 else 56)))
+        panel.addView(top, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
+        actions.addView(rewind)
+        actions.addView(toggle, LinearLayout.LayoutParams(dp(if (compact) 72 else 88), dp(if (compact) 72 else 88)).apply {
+            marginStart = dp(if (compact) 18 else 30); marginEnd = dp(if (compact) 18 else 30)
+        })
+        actions.addView(forward)
+        panel.addView(actions, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
+        bottom.addView(positionLabel, LinearLayout.LayoutParams(dp(64), dp(48)))
+        bottom.addView(timeline, LinearLayout.LayoutParams(0, dp(48), 1f))
+        bottom.addView(durationLabel, LinearLayout.LayoutParams(dp(64), dp(48)))
+        panel.addView(bottom, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
+        errorPanel.addView(error, LinearLayout.LayoutParams(-1, -2))
+        errorPanel.addView(LinearLayout(context).apply {
+            gravity = Gravity.CENTER
+            addView(retry, LinearLayout.LayoutParams(dp(150), dp(48)).apply { marginEnd = dp(12) })
+            addView(errorExit, LinearLayout.LayoutParams(dp(120), dp(48)))
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(20) })
+        panel.addView(errorPanel, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER).apply {
+            leftMargin = dp(32); rightMargin = dp(32)
+        })
+        root.addView(panel, FrameLayout.LayoutParams(-1, -1))
+        loading.addView(ProgressBar(context).apply { indeterminateTintList = ColorStateList.valueOf(accent) },
+            LinearLayout.LayoutParams(dp(44), dp(44)))
         loading.addView(loadingText)
         root.addView(loading, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
+        root.addView(feedback, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL or Gravity.LEFT).apply { leftMargin = dp(42) })
         timeline.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar?, value: Int, fromUser: Boolean) {
-                if (fromUser && duration > 0) {
-                    onInteraction()
-                    onSeek(duration * value / 1000 - position)
-                }
+                if (fromUser && duration > 0) positionLabel.text = formatTime(duration * value / 1000)
             }
-            override fun onStartTrackingTouch(bar: SeekBar?) { onInteraction() }
-            override fun onStopTrackingTouch(bar: SeekBar?) { onInteraction() }
+            override fun onStartTrackingTouch(bar: SeekBar?) { dragging = true; onInteraction() }
+            override fun onStopTrackingTouch(bar: SeekBar?) {
+                val target = duration * timeline.progress / 1000
+                dragging = false; onInteraction()
+                if (duration > 0) onSeek(target - position)
+            }
         })
-        showError(null)
-        root.isFocusableInTouchMode = true
-        root.requestFocus()
+        rewind.nextFocusRightId = toggle.id; toggle.nextFocusLeftId = rewind.id
+        toggle.nextFocusRightId = forward.id; forward.nextFocusLeftId = toggle.id
+        listOf(rewind, toggle, forward).forEach { it.nextFocusUpId = quality.id; it.nextFocusDownId = timeline.id }
+        timeline.nextFocusUpId = toggle.id; quality.nextFocusDownId = toggle.id
+        quality.nextFocusLeftId = back.id; back.nextFocusRightId = quality.id; back.nextFocusDownId = toggle.id
+        showError(null); root.isFocusableInTouchMode = true; root.requestFocus()
     }
 
-    private var position = 0L
+    fun showSeekFeedback(delta: Long) {
+        feedback.text = if (delta < 0) "−10 секунд" else "+10 секунд"
+        feedback.layoutParams = (feedback.layoutParams as FrameLayout.LayoutParams).apply {
+            gravity = Gravity.CENTER_VERTICAL or (if (delta < 0) Gravity.LEFT else Gravity.RIGHT)
+            leftMargin = dp(42); rightMargin = dp(42)
+        }
+        feedback.visibility = View.VISIBLE; feedback.removeCallbacks(hideFeedback); feedback.postDelayed(hideFeedback, 800L)
+    }
+
+    fun setQuality(height: Int) { activeQuality = height; quality.text = "HQ  ${height}p" }
+
+    private fun showQualityDialog() {
+        if (modalVisible) return
+        onInteraction()
+        val heights = intArrayOf(480, 720, 1080)
+        qualityDialog = AlertDialog.Builder(context, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("Качество потока")
+            .setSingleChoiceItems(heights.map { "HLS • ${it}p" }.toTypedArray(), heights.indexOf(activeQuality)) { dialog, index ->
+                dialog.dismiss(); if (heights[index] != activeQuality) onQuality(heights[index])
+            }
+            .setNegativeButton("Назад", null).create().apply {
+                setOnDismissListener { qualityDialog = null; quality.requestFocus(); onInteraction() }
+                show()
+            }
+    }
+
     fun update(positionMs: Long, durationMs: Long, playing: Boolean, seekable: Boolean) {
-        position = positionMs.coerceAtLeast(0L)
-        duration = durationMs.coerceAtLeast(0L)
-        time.text = "${formatTime(position)} / ${if (duration > 0) formatTime(duration) else "--:--"}"
-        timeline.progress = if (duration > 0) (position.coerceAtMost(duration) * 1000 / duration).toInt() else 0
-        timeline.isEnabled = seekable && duration > 0
-        rewind.isEnabled = seekable
-        forward.isEnabled = seekable
-        toggle.text = if (playing) "Пауза" else "Продолжить"
+        position = positionMs.coerceAtLeast(0L); duration = durationMs.coerceAtLeast(0L)
+        if (!dragging) {
+            positionLabel.text = formatTime(position)
+            timeline.progress = if (duration > 0) (position.coerceAtMost(duration) * 1000 / duration).toInt() else 0
+        }
+        durationLabel.text = if (duration > 0) formatTime(duration) else "--:--"
+        timeline.isEnabled = seekable && duration > 0; rewind.isEnabled = seekable; forward.isEnabled = seekable
+        toggle.kind = if (playing) "pause" else "play"
+        toggle.contentDescription = if (playing) "Пауза" else "Воспроизвести"; toggle.invalidate()
     }
 
     fun show(focus: Boolean = false) {
-        panel.visibility = View.VISIBLE
-        if (focus) (if (retry.visibility == View.VISIBLE) retry else toggle).requestFocus()
+        if (!visible) { panel.visibility = View.VISIBLE; panel.alpha = 0f; panel.animate().alpha(1f).setDuration(220L).start() }
+        if (focus) (if (errorVisible) retry else toggle).requestFocus()
     }
-
-    fun hide() { root.requestFocus(); panel.visibility = View.GONE }
+    fun hide() { root.requestFocus(); panel.animate().cancel(); panel.visibility = View.GONE }
     fun showLoading(text: String?) {
-        loading.visibility = if (text == null) View.GONE else View.VISIBLE
-        loadingText.text = text.orEmpty()
+        loading.visibility = if (text == null) View.GONE else View.VISIBLE; loadingText.text = text.orEmpty()
+        actions.visibility = if (text != null || errorVisible) View.GONE else View.VISIBLE
     }
-
     fun showError(text: String?) {
-        error.text = text.orEmpty()
-        error.visibility = if (text == null) View.GONE else View.VISIBLE
-        retry.visibility = if (text == null) View.GONE else View.VISIBLE
-        listOf(rewind, toggle, forward).forEach { it.visibility = if (text == null) View.VISIBLE else View.GONE }
-        if (text != null) { showLoading(null); show(true) }
+        errorVisible = text != null; error.text = text.orEmpty()
+        errorPanel.visibility = if (errorVisible) View.VISIBLE else View.GONE
+        bottom.visibility = if (errorVisible) View.GONE else View.VISIBLE
+        actions.visibility = if (errorVisible) View.GONE else View.VISIBLE
+        if (errorVisible) { showLoading(null); show(true) }
     }
-
+    fun dispose() {
+        qualityDialog?.setOnDismissListener(null); qualityDialog?.dismiss()
+        feedback.removeCallbacks(hideFeedback); panel.animate().cancel()
+    }
     companion object {
+        private fun withAlpha(color: Int, alpha: Int) = (color and 0x00FFFFFF) or (alpha shl 24)
         private fun formatTime(ms: Long): String {
             val seconds = ms / 1000
             return if (seconds >= 3600) "%d:%02d:%02d".format(seconds / 3600, seconds / 60 % 60, seconds % 60)
             else "%02d:%02d".format(seconds / 60, seconds % 60)
         }
     }
+}
+
+/** Vector icons keep controls independent of fonts and image assets. */
+private class TransportButton(context: Context, var kind: String, private val accent: Int, private val onAccent: Int) : View(context) {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    init { isFocusable = true; isClickable = true }
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        val size = minOf(width, height).toFloat()
+        val main = kind == "pause" || kind == "play"
+        canvas.save(); canvas.translate(width / 2f, height / 2f)
+        paint.style = Paint.Style.FILL
+        paint.color = if (main || hasFocus()) (accent and 0x00FFFFFF) or (0xDB shl 24) else 0x6B000000
+        canvas.drawCircle(0f, 0f, size / 2f - 2f, paint)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = (if (hasFocus()) 3f else 1f) * resources.displayMetrics.density
+        paint.color = if (hasFocus()) Color.WHITE else 0x36FFFFFF
+        canvas.drawCircle(0f, 0f, size / 2f - paint.strokeWidth, paint)
+        canvas.scale(size / 72f, size / 72f)
+        paint.color = if (main || hasFocus()) onAccent else Color.WHITE
+        paint.strokeWidth = 3f; paint.strokeCap = Paint.Cap.ROUND; paint.style = Paint.Style.FILL
+        when (kind) {
+            "pause" -> { canvas.drawRect(-11f, -17f, -4f, 17f, paint); canvas.drawRect(4f, -17f, 11f, 17f, paint) }
+            "play" -> canvas.drawPath(Path().apply { moveTo(-9f, -18f); lineTo(18f, 0f); lineTo(-9f, 18f); close() }, paint)
+            "back" -> {
+                paint.style = Paint.Style.STROKE; canvas.drawLine(14f, 0f, -14f, 0f, paint)
+                canvas.drawPath(Path().apply { moveTo(-2f, -12f); lineTo(-14f, 0f); lineTo(-2f, 12f) }, paint)
+            }
+            else -> {
+                if (kind == "forward") canvas.scale(-1f, 1f)
+                paint.style = Paint.Style.STROKE; canvas.drawArc(-16f, -16f, 16f, 16f, -90f, 290f, false, paint)
+                paint.style = Paint.Style.FILL
+                canvas.drawPath(Path().apply { moveTo(-11f, -16f); lineTo(0f, -25f); lineTo(0f, -7f); close() }, paint)
+                if (kind == "forward") canvas.scale(-1f, 1f)
+                paint.textSize = 15f; paint.typeface = Typeface.DEFAULT_BOLD; paint.textAlign = Paint.Align.CENTER
+                canvas.drawText("10", 0f, 7f, paint)
+            }
+        }
+        canvas.restore()
+    }
+    override fun setEnabled(enabled: Boolean) { super.setEnabled(enabled); alpha = if (enabled) 1f else 0.4f }
 }
