@@ -341,6 +341,8 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
                   ? DateTime.now().millisecondsSinceEpoch
                   : savedPosition?.updatedAt.millisecondsSinceEpoch ?? 0,
               'episodeKey': '${_request.release.id}:${_request.episode.id}',
+              'title':
+                  '${displayReleaseTitle(_request.release)} · ${_request.episode.title}',
               'quality': requestedQuality,
             });
         if (!mounted || _isClosing) return;

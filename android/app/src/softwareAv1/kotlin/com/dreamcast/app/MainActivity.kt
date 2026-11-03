@@ -70,7 +70,7 @@ class MainActivity : FlutterActivity() {
                             result.error("PLAYER_BUSY", "Software player already running", null)
                         } else {
                             pendingSoftwarePlayerResult = result
-                            try { CosmosAv1Launcher.launch(this, uri, headers, resumeMs, episodeKey, quality, positionUpdatedAtMs) }
+                            try { CosmosAv1Launcher.launch(this, uri, headers, resumeMs, episodeKey, quality, positionUpdatedAtMs, call.argument<String>("title").orEmpty()) }
                             catch (error: Exception) { pendingSoftwarePlayerResult = null; throw error }
                         }
                     }

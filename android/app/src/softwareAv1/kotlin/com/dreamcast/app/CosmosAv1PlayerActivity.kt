@@ -9,26 +9,25 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import android.view.Gravity
 import android.view.KeyEvent
 import android.view.SurfaceView
 import android.view.SurfaceHolder
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
-import android.widget.TextView
 import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
 
 /** AV1 software fallback, isolated from ExoPlayer on compatible devices. */
 object CosmosAv1Launcher {
-    @JvmStatic fun launch(activity: Activity, url: String, headers: Map<String, String>, positionMs: Long, episodeKey: String, quality: Int, positionUpdatedAtMs: Long) {
+    @JvmStatic fun launch(activity: Activity, url: String, headers: Map<String, String>, positionMs: Long, episodeKey: String, quality: Int, positionUpdatedAtMs: Long, title: String = "") {
         val intent = Intent(activity, CosmosAv1PlayerActivity::class.java)
         intent.putExtra("url", url)
         intent.putExtra("positionMs", positionMs)
         intent.putExtra("positionUpdatedAtMs", positionUpdatedAtMs)
         intent.putExtra("episodeKey", episodeKey)
+        intent.putExtra("title", title)
         intent.putExtra("quality", if (quality in listOf(480, 720, 1080)) quality else 720)
         intent.putExtra("userAgent", headers.entries.firstOrNull { it.key.equals("user-agent", true) }?.value)
         intent.putExtra("referer", headers.entries.firstOrNull { it.key.equals("referer", true) }?.value)
@@ -63,9 +62,10 @@ class CosmosAv1PlayerActivity : Activity() {
     private var exitDurationMs: Long? = null
     private var engine: LibVLC? = null
     private var player: MediaPlayer? = null
-    private var message: TextView? = null
+    private var controls: SoftwarePlayerControls? = null
+    private var loading = false
+    private var retrying = false
     private val uiHandler = Handler(Looper.getMainLooper())
-    private var uiVisible = true
     private var voutCount = -1
     private var surfaceReady = false
     private val activityStartedAt = android.os.SystemClock.elapsedRealtimeNanos()
@@ -103,7 +103,7 @@ class CosmosAv1PlayerActivity : Activity() {
 
     private var activeHeight = 720
     private var requestSerial = 0
-        private var userAgent: String? = null
+    private var userAgent: String? = null
     private var referer: String? = null
     // Progress persistence is independent of diagnostic logging and continues throughout playback.
     private val progressSaver = object : Runnable {
@@ -115,7 +115,81 @@ class CosmosAv1PlayerActivity : Activity() {
             }
         }
     }
-    private val hideUi = Runnable { message?.visibility = View.GONE; uiVisible = false }
+    private val hideUi = Runnable {
+        if (!loading && !playbackError && player?.isPlaying == true) controls?.hide()
+    }
+    private val controlsTicker = object : Runnable {
+        override fun run() {
+            if (!activityResumed || backExitRequested || isFinishing || isDestroyed || controls?.visible != true) return
+            updateControls()
+            uiHandler.postDelayed(this, 1000L)
+        }
+    }
+
+    private fun updateControls() {
+        val mp = player
+        controls?.update(mp?.time ?: resumeMs, mp?.length ?: 0L,
+            mp?.isPlaying == true, !retrying && !playbackError && mp?.isSeekable == true)
+    }
+
+    private fun postPlayerUpdate(mp: MediaPlayer, action: () -> Unit) {
+        uiHandler.post {
+            if (player === mp && !retrying && !backExitRequested && !isFinishing && !isDestroyed) action()
+        }
+    }
+
+    private fun showLoading(text: String?) {
+        loading = text != null
+        controls?.showLoading(text)
+        if (loading) uiHandler.removeCallbacks(hideUi)
+    }
+
+    private fun showPlaybackError(text: String) {
+        if (backExitRequested || isFinishing || isDestroyed) return
+        persistPosition(true)
+        playbackError = true
+        setPlaybackScreenOn(false)
+        showLoading(null)
+        uiHandler.removeCallbacks(hideUi)
+        controls?.showError(text)
+    }
+
+    private fun togglePlayback() {
+        if (playbackError || retrying || backExitRequested) return
+        val mp = player ?: return
+        if (mp.isPlaying) { persistPosition(true); mp.pause() } else mp.play()
+        reveal()
+    }
+
+    private fun seekBy(deltaMs: Long) {
+        if (playbackError || retrying || backExitRequested) return
+        val mp = player ?: return
+        if (!mp.isSeekable) return
+        val end = mp.length.takeIf { it > 0L } ?: Long.MAX_VALUE
+        mp.time = (mp.time.coerceAtLeast(0L) + deltaMs).coerceIn(0L, end)
+        uiHandler.postDelayed({ if (player === mp) persistPosition(true) }, 500L)
+        reveal()
+    }
+
+    private fun retryPlayback() {
+        if (!playbackError || retrying || backExitRequested) return
+        retrying = true
+        resumeMs = if (episodeKey.isNotBlank()) progressPrefs.getLong(episodeKey, resumeMs) else resumeMs
+        hasRestoredPosition = false
+        controls?.showError(null)
+        showLoading("Повторное подключение…")
+        val mp = player
+        mp?.setEventListener(null)
+        runCatching { mp?.stop() }
+        // Preserve the existing delay before detaching VLC's SurfaceView on Cosmos.
+        uiHandler.postDelayed({
+            if (backExitRequested || isFinishing || isDestroyed) return@postDelayed
+            releasePlayer(alreadyStopped = true)
+            retrying = false
+            playbackError = false
+            startSelectedQuality(intent.getStringExtra("url") ?: return@postDelayed)
+        }, 700L)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -128,7 +202,7 @@ class CosmosAv1PlayerActivity : Activity() {
         }
         // Flutter's WakelockPlus only affects MainActivity, not this VLC window.
         setPlaybackScreenOn(true)
-                userAgent = intent.getStringExtra("userAgent")
+        userAgent = intent.getStringExtra("userAgent")
         referer = intent.getStringExtra("referer")
         episodeKey = intent.getStringExtra("episodeKey").orEmpty()
         activeHeight = intent.getIntExtra("quality", 720).takeIf { it in listOf(480, 720, 1080) } ?: 720
@@ -162,16 +236,13 @@ class CosmosAv1PlayerActivity : Activity() {
             }
         })
         root.addView(surface, FrameLayout.LayoutParams(-1, -1))
-        val status = TextView(this).apply {
-            text = "AV1 ${activeHeight}p · программный режим | OK: пауза | ◀ ▶: ±10 сек | Back: выход"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(0x99000000.toInt())
-            textSize = 16f
-            setPadding(20, 14, 20, 14)
+        controls = SoftwarePlayerControls(this, root, ::togglePlayback, ::seekBy,
+            ::retryPlayback, ::exitToEpisodes, ::reveal).apply {
+            title.text = listOfNotNull(intent.getStringExtra("title")?.takeIf { it.isNotBlank() },
+                "AV1 ${activeHeight}p").joinToString(" · ")
         }
-        root.addView(status, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
-        message = status
         setContentView(root)
+        uiHandler.post(controlsTicker)
         startSelectedQuality(url)
     }
 
@@ -179,21 +250,21 @@ class CosmosAv1PlayerActivity : Activity() {
     private fun startSelectedQuality(master: String) {
         val serial = ++requestSerial
         Log.i("DCTV_QUALITY", "automatic fallback: requested AV1 ${activeHeight}p fMP4")
-        message?.apply { visibility = View.VISIBLE; text = "Проверка AV1 ${activeHeight}p fMP4…" }
+        setPlaybackScreenOn(true)
+        showLoading("Открытие видео ${activeHeight}p…")
         CosmosFmp4Resolver.resolve(master, userAgent, referer, activeHeight) { direct ->
-            if (isFinishing || isDestroyed || serial != requestSerial) return@resolve
+            if (backExitRequested || isFinishing || isDestroyed || serial != requestSerial) return@resolve
             if (direct == null) {
                 setPlaybackScreenOn(false)
                 Log.e("DCTV_QUALITY", "AV1 ${activeHeight}p fMP4 unavailable; no other quality fallback")
-                message?.text = "AV1 ${activeHeight}p fMP4 недоступен. Нажмите Back."
-                reveal()
+                showPlaybackError("Не удалось загрузить видео ${activeHeight}p. Проверьте подключение и повторите попытку.")
             } else {
-                startVlcFmp4(direct, message ?: return@resolve, videoSurface ?: return@resolve)
+                startVlcFmp4(direct, videoSurface ?: return@resolve)
             }
         }
     }
 
-    private fun releasePlayer() {
+    private fun releasePlayer(alreadyStopped: Boolean = false) {
         setPlaybackScreenOn(false)
         uiHandler.removeCallbacks(progressSaver)
         val mp = player
@@ -201,7 +272,7 @@ class CosmosAv1PlayerActivity : Activity() {
         mp?.let {
             runCatching { it.setEventListener(null) }
             // Stop while the SurfaceView is still attached to the window.
-            if (!shutdownStarted) runCatching { it.stop() }
+            if (!shutdownStarted && !alreadyStopped) runCatching { it.stop() }
             runCatching { it.vlcVout.detachViews() }
             runCatching { it.release() }
         }
@@ -210,7 +281,7 @@ class CosmosAv1PlayerActivity : Activity() {
         voutCount = -1
     }
 
-    private fun startVlcFmp4(url: String, status: TextView, surface: SurfaceView) {
+    private fun startVlcFmp4(url: String, surface: SurfaceView) {
         Log.i("DCTV_QUALITY", "starting LibVLC with forced ${activeHeight}p fMP4 media playlist")
         try {
             setPlaybackScreenOn(true)
@@ -233,6 +304,7 @@ class CosmosAv1PlayerActivity : Activity() {
             mp.media = media
             media.release()
             mp.setEventListener { event ->
+                if (player !== mp || backExitRequested || isFinishing || isDestroyed) return@setEventListener
                 when (event.type) {
                     MediaPlayer.Event.Vout -> {
                         voutCount = event.voutCount
@@ -243,44 +315,54 @@ class CosmosAv1PlayerActivity : Activity() {
                             Log.i("DCTV_PERF", "{\"event\":\"player.software.output_created\",\"elapsedUs\":$elapsedUs,\"outcome\":\"ok\"}")
                         }
                         Log.i("DCTV_AV1", "Vout event count=$voutCount surfaceReady=$surfaceReady")
-                        uiHandler.post { syncVlcWindowSize("vout") }
+                        postPlayerUpdate(mp) { syncVlcWindowSize("vout") }
                     }
                     MediaPlayer.Event.Opening -> {
                         setPlaybackScreenOn(true)
+                        postPlayerUpdate(mp) { if (!playbackError) showLoading("Загрузка видео…") }
                         Log.i("DCTV_AV1", "Opening")
                     }
-                    MediaPlayer.Event.SeekableChanged -> uiHandler.post { restorePosition(mp) }
+                    MediaPlayer.Event.Buffering -> {
+                        val percent = event.buffering
+                        postPlayerUpdate(mp) {
+                            if (playbackError) return@postPlayerUpdate
+                            showLoading(if (percent < 100f) "Буферизация… ${percent.toInt()}%" else null)
+                            if (percent >= 100f) reveal()
+                        }
+                    }
+                    MediaPlayer.Event.SeekableChanged -> postPlayerUpdate(mp) { restorePosition(mp) }
                     MediaPlayer.Event.Playing -> {
                         setPlaybackScreenOn(true)
                         Log.i("DCTV_AV1", "LibVLC playing; software decode requested")
-                        uiHandler.post { restorePosition(mp) }
-                        uiHandler.post { status.text = "AV1 ${activeHeight}p · программный режим | OK: пауза | ◀ ▶: ±10 сек | Back: выход" }
+                        postPlayerUpdate(mp) { restorePosition(mp); showLoading(null); reveal() }
                     }
                     MediaPlayer.Event.EncounteredError -> {
                         setPlaybackScreenOn(false)
-                        playbackError = true
                         Log.e("DCTV_AV1", "LibVLC playback error")
-                        uiHandler.post { status.text = "Ошибка воспроизведения AV1. Нажмите Back."; reveal() }
+                        postPlayerUpdate(mp) { showPlaybackError("Не удалось воспроизвести видео. Попробуйте подключиться ещё раз.") }
                     }
-                    MediaPlayer.Event.EndReached -> uiHandler.post {
+                    MediaPlayer.Event.EndReached -> postPlayerUpdate(mp) {
                         setPlaybackScreenOn(false)
                         episodeCompleted = true
                         if (episodeKey.isNotBlank()) progressPrefs.edit().remove(episodeKey)
                             .remove("${episodeKey}:updatedAt").apply()
                         finish()
                     }
-                    MediaPlayer.Event.Paused, MediaPlayer.Event.Stopped -> setPlaybackScreenOn(false)
+                    MediaPlayer.Event.Paused, MediaPlayer.Event.Stopped -> {
+                        setPlaybackScreenOn(false)
+                        postPlayerUpdate(mp) { showLoading(null); reveal() }
+                    }
                 }
             }
             mp.play()
             uiHandler.postDelayed(progressSaver, 3000L)
-            if (resumeMs > 5000L) uiHandler.postDelayed({ restorePosition(mp) }, 2200L)
+            if (resumeMs > 5000L) uiHandler.postDelayed({ if (player === mp) restorePosition(mp) }, 2200L)
             reveal()
             Log.i("DCTV_QUALITY", "height=$activeHeight launched; videoTracks=${mp.videoTracksCount} selectedVideo=${mp.videoTrack} (initial)")
         } catch (e: Throwable) {
             setPlaybackScreenOn(false)
             Log.e("DCTV_AV1", "Failed to start LibVLC", e)
-            status.text = "Не удалось запустить AV1: ${e.javaClass.simpleName}. Нажмите Back."
+            showPlaybackError("Не удалось запустить плеер. Повторите попытку или вернитесь назад.")
         }
     }
 
@@ -299,8 +381,10 @@ class CosmosAv1PlayerActivity : Activity() {
     }
 
     private fun reveal() {
-        message?.visibility = View.VISIBLE
-        uiVisible = true
+        controls?.show()
+        updateControls()
+        uiHandler.removeCallbacks(controlsTicker)
+        uiHandler.postDelayed(controlsTicker, 1000L)
         uiHandler.removeCallbacks(hideUi)
         uiHandler.postDelayed(hideUi, 6000)
     }
@@ -310,8 +394,19 @@ class CosmosAv1PlayerActivity : Activity() {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.keyCode == KeyEvent.KEYCODE_BACK) {
             if (event.action == KeyEvent.ACTION_UP && !event.isCanceled && !backExitRequested) {
-                exitToEpisodes()
+                if (controls?.visible == true && !playbackError && !loading) controls?.hide()
+                else exitToEpisodes()
             }
+            return true
+        }
+        if (backExitRequested || retrying) return true
+        // Handle shortcuts before Android's default focus search can move from
+        // the video to an arbitrary button in the newly revealed panel.
+        val direction = event.keyCode
+        if (direction == KeyEvent.KEYCODE_DPAD_UP || direction == KeyEvent.KEYCODE_DPAD_DOWN ||
+            ((direction == KeyEvent.KEYCODE_DPAD_LEFT || direction == KeyEvent.KEYCODE_DPAD_RIGHT) &&
+                controls?.hasActionFocus != true)) {
+            if (event.action == KeyEvent.ACTION_DOWN && !event.isCanceled) onKeyDown(direction, event)
             return true
         }
         return super.dispatchKeyEvent(event)
@@ -319,12 +414,15 @@ class CosmosAv1PlayerActivity : Activity() {
 
     @Deprecated("Support legacy Android TV Back dispatch")
     override fun onBackPressed() {
-        exitToEpisodes()
+        if (controls?.visible == true && !playbackError && !loading) controls?.hide()
+        else exitToEpisodes()
     }
 
     private fun exitToEpisodes() {
         if (backExitRequested || isFinishing || isDestroyed) return
         backExitRequested = true
+        requestSerial++
+        uiHandler.removeCallbacks(controlsTicker)
         Log.i("DCTV_AV1", "Back pressed; stopping VLC before surface teardown")
         // Returning to Flutter destroys SurfaceView. The Cosmos Mali driver can
         // crash AWindowHandler if that happens while VLC is still rendering.
@@ -365,29 +463,37 @@ class CosmosAv1PlayerActivity : Activity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (backExitRequested || retrying) return true
         val p = player
         when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
+                reveal()
+                controls?.show(true)
+                return true
+            }
             KeyEvent.KEYCODE_MEDIA_PLAY -> {
-                p?.play()
+                if (!playbackError && event?.repeatCount == 0) p?.play()
                 reveal(); return true
             }
             KeyEvent.KEYCODE_MEDIA_PAUSE -> {
-                if (p != null) { persistPosition(true); p.pause() }
+                if (!playbackError && p != null && event?.repeatCount == 0) { persistPosition(true); p.pause() }
                 reveal(); return true
             }
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_SPACE -> {
-                if (p != null) { if (p.isPlaying) { persistPosition(true); p.pause() } else p.play() }
+                if (event?.repeatCount == 0) togglePlayback()
                 reveal(); return true
             }
-            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_MEDIA_REWIND -> {
-                if (p != null && p.isSeekable) { p.time = (p.time - 10000).coerceAtLeast(0); uiHandler.postDelayed({ persistPosition(true) }, 500L) }
-                reveal(); return true
+            KeyEvent.KEYCODE_DPAD_LEFT -> {
+                if (controls?.visible == true && controls?.hasActionFocus == true) return super.onKeyDown(keyCode, event)
+                seekBy(-10_000L); return true
             }
-            KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
-                if (p != null && p.isSeekable) { p.time = p.time + 10000; uiHandler.postDelayed({ persistPosition(true) }, 500L) }
-                reveal(); return true
+            KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                if (controls?.visible == true && controls?.hasActionFocus == true) return super.onKeyDown(keyCode, event)
+                seekBy(10_000L); return true
             }
+            KeyEvent.KEYCODE_MEDIA_REWIND -> { seekBy(-10_000L); return true }
+            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { seekBy(10_000L); return true }
         }
         return super.onKeyDown(keyCode, event)
     }
@@ -396,10 +502,12 @@ class CosmosAv1PlayerActivity : Activity() {
         super.onResume()
         activityResumed = true
         applyPlaybackScreenOn()
+        if (controls?.visible == true) reveal()
     }
 
     override fun onPause() {
         activityResumed = false
+        uiHandler.removeCallbacks(controlsTicker)
         applyPlaybackScreenOn()
         persistPosition(true)
         super.onPause()
@@ -426,6 +534,7 @@ class CosmosAv1PlayerActivity : Activity() {
     }
 
     override fun onDestroy() {
+        uiHandler.removeCallbacksAndMessages(null)
         uiHandler.removeCallbacks(hideUi)
         uiHandler.removeCallbacks(progressSaver)
         requestSerial++
