@@ -43,7 +43,7 @@ pwsh -File scripts/audit_libvlc_size.ps1 -Archive <путь-к-aar-или-apk> -
 
 ## Что требуется для просмотра
 
-`CosmosFmp4Resolver` выбирает AV1-вариант HLS с init-map и `.m4s`/`.mp4` сегментами. Плееру нужны HTTP(S), adaptive/HLS и MP4 demux, программное видео- и аудиодекодирование, перемотка, SurfaceView/GLES и Android-аудиовывод. Сохраняются длительность, прогресс и события завершения.
+Обработчик потоков software AV1 выбирает AV1-вариант HLS с init-map и `.m4s`/`.mp4` сегментами. Плееру нужны HTTP(S), adaptive/HLS и MP4 demux, программное видео- и аудиодекодирование, перемотка, SurfaceView/GLES и Android-аудиовывод. Сохраняются длительность, прогресс и события завершения.
 
 На первом этапе не отключать AV1/dav1d, FFmpeg/avcodec/avformat, HTTP/TLS, HLS/adaptive, MP4, AAC/Opus и остальные аудиодекодеры, преобразование аудио/видео, Android outputs, JNI, события и seek. Реальные аудиокодеки всех потоков не проинвентаризированы. Отображение субтитров также сохраняется.
 
