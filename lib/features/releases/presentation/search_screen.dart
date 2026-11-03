@@ -1,5 +1,6 @@
 import 'package:dream_cast/app/widgets/app_empty_state.dart';
 import 'package:dream_cast/app/widgets/app_error_view.dart';
+import 'package:dream_cast/core/settings/player_build.dart';
 import 'package:dream_cast/features/releases/domain/release.dart';
 import 'package:dream_cast/features/releases/presentation/release_list_providers.dart';
 import 'package:dream_cast/features/releases/presentation/widgets/release_card.dart';
@@ -17,6 +18,11 @@ class SearchScreen extends ConsumerStatefulWidget {
 }
 
 class _SearchScreenState extends ConsumerState<SearchScreen> {
+  static const _nativeInput = MethodChannel('dream_cast/tv_search_input');
+  bool _nativeEditing = false;
+  bool get _useNativeInput =>
+      softwarePlayerBuild &&
+      Theme.of(context).platform == TargetPlatform.android;
   final _controller = TextEditingController();
   String _lastQuery = '';
   late final FocusNode _focusNode;
@@ -25,6 +31,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   void _openKeyboard() {
     if (!mounted) return;
     _focusNode.requestFocus();
+    if (_useNativeInput) {
+      _editNative();
+      return;
+    }
     // Focus may already be on the field after Android has closed its IME.
     // Request the IME explicitly after EditableText attaches its input client.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -33,6 +43,42 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       }
     });
     WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  Future<void> _editNative() async {
+    if (_nativeEditing) return;
+    _nativeEditing = true;
+    try {
+      final colors = Theme.of(context).colorScheme;
+      final result = await _nativeInput
+          .invokeMapMethod<String, dynamic>('edit', {
+            'text': _controller.text,
+            'accent': colors.primary.toARGB32(),
+            'foreground': colors.onSurface.toARGB32(),
+            'background': colors.surface.toARGB32(),
+          });
+      if (!mounted || result == null) return;
+      final text = result['text'] as String? ?? _controller.text;
+      _controller.value = TextEditingValue(
+        text: text,
+        selection: TextSelection.collapsed(offset: text.length),
+      );
+      if (result['submitted'] == true) {
+        await ref.read(searchReleasesProvider.notifier).submit(text);
+      }
+    } on PlatformException {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Не удалось открыть системный ввод. Повторите попытку.',
+            ),
+          ),
+        );
+      }
+    } finally {
+      _nativeEditing = false;
+    }
   }
 
   KeyEventResult _handleSearchKey(FocusNode node, KeyEvent event) {
@@ -104,6 +150,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         automaticallyImplyLeading: false,
         titleSpacing: 0,
         title: TextField(
+          readOnly: _useNativeInput,
+          showCursor: true,
+          onTap: _useNativeInput ? _openKeyboard : null,
           controller: _controller,
           focusNode: _focusNode,
           textInputAction: TextInputAction.search,
