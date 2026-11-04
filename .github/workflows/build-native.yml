@@ -1,5 +1,6 @@
 name: Verify native Kotlin TV
 on:
+  workflow_call:
   workflow_dispatch:
   push:
     branches: [Kotlin]

@@ -19,6 +19,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  native_kotlin:
+    name: Build native Kotlin APKs
+    if: (inputs.build_mode || 'debug') == 'debug' && github.ref == 'refs/heads/Kotlin'
+    uses: ./.github/workflows/build-native.yml
   libvlc_tv:
     name: Prepare reduced software player
     if: ((inputs.build_mode || 'debug') == 'debug' && github.ref == 'refs/heads/develop') || (inputs.build_mode == 'release' && github.ref == 'refs/heads/main')
