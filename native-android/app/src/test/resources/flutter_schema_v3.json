@@ -1,0 +1,12 @@
+{
+  "version": 3,
+  "tables": [
+    "CREATE TABLE \"profiles\" (\"id\" TEXT NOT NULL, \"name\" TEXT NOT NULL, \"created_at\" INTEGER NOT NULL, \"updated_at\" INTEGER NOT NULL, \"is_active\" INTEGER NOT NULL DEFAULT 0 CHECK (\"is_active\" IN (0, 1)), PRIMARY KEY (\"id\"))",
+    "CREATE TABLE \"settings_rows\" (\"key\" TEXT NOT NULL, \"value\" TEXT NOT NULL, \"updated_at\" INTEGER NOT NULL, PRIMARY KEY (\"key\"))",
+    "CREATE TABLE \"cache_entries\" (\"key\" TEXT NOT NULL, \"value_json\" TEXT NOT NULL, \"updated_at\" INTEGER NOT NULL, \"expires_at\" INTEGER NULL, \"etag\" TEXT NULL, PRIMARY KEY (\"key\"))",
+    "CREATE TABLE \"playback_positions\" (\"release_id\" TEXT NOT NULL, \"episode_id\" TEXT NOT NULL, \"position_ms\" INTEGER NOT NULL DEFAULT 0, \"duration_ms\" INTEGER NULL, \"updated_at\" INTEGER NOT NULL, PRIMARY KEY (\"release_id\", \"episode_id\"))",
+    "CREATE TABLE \"stream_sessions\" (\"id\" TEXT NOT NULL, \"release_id\" TEXT NOT NULL, \"episode_id\" TEXT NOT NULL, \"url\" TEXT NOT NULL, \"type\" TEXT NOT NULL, \"quality\" INTEGER NOT NULL, \"headers_json\" TEXT NOT NULL DEFAULT '{}', \"created_at\" INTEGER NOT NULL, \"expires_at\" INTEGER NULL, PRIMARY KEY (\"id\"))",
+    "CREATE TABLE \"watch_entries\" (\"release_id\" TEXT NOT NULL, \"episode_id\" TEXT NOT NULL, \"release_title\" TEXT NOT NULL, \"episode_title\" TEXT NOT NULL, \"poster_url\" TEXT NULL, \"episode_ordinal\" INTEGER NOT NULL, \"position_ms\" INTEGER NOT NULL DEFAULT 0, \"duration_ms\" INTEGER NULL, \"is_watched\" INTEGER NOT NULL DEFAULT 0 CHECK (\"is_watched\" IN (0, 1)), \"updated_at\" INTEGER NOT NULL, PRIMARY KEY (\"release_id\", \"episode_id\"))",
+    "CREATE TABLE \"downloaded_episodes\" (\"release_id\" INTEGER NOT NULL, \"episode_id\" TEXT NOT NULL, \"release_title\" TEXT NOT NULL, \"episode_title\" TEXT NOT NULL, \"poster_url\" TEXT NULL, \"episode_ordinal\" INTEGER NOT NULL, \"local_file_path\" TEXT NOT NULL, \"file_size\" INTEGER NOT NULL, \"downloaded_bytes\" INTEGER NOT NULL, \"status\" TEXT NOT NULL, \"stream_quality\" INTEGER NOT NULL, \"created_at\" INTEGER NOT NULL, PRIMARY KEY (\"release_id\", \"episode_id\"))"
+  ]
+}

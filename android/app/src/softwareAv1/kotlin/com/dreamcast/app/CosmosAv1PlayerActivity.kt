@@ -230,6 +230,11 @@ class CosmosAv1PlayerActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+            ) { handleBack() }
+        }
         @Suppress("DEPRECATION")
         window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_FULLSCREEN or
             View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY)
@@ -430,16 +435,17 @@ class CosmosAv1PlayerActivity : Activity() {
         uiHandler.removeCallbacks(controlsTicker)
         uiHandler.postDelayed(controlsTicker, 1000L)
         uiHandler.removeCallbacks(hideUi)
-        uiHandler.postDelayed(hideUi, 10_000L)
+        uiHandler.postDelayed(hideUi, 4500L)
     }
 
     // Consume BOTH DOWN and UP in this Activity. Finishing on DOWN can send the
     // matching UP to the resumed Flutter MainActivity, triggering an extra Back.
+    // Gestures use the registered callback; TV remotes still need paired key consumption.
+    @android.annotation.SuppressLint("GestureBackNavigation")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.keyCode == KeyEvent.KEYCODE_BACK) {
             if (event.action == KeyEvent.ACTION_UP && !event.isCanceled && !backExitRequested) {
-                if (controls?.visible == true && !playbackError && !loading) controls?.hide()
-                else exitToEpisodes()
+                handleBack()
             }
             return true
         }
@@ -459,7 +465,13 @@ class CosmosAv1PlayerActivity : Activity() {
     }
 
     @Deprecated("Support legacy Android TV Back dispatch")
+    @android.annotation.SuppressLint("GestureBackNavigation")
     override fun onBackPressed() {
+        handleBack()
+    }
+
+    private fun handleBack() {
+        if (backExitRequested) return
         if (controls?.visible == true && !playbackError && !loading) controls?.hide()
         else exitToEpisodes()
     }
