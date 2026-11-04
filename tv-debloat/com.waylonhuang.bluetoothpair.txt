@@ -1,0 +1,122 @@
+﻿Activity Resolver Table:
+  Non-Data Actions:
+      android.intent.action.MAIN:
+        bc7647e com.waylonhuang.bluetoothpair/.MainActivity filter bf85ddf
+          Action: "android.intent.action.MAIN"
+          Category: "android.intent.category.LAUNCHER"
+
+Receiver Resolver Table:
+  Non-Data Actions:
+      android.bluetooth.adapter.action.STATE_CHANGED:
+        ed41a2c com.waylonhuang.bluetoothpair/.bluetooth.BluetoothStateChangedReceiver filter a50bcf5
+          Action: "android.bluetooth.adapter.action.STATE_CHANGED"
+          Action: "com.waylonhuang.bluetoothpair.bluetoothconnected"
+      com.android.vending.INSTALL_REFERRER:
+        8714a8a com.waylonhuang.bluetoothpair/com.google.android.gms.measurement.AppMeasurementInstallReferrerReceiver filter daef8fb
+          Action: "com.android.vending.INSTALL_REFERRER"
+      com.waylonhuang.bluetoothpair.bluetoothconnected:
+        ed41a2c com.waylonhuang.bluetoothpair/.bluetooth.BluetoothStateChangedReceiver filter a50bcf5
+          Action: "android.bluetooth.adapter.action.STATE_CHANGED"
+          Action: "com.waylonhuang.bluetoothpair.bluetoothconnected"
+
+Registered ContentProviders:
+  com.waylonhuang.bluetoothpair/com.google.android.gms.ads.MobileAdsInitProvider:
+    Provider{2487164 com.waylonhuang.bluetoothpair/com.google.android.gms.ads.MobileAdsInitProvider}
+
+ContentProvider Authorities:
+  [com.waylonhuang.bluetoothpair.mobileadsinitprovider]:
+    Provider{2487164 com.waylonhuang.bluetoothpair/com.google.android.gms.ads.MobileAdsInitProvider}
+      applicationInfo=ApplicationInfo{2bcefcd com.waylonhuang.bluetoothpair}
+
+Key Set Manager:
+  [com.waylonhuang.bluetoothpair]
+      Signing KeySets: 51
+
+Packages:
+  Package [com.waylonhuang.bluetoothpair] (110c082):
+    userId=10016
+    pkg=Package{555c393 com.waylonhuang.bluetoothpair}
+    codePath=/data/app/~~mfMuit2nCA-c0kpT9fVp7A==/com.waylonhuang.bluetoothpair-LEZ1MB5sECOInpcgoL9Jgw==
+    resourcePath=/data/app/~~mfMuit2nCA-c0kpT9fVp7A==/com.waylonhuang.bluetoothpair-LEZ1MB5sECOInpcgoL9Jgw==
+    legacyNativeLibraryDir=/data/app/~~mfMuit2nCA-c0kpT9fVp7A==/com.waylonhuang.bluetoothpair-LEZ1MB5sECOInpcgoL9Jgw==/lib
+    primaryCpuAbi=null
+    secondaryCpuAbi=null
+    versionCode=14 minSdk=16 targetSdk=28
+    versionName=2.8
+    splits=[base]
+    apkSigningVersion=2
+    applicationInfo=ApplicationInfo{555c393 com.waylonhuang.bluetoothpair}
+    flags=[ HAS_CODE ALLOW_CLEAR_USER_DATA ALLOW_BACKUP ]
+    privateFlags=[ PRIVATE_FLAG_ACTIVITIES_RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION PRIVATE_FLAG_REQUEST_LEGACY_EXTERNAL_STORAGE PRIVATE_FLAG_ALLOW_NATIVE_HEAP_POINTER_TAGGING ]
+    forceQueryable=false
+    queriesPackages=[]
+    dataDir=/data/user/0/com.waylonhuang.bluetoothpair
+    supportsScreens=[small, medium, large, xlarge, resizeable, anyDensity]
+    usesLibraries:
+      android.test.base
+    usesLibraryFiles:
+      /system/framework/android.test.base.jar
+    timeStamp=2024-03-28 08:49:21
+    firstInstallTime=2024-03-28 08:49:21
+    lastUpdateTime=2024-03-28 08:49:21
+    signatures=PackageSignatures{dcd3fd0 version:2, signatures:[b20ae4e6], past signatures:[]}
+    installPermissionsFixed=true
+    pkgFlags=[ HAS_CODE ALLOW_CLEAR_USER_DATA ALLOW_BACKUP ]
+    requested permissions:
+      android.permission.ACCESS_NETWORK_STATE
+      android.permission.INTERNET
+      android.permission.ACCESS_COARSE_LOCATION
+      android.permission.ACCESS_FINE_LOCATION
+      android.permission.BLUETOOTH
+      android.permission.BLUETOOTH_ADMIN
+      android.permission.GET_TASKS
+      android.permission.WAKE_LOCK
+      com.google.android.finsky.permission.BIND_GET_INSTALL_REFERRER_SERVICE
+      android.permission.ACCESS_BACKGROUND_LOCATION: restricted=true
+    install permissions:
+      com.google.android.finsky.permission.BIND_GET_INSTALL_REFERRER_SERVICE: granted=true
+      android.permission.BLUETOOTH: granted=true
+      android.permission.GET_TASKS: granted=true
+      android.permission.INTERNET: granted=true
+      android.permission.BLUETOOTH_ADMIN: granted=true
+      android.permission.ACCESS_NETWORK_STATE: granted=true
+      android.permission.WAKE_LOCK: granted=true
+    User 0: ceDataInode=141570 installed=true hidden=false suspended=false distractionFlags=0 stopped=true notLaunched=true enabled=0 instant=false virtual=false
+      gids=[3002, 3003, 3001]
+      runtime permissions:
+        android.permission.ACCESS_FINE_LOCATION: granted=false, flags=[ USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.ACCESS_COARSE_LOCATION: granted=false, flags=[ USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.ACCESS_BACKGROUND_LOCATION: granted=false, flags=[ REVOKE_WHEN_REQUESTED|USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED|RESTRICTION_INSTALLER_EXEMPT|RESTRICTION_UPGRADE_EXEMPT]
+
+Queries:
+  system apps queryable: false
+  queries via package name:
+  queries via intent:
+    com.cltv.fast:
+      com.waylonhuang.bluetoothpair
+    com.google.android.play.games:
+      com.waylonhuang.bluetoothpair
+  queryable via interaction:
+    User 0:
+
+Package Changes:
+  Sequence number=61
+  User 0:
+    seq=1, package=com.google.android.tvrecommendations
+    seq=7, package=com.google.android.trichromelibrary_704911130
+    seq=48, package=com.dreamcast.app.diagnostic
+    seq=52, package=com.cltv.fast
+    seq=53, package=net.gtvbox.videoplayer
+    seq=54, package=mattiesworld.gotdns.org.onscreenclock
+    seq=60, package=com.dreamcast.app
+
+
+Dexopt state:
+  [com.waylonhuang.bluetoothpair]
+    path: /data/app/~~mfMuit2nCA-c0kpT9fVp7A==/com.waylonhuang.bluetoothpair-LEZ1MB5sECOInpcgoL9Jgw==/base.apk
+      arm: [status=speed-profile] [reason=bg-dexopt]
+
+
+Compiler stats:
+  [com.waylonhuang.bluetoothpair]
+     base.apk - 4792

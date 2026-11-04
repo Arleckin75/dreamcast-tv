@@ -1,4 +1,5 @@
 import 'package:animations/animations.dart';
+import 'package:dream_cast/features/releases/presentation/catalog_screen.dart';
 import 'package:dream_cast/app/router/app_routes.dart';
 import 'package:dream_cast/app/widgets/app_error_view.dart';
 import 'package:dream_cast/features/releases/presentation/release_list_providers.dart';
@@ -142,6 +143,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         parentNavigatorKey: _rootNavigatorKey,
         pageBuilder: (context, state) =>
             _sharedAxisPage(key: state.pageKey, child: const SearchScreen()),
+      ),
+      GoRoute(
+        path: '/catalog',
+        parentNavigatorKey: _rootNavigatorKey,
+        pageBuilder: (context, state) =>
+            _sharedAxisPage(key: state.pageKey, child: const CatalogScreen()),
       ),
       GoRoute(
         path: '/notifications',

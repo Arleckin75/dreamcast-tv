@@ -60,6 +60,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         automaticallyImplyLeading: false,
         title: const Text('Dream Cast TV'),
         actions: [
+          TextButton.icon(
+            onPressed: () => context.push('/catalog'),
+            icon: const Icon(Icons.tag),
+            label: const Text('Каталог'),
+          ),
           IconButton(
             focusNode: _searchFocus,
             autofocus: true,
