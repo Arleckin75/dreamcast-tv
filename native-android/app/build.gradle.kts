@@ -62,6 +62,31 @@ android {
 
 kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
 
+// Resolve the API 28 test runtime and Robolectric 4.14.1's API 35 resource runtime
+// through Gradle's cache, rather than Robolectric's separate HTTP fetcher.
+val robolectricAndroid by configurations.creating {
+    isCanBeConsumed = false
+    isTransitive = false
+}
+// Separate configurations keep Gradle from selecting only the newer version
+// of the same module: Robolectric needs both Android releases at runtime.
+val robolectricResourceAndroid by configurations.creating {
+    isCanBeConsumed = false
+    isTransitive = false
+}
+dependencies {
+    add(robolectricAndroid.name, "org.robolectric:android-all-instrumented:9-robolectric-4913185-2-i7")
+    add(robolectricResourceAndroid.name, "org.robolectric:android-all-instrumented:15-robolectric-12650502-i7")
+}
+val prepareRobolectricAndroid by tasks.registering(Sync::class) {
+    from(robolectricAndroid, robolectricResourceAndroid)
+    into(layout.buildDirectory.dir("robolectric-android"))
+}
+tasks.withType<Test>().configureEach {
+    dependsOn(prepareRobolectricAndroid)
+    systemProperty("robolectric.dependency.dir", layout.buildDirectory.dir("robolectric-android").get().asFile.absolutePath)
+}
+
 val copyVlcSources by tasks.registering(Sync::class) {
     from("../../android/app/src/softwareAv1/kotlin") {
         include("**/CosmosAv1PlayerActivity.kt", "**/CosmosFmp4Resolver.kt")

@@ -43,6 +43,12 @@ JUnit/Robolectric проверяют парсеры PlayerJS, запросы, к
 прогресс и открытие реальной схемы Drift v3. `flutter_schema_v3.json` выгружен из
 исходного `AppDatabase`, а не переписан по памяти.
 
+Android runtime для Robolectric скачивается задачей `prepareRobolectricAndroid`
+через Gradle и его кэш. Тесты читают JAR из `app/build/robolectric-android`,
+без отдельного скачивания через `repo1.maven.org`. При изменении SDK в `@Config`
+или версии Robolectric нужно обновить зависимости `robolectricAndroid` и
+`robolectricResourceAndroid` в Gradle (сейчас API 28 для тестов и API 35 для ресурсов).
+
 На подключённом эмуляторе:
 
 ```sh
