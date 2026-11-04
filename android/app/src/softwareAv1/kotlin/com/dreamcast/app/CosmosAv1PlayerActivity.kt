@@ -177,7 +177,7 @@ class CosmosAv1PlayerActivity : Activity() {
         mp.time = (mp.time.coerceAtLeast(0L) + deltaMs).coerceIn(0L, end)
         if (kotlin.math.abs(deltaMs) == 10_000L) controls?.showSeekFeedback(deltaMs)
         uiHandler.postDelayed({ if (player === mp) persistPosition(true) }, 500L)
-        reveal()
+        if (controls?.visible == true) reveal()
     }
 
     private fun retryPlayback() {
@@ -435,7 +435,7 @@ class CosmosAv1PlayerActivity : Activity() {
         uiHandler.removeCallbacks(controlsTicker)
         uiHandler.postDelayed(controlsTicker, 1000L)
         uiHandler.removeCallbacks(hideUi)
-        uiHandler.postDelayed(hideUi, 4500L)
+        uiHandler.postDelayed(hideUi, 5000L)
     }
 
     // Consume BOTH DOWN and UP in this Activity. Finishing on DOWN can send the
@@ -534,6 +534,7 @@ class CosmosAv1PlayerActivity : Activity() {
         val p = player
         when (keyCode) {
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
+                if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && controls?.visible != true) return true
                 if (controls?.hasActionFocus == true) return super.onKeyDown(keyCode, event)
                 reveal()
                 controls?.show(true)

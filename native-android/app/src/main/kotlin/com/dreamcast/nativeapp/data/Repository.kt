@@ -127,7 +127,10 @@ class Repository(val storage: Storage, val site: SiteClient = SiteClient()) {
         fetch: suspend () -> String,
     ): Cached<T> {
         val old = withContext(Dispatchers.IO) { storage.cache(key) }
-        val parsed = old?.let { runCatching { parse(it.value) }.getOrNull() }
+        val parsed =
+            withContext(Dispatchers.Default) {
+                old?.let { runCatching { parse(it.value) }.getOrNull() }
+            }
         val now = System.currentTimeMillis()
         val fresh =
             old != null &&

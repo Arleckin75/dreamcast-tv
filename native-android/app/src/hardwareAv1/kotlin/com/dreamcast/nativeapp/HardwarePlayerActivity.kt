@@ -70,7 +70,8 @@ class HardwarePlayerActivity : ComponentActivity() {
                 override fun dispatchKeyEvent(event: KeyEvent): Boolean {
                     if (
                         event.action == KeyEvent.ACTION_DOWN &&
-                            event.keyCode != KeyEvent.KEYCODE_BACK
+                            event.keyCode != KeyEvent.KEYCODE_BACK &&
+                            (controls.visible || event.keyCode == KeyEvent.KEYCODE_DPAD_UP)
                     )
                         reveal()
                     return super.dispatchKeyEvent(event)
@@ -124,7 +125,6 @@ class HardwarePlayerActivity : ComponentActivity() {
                             add("Картинка в картинке" to ::pip)
                     }
                 },
-                onCaptions = ::tracks,
             )
         video.setOnClickListener {
             reveal()
@@ -152,7 +152,7 @@ class HardwarePlayerActivity : ComponentActivity() {
                 if (event.action == KeyEvent.ACTION_DOWN) {
                     if (key == KeyEvent.KEYCODE_DPAD_LEFT || key == KeyEvent.KEYCODE_DPAD_RIGHT)
                         seekBy(if (key == KeyEvent.KEYCODE_DPAD_LEFT) -10_000 else 10_000)
-                    else {
+                    else if (key == KeyEvent.KEYCODE_DPAD_UP || controls.visible) {
                         reveal()
                         controls.show(true)
                     }
@@ -279,8 +279,10 @@ class HardwarePlayerActivity : ComponentActivity() {
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     if (player !== exo) return
-                    if (isPlaying) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                    else {
+                    if (isPlaying) {
+                        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        reveal()
+                    } else {
                         reveal()
                         save()
                         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -499,7 +501,7 @@ class HardwarePlayerActivity : ComponentActivity() {
 
     override fun onPictureInPictureModeChanged(inPip: Boolean, newConfig: Configuration) {
         super.onPictureInPictureModeChanged(inPip, newConfig)
-        if (inPip) controls.hide()
+        if (inPip) controls.hide(animate = false)
         else {
             controls.show()
             reveal()
@@ -547,7 +549,7 @@ class HardwarePlayerActivity : ComponentActivity() {
     private fun reveal() {
         controls.show()
         handler.removeCallbacks(hideControls)
-        handler.postDelayed(hideControls, 4500)
+        handler.postDelayed(hideControls, 5000)
     }
 
     private fun seekBy(delta: Long) {
@@ -556,7 +558,7 @@ class HardwarePlayerActivity : ComponentActivity() {
             exo.seekTo((exo.currentPosition + delta).coerceIn(0, end))
         }
         controls.showSeekFeedback(delta)
-        reveal()
+        if (controls.visible) reveal()
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {

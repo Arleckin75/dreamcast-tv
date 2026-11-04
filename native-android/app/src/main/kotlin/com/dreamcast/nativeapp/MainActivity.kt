@@ -18,7 +18,12 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.dreamcast.nativeapp.data.*
 import com.dreamcast.nativeapp.ui.DreamApp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -46,6 +51,87 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
     var routes by mutableStateOf(listOf(Route("home")))
         private set
 
+    var ui by mutableStateOf(UiSnapshot())
+        private set
+
+    var uiReady by mutableStateOf(false)
+        private set
+
+    private val localDataMutex = Mutex()
+    private var localRefresh: Job? = null
+
+    private var preferenceRefresh: Job? = null
+    private val watchedPreferences =
+        listOf(
+            app.getSharedPreferences("dream_cast_native", android.content.Context.MODE_PRIVATE),
+            app.getSharedPreferences(
+                "FlutterSharedPreferences",
+                android.content.Context.MODE_PRIVATE,
+            ),
+        )
+    private val preferenceListener =
+        android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, rawKey ->
+            val key = rawKey?.removePrefix("flutter.")
+            if (
+                key == null ||
+                    key.startsWith("notifications.") ||
+                    key.startsWith("library.") ||
+                    key.startsWith("settings.") ||
+                    key == "search.history"
+            ) {
+                preferenceRefresh?.cancel()
+                preferenceRefresh =
+                    viewModelScope.launch {
+                        kotlinx.coroutines.delay(75)
+                        changed()
+                    }
+            }
+        }
+
+    init {
+        watchedPreferences.forEach {
+            it.registerOnSharedPreferenceChangeListener(preferenceListener)
+        }
+        refreshLocalData()
+    }
+
+    override fun onCleared() {
+        watchedPreferences.forEach {
+            it.unregisterOnSharedPreferenceChangeListener(preferenceListener)
+        }
+        super.onCleared()
+    }
+
+    private fun refreshLocalData() {
+        localRefresh?.cancel()
+        localRefresh =
+            viewModelScope.launch {
+                ui =
+                    withContext(Dispatchers.IO) {
+                        localDataMutex.withLock { storage.readUiSnapshot() }
+                    }
+                uiReady = true
+            }
+    }
+
+    fun mutateLocal(after: () -> Unit = {}, action: Storage.() -> Unit) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { localDataMutex.withLock { storage.action() } }
+            changed()
+            after()
+        }
+    }
+
+    fun refreshPlayerProgress(context: android.content.Context) {
+        val appContext = context.applicationContext
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                localDataMutex.withLock { storage.syncVlcProgress(appContext) }
+            }
+            changed()
+        }
+    }
+
     var revision by mutableStateOf(0)
     var playbackError by mutableStateOf<String?>(null)
     var pendingStreams by mutableStateOf<Pair<Pair<Release, Episode>, List<VideoStream>>?>(null)
@@ -71,6 +157,7 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
 
     fun changed() {
         revision++
+        refreshLocalData()
     }
 
     fun saveNavigation() = JSONArray(routes.map { it.json() }).toString()
@@ -263,7 +350,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        model.storage.syncVlcProgress(this)
-        model.changed()
+        model.refreshPlayerProgress(this)
     }
 }

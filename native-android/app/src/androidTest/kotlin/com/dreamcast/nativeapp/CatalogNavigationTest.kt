@@ -107,6 +107,9 @@ class CatalogNavigationTest {
                 }
                 compose.onNodeWithText("В библиотеку").remoteClick()
                 compose.onNodeWithText("В планах").remoteClick()
+                compose.waitUntil(5000) {
+                    app.storage.string("library.release.status.540") == "planned"
+                }
                 assertEquals("planned", app.storage.string("library.release.status.540"))
                 InstrumentationRegistry.getInstrumentation()
                     .sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)

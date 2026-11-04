@@ -53,7 +53,7 @@ internal class SoftwarePlayerControls(
         }
     val subtitle = label(14f).apply { setTextColor(0xBFFFFFFF.toInt()) }
     private val bottom = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
-    private val actions = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
+    private val actions = FrameLayout(context)
 
     private fun transport(kind: String, description: String, action: () -> Unit) =
         TransportButton(context, kind).apply {
@@ -191,11 +191,12 @@ internal class SoftwarePlayerControls(
     private var position = 0L
     private var dragging = false
     private var errorVisible = false
+    private var shown = true
     val visible: Boolean
-        get() = panel.visibility == View.VISIBLE
+        get() = shown
 
     val hasActionFocus: Boolean
-        get() = panel.hasFocus()
+        get() = shown && panel.hasFocus()
 
     val modalVisible: Boolean
         get() = dialog?.isShowing == true
@@ -229,15 +230,38 @@ internal class SoftwarePlayerControls(
                 letterSpacing = 0.15f
                 setTextColor(0xBFFFFFFF.toInt())
             },
-            LinearLayout.LayoutParams(0, -2, 1f),
+            FrameLayout.LayoutParams(-2, -2, Gravity.START or Gravity.CENTER_VERTICAL),
         )
-        actions.addView(rewind)
-        actions.addView(toggle)
-        actions.addView(forward)
-        actions.addView(next)
-        actions.addView(Space(context), LinearLayout.LayoutParams(0, 1, 1f))
-        captions?.let { actions.addView(it) }
-        actions.addView(settings)
+        val transport =
+            LinearLayout(context).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(rewind)
+                addView(toggle)
+                addView(forward)
+                addView(next)
+            }
+        // Equal outer margins keep the visible icon group centered, including
+        // when the last episode has no next button.
+        rewind.layoutParams =
+            (rewind.layoutParams as LinearLayout.LayoutParams).apply { marginStart = dp(5) }
+        forward.layoutParams =
+            (forward.layoutParams as LinearLayout.LayoutParams).apply { marginEnd = dp(5) }
+        next.layoutParams =
+            (next.layoutParams as LinearLayout.LayoutParams).apply {
+                marginStart = dp(5)
+                marginEnd = dp(5)
+            }
+        actions.addView(transport, FrameLayout.LayoutParams(-2, -1, Gravity.CENTER))
+        val options =
+            LinearLayout(context).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                captions?.let { addView(it) }
+                addView(settings)
+            }
+        actions.addView(
+            options,
+            FrameLayout.LayoutParams(-2, -1, Gravity.END or Gravity.CENTER_VERTICAL),
+        )
         bottom.addView(actions, LinearLayout.LayoutParams(-1, dp(60)))
         panel.addView(bottom, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
         errorPanel.addView(error)
@@ -378,18 +402,38 @@ internal class SoftwarePlayerControls(
     }
 
     fun show(focus: Boolean = false) {
-        if (!visible) {
+        if (!shown) {
+            shown = true
+            panel.animate().cancel()
+            bottom.animate().cancel()
+            if (panel.visibility != View.VISIBLE) {
+                panel.alpha = 0f
+                bottom.translationY = bottom.height.toFloat() + dp(24)
+            }
             panel.visibility = View.VISIBLE
-            panel.alpha = 0f
-            panel.animate().alpha(1f).setDuration(160).start()
+            panel.animate().alpha(1f).setDuration(200).start()
+            bottom.animate().translationY(0f).setDuration(200).start()
         }
         if (focus) (if (errorVisible) retry else toggle).requestFocus()
     }
 
-    fun hide() {
+    fun hide(animate: Boolean = true) {
+        if (!shown) return
+        shown = false
         root.requestFocus()
         panel.animate().cancel()
-        panel.visibility = View.GONE
+        bottom.animate().cancel()
+        if (!animate) {
+            panel.visibility = View.GONE
+            return
+        }
+        bottom.animate().translationY(bottom.height.toFloat() + dp(24)).setDuration(220).start()
+        panel
+            .animate()
+            .alpha(0f)
+            .setDuration(220)
+            .withEndAction { if (!shown) panel.visibility = View.GONE }
+            .start()
     }
 
     fun showLoading(text: String?) {
@@ -415,6 +459,7 @@ internal class SoftwarePlayerControls(
         dialog?.dismiss()
         feedback.removeCallbacks(hideFeedback)
         panel.animate().cancel()
+        bottom.animate().cancel()
     }
 
     companion object {

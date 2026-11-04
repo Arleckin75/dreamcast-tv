@@ -56,8 +56,10 @@ import com.dreamcast.nativeapp.R
 import com.dreamcast.nativeapp.data.*
 import java.time.Instant
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.withContext
 
 private data class Load<T>(
     val value: T? = null,
@@ -72,7 +74,7 @@ private fun <T> resource(key: Any, loader: suspend () -> T): Load<T> {
             value = Load()
             value =
                 try {
-                    Load(value = loader(), loading = false)
+                    Load(value = withContext(Dispatchers.IO) { loader() }, loading = false)
                 } catch (cancel: CancellationException) {
                     throw cancel
                 } catch (error: Exception) {
@@ -84,8 +86,16 @@ private fun <T> resource(key: Any, loader: suspend () -> T): Load<T> {
 
 @Composable
 fun DreamApp(model: AppViewModel, activity: MainActivity) {
-    val revision = model.revision
-    val theme = model.storage.string("settings.theme_mode", "dark")
+    if (!model.uiReady) {
+        Box(
+            Modifier.fillMaxSize().background(Color(0xFF101114)),
+            contentAlignment = Alignment.Center,
+        ) {
+            CircularProgressIndicator()
+        }
+        return
+    }
+    val theme = model.ui.theme
     val dark =
         when (theme) {
             "light" -> false
@@ -93,7 +103,7 @@ fun DreamApp(model: AppViewModel, activity: MainActivity) {
             else -> true
         }
     val accent =
-        when (model.storage.string("settings.accent", "system")) {
+        when (model.ui.accent) {
             "green" -> Color(0xFF89CB6A)
             "violet" -> Color(0xFFD0BCFF)
             "rose" -> Color(0xFFFFB1C8)
@@ -101,11 +111,7 @@ fun DreamApp(model: AppViewModel, activity: MainActivity) {
         }
     val context = LocalContext.current
     val colors =
-        if (
-            Build.VERSION.SDK_INT >= 31 &&
-                model.storage.boolean("settings.dynamic_color", true) &&
-                model.storage.string("settings.accent", "system") == "system"
-        ) {
+        if (Build.VERSION.SDK_INT >= 31 && model.ui.dynamicColor && model.ui.accent == "system") {
             if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         } else if (dark)
             darkColorScheme(
@@ -336,8 +342,7 @@ private fun Stale() {
 
 @Composable
 private fun TopNavigation(model: AppViewModel) {
-    val unread =
-        model.storage.records("notifications.history.item.").count { it.second.isNull("readAt") }
+    val unread = model.ui.unreadNotifications
     val tabs =
         listOf(
             Triple("catalog", "Каталог", R.drawable.ic_nav_catalog),
@@ -408,19 +413,13 @@ private fun TopNavigation(model: AppViewModel) {
 
 @Composable
 private fun Home(model: AppViewModel) {
-    val revision = model.revision
     var retry by remember { mutableIntStateOf(0) }
     val data =
         resource(retry) { model.repository.releases("", CatalogFilter(), 1, refresh = retry > 0) }
     val releases = data.value?.items.orEmpty()
     var featuredId by rememberSaveable { mutableIntStateOf(-1) }
     val featured = releases.firstOrNull { it.id == featuredId } ?: releases.firstOrNull()
-    val recent =
-        model.storage
-            .recentProgress()
-            .distinctBy { it.release.id }
-            .filterNot { it.watched }
-            .take(10)
+    val recent = model.ui.continueWatching
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(24.dp),
         contentPadding = PaddingValues(bottom = 32.dp),
@@ -650,7 +649,6 @@ private fun Catalog(model: AppViewModel) {
 private fun Search(model: AppViewModel) {
     var query by rememberSaveable { mutableStateOf("") }
     var submitted by rememberSaveable { mutableStateOf("") }
-    var historyRevision by remember { mutableIntStateOf(0) }
     LaunchedEffect(query) {
         delay(420)
         submitted = query.trim().takeIf { it.length >= 2 }.orEmpty()
@@ -669,24 +667,21 @@ private fun Search(model: AppViewModel) {
             keyboardActions =
                 KeyboardActions(
                     onSearch = {
-                        submitted = query.trim()
-                        if (submitted.isNotBlank()) model.storage.saveSearch(submitted)
+                        val search = query.trim()
+                        submitted = search
+                        if (search.isNotBlank()) model.mutateLocal { saveSearch(search) }
                     }
                 ),
         )
         Action("Найти") {
-            submitted = query.trim()
-            if (submitted.isNotBlank()) model.storage.saveSearch(submitted)
-            historyRevision++
-        }
-        Action("Очистить") {
-            query = ""
-            submitted = ""
+            val search = query.trim()
+            submitted = search
+            if (search.isNotBlank()) model.mutateLocal { saveSearch(search) }
         }
     }
     Spacer(Modifier.height(12.dp))
     if (submitted.isBlank()) {
-        val history = remember(historyRevision) { model.storage.searchHistory() }
+        val history = model.ui.searchHistory
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item { Text("История поиска", style = MaterialTheme.typography.titleLarge) }
             items(history, key = { it }) { item ->
@@ -695,10 +690,7 @@ private fun Search(model: AppViewModel) {
                         query = item
                         submitted = item
                     }
-                    Action("Удалить") {
-                        model.storage.removeSearch(item)
-                        historyRevision++
-                    }
+                    Action("Удалить") { model.mutateLocal { removeSearch(item) } }
                 }
             }
         }
@@ -760,14 +752,15 @@ private fun ReleaseFeed(model: AppViewModel, filter: CatalogFilter, query: Strin
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text("Найдено: $total", modifier = Modifier.padding(vertical = 8.dp))
-                Action("Обновить") {
-                    feed.loadedPage = 0
-                    all = emptyList()
-                    stale = false
-                    exhausted = false
-                    page = 1
-                    retry++
-                }
+                if (query.isBlank())
+                    Action("Обновить") {
+                        feed.loadedPage = 0
+                        all = emptyList()
+                        stale = false
+                        exhausted = false
+                        page = 1
+                        retry++
+                    }
             }
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(160.dp),
@@ -857,14 +850,16 @@ private fun Poster(
 
 @Composable
 private fun Library(model: AppViewModel) {
-    val revision = model.revision
     var status by rememberSaveable { mutableStateOf("") }
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Action("Все") { status = "" }
         LibraryStatus.entries.forEach { item -> Action(item.label) { status = item.name } }
     }
     Spacer(Modifier.height(16.dp))
-    val entries = model.storage.bookmarks().filter { status.isEmpty() || it.status.name == status }
+    val entries =
+        remember(model.ui.bookmarks, status) {
+            model.ui.bookmarks.filter { status.isEmpty() || it.status.name == status }
+        }
     if (entries.isEmpty()) Text("В этой категории пока нет релизов")
     LazyVerticalGrid(
         columns = GridCells.Adaptive(160.dp),
@@ -884,9 +879,8 @@ private fun ReleaseDetail(model: AppViewModel, seed: Release) {
     val loaded = resource("${seed.id}:$retry") { model.repository.detail(seed) }
     val release = loaded.value?.value?.release ?: seed
     var bookmarkDialog by remember { mutableStateOf(false) }
-    val revision = model.revision
-    val status = model.storage.bookmarks().firstOrNull { it.release.id == release.id }?.status
-    val subscribed = model.storage.subscribed(release.id)
+    val status = model.ui.bookmarksById[release.id]?.status
+    val subscribed = release.id in model.ui.subscriptions
     if (loaded.value?.stale == true) Stale()
     Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
         AsyncImage(
@@ -918,12 +912,12 @@ private fun ReleaseDetail(model: AppViewModel, seed: Release) {
                 Action("Серии") { model.navigate(Route("episodes", release)) }
                 Action(status?.label ?: "В библиотеку") { bookmarkDialog = true }
                 Action(if (subscribed) "Отписаться" else "Новые серии") {
-                    if (subscribed) model.storage.remove("notifications.release.item.${release.id}")
-                    else {
-                        model.storage.subscribe(release, release.currentEpisodes)
-                        EpisodeScheduler.checkSoon(context)
+                    model.mutateLocal(
+                        after = { if (!subscribed) EpisodeScheduler.checkSoon(context) }
+                    ) {
+                        if (subscribed) remove("notifications.release.item.${release.id}")
+                        else subscribe(release, release.currentEpisodes)
                     }
-                    model.changed()
                 }
             }
             if (loaded.loading) Loading()
@@ -941,8 +935,7 @@ private fun ReleaseDetail(model: AppViewModel, seed: Release) {
             LibraryStatus.entries.map { it.label } + "Убрать из библиотеки",
             { bookmarkDialog = false },
         ) { index ->
-            model.storage.bookmark(release, LibraryStatus.entries.getOrNull(index))
-            model.changed()
+            model.mutateLocal { bookmark(release, LibraryStatus.entries.getOrNull(index)) }
             bookmarkDialog = false
         }
 }
@@ -956,7 +949,7 @@ private fun EpisodeAction(
 ) {
     GuiButton(
         onClick = onClick,
-        modifier = modifier.height(44.dp),
+        modifier = modifier.height(44.dp * 1.05f),
         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
     ) {
         androidx.tv.material3.Text(
@@ -981,7 +974,6 @@ private fun Episodes(model: AppViewModel, activity: MainActivity, release: Relea
             val detail = model.repository.detail(release).value
             model.repository.episodes(detail)
         }
-    val revision = model.revision
     val resumeEpisode = model.route.argument
     LaunchedEffect(data.value) {
         if (
@@ -990,56 +982,47 @@ private fun Episodes(model: AppViewModel, activity: MainActivity, release: Relea
             model.prepare(activity, release, resumeEpisode)
         }
     }
-    val progress =
-        model.storage
-            .recentProgress()
-            .filter { it.release.id == release.id }
-            .associateBy { it.episodeId }
+    val progress = model.ui.progressByRelease[release.id].orEmpty()
     if (data.loading) Loading()
     data.error?.let { ErrorState(it) { retry++ } }
     if (data.value?.stale == true) Stale()
-    LazyColumn(
-        modifier = Modifier.fillMaxWidth(1f / 3f),
-        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        items(data.value?.value ?: emptyList(), key = { it.id }) { episode ->
-            val watched = progress[episode.id]
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                EpisodeAction(
-                    (if (watched?.watched == true) "✓ " else "") +
-                        episode.title +
-                        if (watched != null && !watched.watched)
-                            " • ${watched.positionMs/60000} мин."
-                        else "",
-                    Modifier.weight(2f),
-                    primary = true,
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        // Preserve the previous 2:1 button proportions, enlarging each width by 20%.
+        val previousUnit = ((maxWidth / 3f - 20.dp) / 4f).coerceAtLeast(1.dp)
+        val seriesWidth = previousUnit * 2f * 1.2f
+        val restartWidth = previousUnit * 1.2f
+        LazyColumn(
+            modifier = Modifier.width(seriesWidth + restartWidth + 14.dp),
+            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            items(data.value?.value ?: emptyList(), key = { it.id }) { episode ->
+                val watched = progress[episode.id]
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    model.prepare(activity, release, episode.id)
-                }
-                EpisodeAction(
-                    if (watched?.watched == true) "Не просмотрено" else "Просмотрено",
-                    Modifier.weight(1f),
-                ) {
-                    model.storage.saveProgress(
-                        release,
-                        episode,
-                        if (watched?.watched == true) 0 else watched?.durationMs ?: 0,
-                        watched?.durationMs ?: 0,
-                        watched?.watched != true,
-                    )
-                    model.changed()
-                }
-                if (watched != null && watched.positionMs > 0)
-                    EpisodeAction("С начала", Modifier.weight(1f)) {
-                        model.storage.saveProgress(release, episode, 0, watched.durationMs)
+                    EpisodeAction(
+                        (if (watched?.watched == true) "✓ " else "") +
+                            episode.title +
+                            if (watched != null && !watched.watched)
+                                " • ${watched.positionMs/60000} мин."
+                            else "",
+                        Modifier.width(seriesWidth),
+                        primary = true,
+                    ) {
                         model.prepare(activity, release, episode.id)
                     }
-                else Spacer(Modifier.weight(1f))
+                    if (watched != null && watched.positionMs > 0)
+                        EpisodeAction("С начала", Modifier.width(restartWidth)) {
+                            model.mutateLocal(
+                                after = { model.prepare(activity, release, episode.id) }
+                            ) {
+                                saveProgress(release, episode, 0, watched.durationMs)
+                            }
+                        }
+                }
             }
         }
     }
@@ -1097,14 +1080,10 @@ private fun ChoiceDialog(
 
 @Composable
 private fun Settings(model: AppViewModel) {
-    val revision = model.revision
     var dialog by remember { mutableStateOf("") }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
-            Action(
-                "Профиль: ${model.storage.profile().ifBlank{"Не задан"}}",
-                Modifier.fillMaxWidth(),
-            ) {
+            Action("Профиль: ${model.ui.profile.ifBlank{"Не задан"}}", Modifier.fillMaxWidth()) {
                 model.navigate(Route("profile"))
             }
         }
@@ -1112,19 +1091,17 @@ private fun Settings(model: AppViewModel) {
         item { Action("Акцент", Modifier.fillMaxWidth()) { dialog = "accent" } }
         item {
             Action(
-                "Цвета системы: ${if(model.storage.boolean("settings.dynamic_color",true))"включены" else "выключены"}",
+                "Цвета системы: ${if(model.ui.dynamicColor)"включены" else "выключены"}",
                 Modifier.fillMaxWidth(),
             ) {
-                model.storage.put(
-                    "settings.dynamic_color",
-                    !model.storage.boolean("settings.dynamic_color", true),
-                )
-                model.changed()
+                model.mutateLocal {
+                    put("settings.dynamic_color", !boolean("settings.dynamic_color", true))
+                }
             }
         }
         item {
             Action(
-                "Проигрыватель: ${model.storage.string("player.preferred_stream_technology","none").uppercase()}",
+                "Проигрыватель: ${model.ui.streamTechnology.uppercase()}",
                 Modifier.fillMaxWidth(),
             ) {
                 dialog = "player"
@@ -1137,8 +1114,9 @@ private fun Settings(model: AppViewModel) {
         "theme" ->
             ChoiceDialog("Тема", listOf("Системная", "Светлая", "Тёмная"), { dialog = "" }) { index
                 ->
-                model.storage.put("settings.theme_mode", listOf("system", "light", "dark")[index])
-                model.changed()
+                model.mutateLocal {
+                    put("settings.theme_mode", listOf("system", "light", "dark")[index])
+                }
                 dialog = ""
             }
         "accent" ->
@@ -1147,11 +1125,12 @@ private fun Settings(model: AppViewModel) {
                 listOf("Системный", "Синий", "Зелёный", "Фиолетовый", "Розовый"),
                 { dialog = "" },
             ) { index ->
-                model.storage.put(
-                    "settings.accent",
-                    listOf("system", "blue", "green", "violet", "rose")[index],
-                )
-                model.changed()
+                model.mutateLocal {
+                    put(
+                        "settings.accent",
+                        listOf("system", "blue", "green", "violet", "rose")[index],
+                    )
+                }
                 dialog = ""
             }
         "player" ->
@@ -1160,11 +1139,9 @@ private fun Settings(model: AppViewModel) {
                 listOf("Выбирать вручную", "HLS", "DASH"),
                 { dialog = "" },
             ) { index ->
-                model.storage.put(
-                    "player.preferred_stream_technology",
-                    listOf("none", "hls", "dash")[index],
-                )
-                model.changed()
+                model.mutateLocal {
+                    put("player.preferred_stream_technology", listOf("none", "hls", "dash")[index])
+                }
                 dialog = ""
             }
     }
@@ -1172,7 +1149,9 @@ private fun Settings(model: AppViewModel) {
 
 @Composable
 private fun Profile(model: AppViewModel) {
-    var name by rememberSaveable { mutableStateOf(model.storage.profile()) }
+    var name by rememberSaveable { mutableStateOf("") }
+    var edited by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(model.ui.profile) { if (!edited) name = model.ui.profile }
     var saved by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Локальный профиль")
@@ -1181,6 +1160,7 @@ private fun Profile(model: AppViewModel) {
             {
                 if (it.length <= 32) {
                     name = it
+                    edited = true
                     saved = false
                 }
             },
@@ -1188,9 +1168,10 @@ private fun Profile(model: AppViewModel) {
             singleLine = true,
         )
         Action("Сохранить", enabled = name.trim().isNotEmpty()) {
-            model.storage.saveProfile(name)
-            model.changed()
-            saved = true
+            val updatedName = name
+            model.mutateLocal(after = { if (name == updatedName) saved = true }) {
+                saveProfile(updatedName)
+            }
         }
         if (saved) Text("Профиль сохранён")
     }
@@ -1198,20 +1179,17 @@ private fun Profile(model: AppViewModel) {
 
 @Composable
 private fun Cache(model: AppViewModel) {
-    var revision by remember { mutableIntStateOf(0) }
     var retentionDialog by remember { mutableStateOf(false) }
     var clearDialog by remember { mutableStateOf(false) }
-    val stats = remember(revision) { model.storage.cacheStats() }
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text("Записей: ${stats.first} • ${stats.second/1024} КБ")
-        Text(
-            "Срок хранения: ${model.storage.retentionHours().let{if(it==0L)"бессрочно" else "$it ч."}}"
-        )
-        Action("Срок хранения") { retentionDialog = true }
-        Action("Очистить просроченные") {
-            model.storage.clearExpired()
-            revision++
+    val stats by
+        produceState<Pair<Long, Long>?>(null, model.revision) {
+            value = withContext(Dispatchers.IO) { model.storage.cacheStats() }
         }
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text(stats?.let { "Записей: ${it.first} • ${it.second/1024} КБ" } ?: "Подсчёт кэша…")
+        Text("Срок хранения: ${model.ui.retentionHours.let{if(it==0L)"бессрочно" else "$it ч."}}")
+        Action("Срок хранения") { retentionDialog = true }
+        Action("Очистить просроченные") { model.mutateLocal { clearExpired() } }
         Action("Очистить весь кэш") { clearDialog = true }
     }
     if (retentionDialog)
@@ -1220,8 +1198,7 @@ private fun Cache(model: AppViewModel) {
             listOf("8 часов", "12 часов", "1 день", "3 дня", "7 дней", "30 дней", "Бессрочно"),
             { retentionDialog = false },
         ) { index ->
-            model.storage.retention(listOf(8L, 12L, 24L, 72L, 168L, 720L, 0L)[index])
-            revision++
+            model.mutateLocal { retention(listOf(8L, 12L, 24L, 72L, 168L, 720L, 0L)[index]) }
             retentionDialog = false
         }
     if (clearDialog)
@@ -1233,8 +1210,7 @@ private fun Cache(model: AppViewModel) {
                 Action(
                     "Очистить",
                     onClick = {
-                        model.storage.clearCache()
-                        revision++
+                        model.mutateLocal { clearCache() }
                         clearDialog = false
                     },
                 )
@@ -1244,45 +1220,44 @@ private fun Cache(model: AppViewModel) {
 
 @Composable
 private fun Notifications(model: AppViewModel) {
-    var revision by remember { mutableIntStateOf(0) }
-    val entries =
-        remember(revision, model.revision) {
-            model.storage.records("notifications.history.item.").sortedByDescending {
-                it.second.text("createdAt")
-            }
-        }
+    val entries = model.ui.notifications
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Action("Прочитать все") {
-            entries.forEach { (key, record) ->
-                model.storage.put(key, record.put("readAt", Instant.now().toString()).toString())
+            model.mutateLocal {
+                entries.forEach { entry ->
+                    put(
+                        entry.key,
+                        org.json
+                            .JSONObject(entry.raw)
+                            .put("readAt", Instant.now().toString())
+                            .toString(),
+                    )
+                }
             }
-            revision++
-            model.changed()
         }
-        Action("Очистить историю") {
-            entries.forEach { model.storage.remove(it.first) }
-            revision++
-            model.changed()
-        }
+        Action("Очистить историю") { model.mutateLocal { entries.forEach { remove(it.key) } } }
     }
     Spacer(Modifier.height(16.dp))
     if (entries.isEmpty()) Text("Уведомлений пока нет")
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        items(entries, key = { it.first }) { (key, record) ->
-            val release =
-                runCatching { Release.fromJson(record.getJSONObject("release")) }.getOrNull()
-            if (release != null)
+        items(entries, key = { it.key }) { entry ->
+            entry.release?.let { release ->
                 Action(
-                    "${if(record.isNull("readAt"))"● " else ""}${release.title} • ${record.text("message")}",
+                    "${if(entry.unread)"● " else ""}${release.title} • ${entry.message}",
                     Modifier.fillMaxWidth(),
                 ) {
-                    model.storage.put(
-                        key,
-                        record.put("readAt", Instant.now().toString()).toString(),
-                    )
-                    model.changed()
+                    model.mutateLocal {
+                        put(
+                            entry.key,
+                            org.json
+                                .JSONObject(entry.raw)
+                                .put("readAt", Instant.now().toString())
+                                .toString(),
+                        )
+                    }
                     model.navigate(Route("detail", release))
                 }
+            }
         }
     }
 }

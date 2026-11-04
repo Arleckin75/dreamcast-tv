@@ -102,6 +102,7 @@ class HardwarePlaybackTest {
                     onView(withContentDescription("Настройки воспроизведения")).perform(click())
                     onView(withText(startsWith("Скорость ·"))).perform(click())
                     onView(withContentDescription("1.5×")).perform(click())
+                    onView(withContentDescription("Настройки воспроизведения")).perform(click())
                     onView(withContentDescription("Звук и субтитры")).perform(click())
                     onView(withContentDescription("Звук")).perform(click())
                     onView(withContentDescription("Выключены")).perform(click())
@@ -116,6 +117,7 @@ class HardwarePlaybackTest {
                                 engine.trackSelectionParameters.disabledTrackTypes
                         )
                     }
+                    onView(withContentDescription("Настройки воспроизведения")).perform(click())
                     onView(withContentDescription("Звук и субтитры")).perform(click())
                     onView(withContentDescription("Звук")).perform(click())
                     onView(withContentDescription("Авто")).perform(click())
@@ -150,6 +152,7 @@ class HardwarePlaybackTest {
                     InstrumentationRegistry.getInstrumentation()
                         .sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_DPAD_RIGHT)
                     androidx.test.espresso.Espresso.pressBack()
+                    Thread.sleep(300) // Allow the bottom panel to finish sliding off screen.
                     onView(withContentDescription("Настройки воспроизведения"))
                         .check(
                             androidx.test.espresso.assertion.ViewAssertions.matches(
