@@ -499,6 +499,7 @@ internal fun showPlayerMenu(
         }
     content.addView(
         TextView(context).apply {
+            tag = "player-menu-title"
             text = title
             textSize = 23f
             setTextColor(Color.WHITE)

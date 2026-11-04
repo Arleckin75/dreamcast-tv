@@ -179,7 +179,12 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
         }
     }
 
-    fun prepare(activity: MainActivity, release: Release, episodeId: String) {
+    fun prepare(
+        activity: MainActivity,
+        release: Release,
+        episodeId: String,
+        preferredTechnology: String? = null,
+    ) {
         if (preparing) return
         preparing = true
         viewModelScope.launch {
@@ -189,7 +194,9 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
                     episodes.firstOrNull { it.id == episodeId } ?: error("Серия не найдена")
                 val streams = PlayerJs.streams(episode)
                 require(streams.isNotEmpty()) { "Для серии не найдены потоки" }
-                val technology = storage.string("player.preferred_stream_technology", "none")
+                val technology =
+                    preferredTechnology
+                        ?: storage.string("player.preferred_stream_technology", "none")
                 if (technology == "none") pendingStreams = (playbackRelease to episode) to streams
                 else
                     activity.launchPlayback(
@@ -212,6 +219,8 @@ class MainActivity : ComponentActivity() {
     val model: AppViewModel by viewModels()
     private var softwareRelease: Release? = null
     private var softwareEpisode: Episode? = null
+    private var softwareStreamType: String? = null
+    private var completionCountdown: EpisodeCompletionCountdown? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -221,6 +230,7 @@ class MainActivity : ComponentActivity() {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
         if (savedInstanceState != null) {
+            softwareStreamType = savedInstanceState.getString("softwareStreamType")
             model.restoreNavigation(savedInstanceState.getString("navigation"))
             softwareRelease =
                 savedInstanceState.getString("softwareRelease")?.let {
@@ -274,6 +284,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("softwareStreamType", softwareStreamType)
         outState.putString("navigation", model.saveNavigation())
         softwareRelease?.let { outState.putString("softwareRelease", it.json().toString()) }
         softwareEpisode?.let {
@@ -303,6 +314,7 @@ class MainActivity : ComponentActivity() {
             )
             softwareRelease = release
             softwareEpisode = episode
+            softwareStreamType = stream.type
             SoftwareLauncher.launch(
                 this,
                 release,
@@ -335,17 +347,45 @@ class MainActivity : ComponentActivity() {
                 )
             model.changed()
             if (data.getBooleanExtra("nextEpisode", false))
-                model.viewModelScope.launch {
-                    try {
-                        val episodes = model.repository.playback(release).second
-                        episodes.getOrNull(episode.ordinal)?.let {
-                            model.prepare(this@MainActivity, release, it.id)
+                openNextSoftwareEpisode(release, episode)
+            else if (
+                data.getBooleanExtra("completed", false) &&
+                    episode.ordinal < release.currentEpisodes
+            ) {
+                completionCountdown?.dismiss()
+                completionCountdown =
+                    EpisodeCompletionCountdown(this, "Серия ${episode.ordinal + 1}") {
+                            openNextSoftwareEpisode(release, episode)
                         }
-                    } catch (error: Exception) {
-                        model.playbackError = error.message
-                    }
-                }
+                        .also { it.show() }
+            }
         }
+    }
+
+    private fun openNextSoftwareEpisode(release: Release, episode: Episode) {
+        val technology = softwareStreamType
+        model.viewModelScope.launch {
+            try {
+                val episodes = model.repository.playback(release).second
+                episodes.getOrNull(episode.ordinal)?.let {
+                    model.prepare(
+                        this@MainActivity,
+                        release,
+                        it.id,
+                        preferredTechnology = technology,
+                    )
+                }
+            } catch (cancel: kotlinx.coroutines.CancellationException) {
+                throw cancel
+            } catch (error: Exception) {
+                model.playbackError = error.message
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        completionCountdown?.dismiss()
+        super.onDestroy()
     }
 
     override fun onResume() {

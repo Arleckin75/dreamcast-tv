@@ -1,6 +1,5 @@
 package com.dreamcast.nativeapp
 
-import android.app.AlertDialog
 import android.app.PictureInPictureParams
 import android.content.res.Configuration
 import android.os.Build
@@ -52,7 +51,7 @@ class HardwarePlayerActivity : ComponentActivity() {
     private var completed = false
     private var retryCount = 0
     private val failedStreams = mutableSetOf<String>()
-    private var endDialog: AlertDialog? = null
+    private var completionCountdown: EpisodeCompletionCountdown? = null
     private val handler = Handler(Looper.getMainLooper())
     private val saveTick =
         object : Runnable {
@@ -263,16 +262,16 @@ class HardwarePlayerActivity : ComponentActivity() {
                         completed = true
                         save()
                         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                        if (episode?.ordinal ?: Int.MAX_VALUE < episodes.size) {
-                            endDialog =
-                                showPlayerMenu(
-                                    this@HardwarePlayerActivity,
-                                    "Серия завершена",
-                                    listOf("Следующая серия"),
-                                    onCancel = { finish() },
-                                ) {
-                                    nextEpisode()
-                                }
+                        val next = episodes.getOrNull(episode?.ordinal ?: Int.MAX_VALUE)
+                        if (next != null) {
+                            completionCountdown?.dismiss()
+                            completionCountdown =
+                                EpisodeCompletionCountdown(
+                                        this@HardwarePlayerActivity,
+                                        next.title,
+                                        ::nextEpisode,
+                                    )
+                                    .also { it.show() }
                         } else finish()
                     }
                 }
@@ -331,6 +330,7 @@ class HardwarePlayerActivity : ComponentActivity() {
     }
 
     private fun nextEpisode() {
+        completionCountdown?.dismiss()
         val next = episodes.getOrNull(episode?.ordinal ?: return) ?: return
         save()
         ready = false
@@ -595,7 +595,7 @@ class HardwarePlayerActivity : ComponentActivity() {
         handler.removeCallbacksAndMessages(null)
         controls.dispose()
         loadJob?.cancel()
-        endDialog?.dismiss()
+        completionCountdown?.dismiss()
         video.player = null
         player?.release()
         player = null

@@ -3,11 +3,16 @@ package com.dreamcast.nativeapp.ui
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,6 +22,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -65,6 +71,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private data class Load<T>(
@@ -217,12 +224,34 @@ fun DreamApp(model: AppViewModel, activity: MainActivity) {
                 }
                 model.pendingStreams?.let { pending ->
                     val (pair, streams) = pending
+                    var rememberChoice by rememberSaveable(pair.second.id) { mutableStateOf(false) }
                     ChoiceDialog(
                         "Поток видео",
                         streams.map { "${it.type.uppercase()} • ${it.quality}p" },
                         onDismiss = { model.pendingStreams = null },
+                        header = {
+                            GuiButton(
+                                onClick = { rememberChoice = !rememberChoice },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Checkbox(checked = rememberChoice, onCheckedChange = null)
+                                androidx.tv.material3.Text(
+                                    "Запомнить выбор по умолчанию",
+                                    fontSize = 14.sp,
+                                    maxLines = 2,
+                                )
+                            }
+                        },
                     ) { index ->
-                        activity.launchPlayback(pair.first, pair.second, streams[index])
+                        val stream = streams[index]
+                        if (rememberChoice && stream.type in listOf("hls", "dash")) {
+                            model.pendingStreams = null
+                            model.mutateLocal(
+                                after = { activity.launchPlayback(pair.first, pair.second, stream) }
+                            ) {
+                                put("player.preferred_stream_technology", stream.type)
+                            }
+                        } else activity.launchPlayback(pair.first, pair.second, stream)
                     }
                 }
             }
@@ -368,19 +397,12 @@ private fun TopNavigation(model: AppViewModel) {
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
     ) {
         tabs.forEach { (route, label, icon) ->
-            val requester = remember { FocusRequester() }
-            LaunchedEffect(Unit) {
-                if (route == "search" && model.route.name == "home") requester.requestFocus()
-            }
             GuiButton(
                 onClick = {
                     if (route in listOf("notifications", "settings")) model.navigate(Route(route))
                     else model.selectSection(route)
                 },
-                modifier =
-                    Modifier.size(44.dp).focusRequester(requester).semantics {
-                        contentDescription = label
-                    },
+                modifier = Modifier.size(44.dp).semantics { contentDescription = label },
                 selected =
                     model.route.name == route ||
                         (route == "settings" &&
@@ -417,6 +439,7 @@ private fun TopNavigation(model: AppViewModel) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun Home(model: AppViewModel) {
     var retry by remember { mutableIntStateOf(0) }
@@ -427,65 +450,83 @@ private fun Home(model: AppViewModel) {
     val featuredIndex = releases.indexOfFirst { it.id == featuredId }.coerceAtLeast(0)
     val featured = releases.getOrNull(featuredIndex)
     val recent = model.ui.continueWatching
-    LazyColumn(
-        verticalArrangement = Arrangement.spacedBy(24.dp),
-        contentPadding = PaddingValues(bottom = 32.dp),
-    ) {
-        item {
-            if (featured != null)
-                FeaturedRelease(
-                    featured,
-                    index = featuredIndex,
-                    count = releases.size,
-                    onPrevious = {
-                        if (featuredIndex > 0) featuredId = releases[featuredIndex - 1].id
-                    },
-                    onNext = {
-                        if (featuredIndex < releases.lastIndex)
-                            featuredId = releases[featuredIndex + 1].id
-                    },
-                ) {
-                    model.navigate(Route("detail", featured))
-                }
-            else if (data.loading) Loading() else data.error?.let { ErrorState(it) { retry++ } }
+    val listState = rememberLazyListState()
+    var bannerFocused by remember { mutableStateOf(false) }
+    var initialBannerFocus by remember { mutableStateOf(true) }
+    LaunchedEffect(bannerFocused) {
+        if (bannerFocused) {
+            // Let the focused child request visibility, then reveal its entire banner.
+            withFrameNanos {}
+            listState.scrollToItem(0, 0)
         }
-        if (data.value?.stale == true) item { Stale() }
-        if (recent.isNotEmpty())
+    }
+    CompositionLocalProvider(LocalBringIntoViewSpec provides VisibleItemScrollSpec) {
+        LazyColumn(
+            state = listState,
+            verticalArrangement = Arrangement.spacedBy(24.dp),
+            contentPadding = PaddingValues(bottom = 32.dp),
+        ) {
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Продолжить просмотр", style = MaterialTheme.typography.titleLarge)
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(18.dp),
-                        contentPadding = PaddingValues(6.dp),
+                if (featured != null)
+                    FeaturedRelease(
+                        featured,
+                        index = featuredIndex,
+                        count = releases.size,
+                        autofocus = initialBannerFocus,
+                        onBannerFocusChange = {
+                            bannerFocused = it
+                            if (it) initialBannerFocus = false
+                        },
+                        onPrevious = {
+                            if (featuredIndex > 0) featuredId = releases[featuredIndex - 1].id
+                        },
+                        onNext = {
+                            if (featuredIndex < releases.lastIndex)
+                                featuredId = releases[featuredIndex + 1].id
+                        },
                     ) {
-                        items(recent, key = { it.release.id }) { item ->
-                            Column(Modifier.width(220.dp)) {
-                                Poster(item.release, landscape = true) {
-                                    model.navigate(Route("episodes", item.release, item.episodeId))
+                        model.navigate(Route("detail", featured))
+                    }
+                else if (data.loading) Loading() else data.error?.let { ErrorState(it) { retry++ } }
+            }
+            if (data.value?.stale == true) item { Stale() }
+            if (recent.isNotEmpty())
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Продолжить просмотр", style = MaterialTheme.typography.titleLarge)
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(18.dp),
+                            contentPadding = PaddingValues(6.dp),
+                        ) {
+                            items(recent, key = { it.release.id }) { item ->
+                                Column(Modifier.width(220.dp)) {
+                                    Poster(item.release, landscape = true) {
+                                        model.navigate(
+                                            Route("episodes", item.release, item.episodeId)
+                                        )
+                                    }
+                                    LinearProgressIndicator(
+                                        progress = {
+                                            if (item.durationMs > 0)
+                                                (item.positionMs.toFloat() / item.durationMs)
+                                                    .coerceIn(0f, 1f)
+                                            else 0f
+                                        },
+                                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                                    )
+                                    Text(
+                                        "Серия ${item.ordinal}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.padding(top = 6.dp),
+                                    )
                                 }
-                                LinearProgressIndicator(
-                                    progress = {
-                                        if (item.durationMs > 0)
-                                            (item.positionMs.toFloat() / item.durationMs).coerceIn(
-                                                0f,
-                                                1f,
-                                            )
-                                        else 0f
-                                    },
-                                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                                )
-                                Text(
-                                    "Серия ${item.ordinal}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    modifier = Modifier.padding(top = 6.dp),
-                                )
                             }
                         }
                     }
                 }
-            }
-        if (releases.isNotEmpty())
-            item { Action("Все релизы  ›") { model.selectSection("catalog") } }
+            if (releases.isNotEmpty())
+                item { Action("Все релизы  ›") { model.selectSection("catalog") } }
+        }
     }
 }
 
@@ -496,13 +537,18 @@ private fun FeaturedRelease(
     count: Int,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    onBannerFocusChange: (Boolean) -> Unit,
+    autofocus: Boolean,
     onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
     Box(
         Modifier.fillMaxWidth()
             .height(270.dp)
-            .onFocusChanged { focused = it.hasFocus }
+            .onFocusChanged {
+                focused = it.hasFocus
+                onBannerFocusChange(it.hasFocus)
+            }
             .focusGroup()
             .onPreviewKeyEvent { event ->
                 if (event.key == Key.DirectionLeft || event.key == Key.DirectionRight) {
@@ -568,7 +614,7 @@ private fun FeaturedRelease(
                 overflow = TextOverflow.Ellipsis,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
             )
-            Action("Подробнее", onClick = onClick)
+            Action("Подробнее", autofocus = autofocus, onClick = onClick)
         }
         Text(
             "${if (index > 0) "‹   " else ""}${index + 1} / $count${if (index < count - 1) "   ›" else ""}",
@@ -680,6 +726,11 @@ private fun Catalog(model: AppViewModel) {
 
 @Composable
 private fun Search(model: AppViewModel) {
+    val inputFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        withFrameNanos {}
+        inputFocus.requestFocus()
+    }
     var query by rememberSaveable { mutableStateOf("") }
     var submitted by rememberSaveable { mutableStateOf("") }
     LaunchedEffect(query) {
@@ -693,7 +744,7 @@ private fun Search(model: AppViewModel) {
         OutlinedTextField(
             query,
             { query = it },
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).focusRequester(inputFocus),
             label = { Text("Название") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -785,15 +836,6 @@ private fun ReleaseFeed(model: AppViewModel, filter: CatalogFilter, query: Strin
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text("Найдено: $total", modifier = Modifier.padding(vertical = 8.dp))
-                if (query.isBlank())
-                    Action("Обновить") {
-                        feed.loadedPage = 0
-                        all = emptyList()
-                        stale = false
-                        exhausted = false
-                        page = 1
-                        retry++
-                    }
             }
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(160.dp),
@@ -828,19 +870,30 @@ private fun Poster(
 ) {
     val requester = remember { FocusRequester() }
     var focused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (focused) 1.035f else 1f, label = "posterFocus")
+    val scale by
+        animateFloatAsState(
+            if (focused) 1.035f else 1f,
+            animationSpec = tween(140),
+            label = "posterFocus",
+        )
     LaunchedEffect(Unit) { if (restoreFocus) requester.requestFocus() }
     Column(
         Modifier.fillMaxWidth()
-            .reserveFocusScale(1.035f)
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
             .focusRequester(requester)
             .onFocusChanged {
                 focused = it.isFocused
                 if (it.isFocused) onFocused()
+            }
+            // Focus and bring-into-view track the fixed reserved slot, not the animated layer.
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            )
+            .reserveFocusScale(1.035f)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
             }
             .border(
                 if (focused) 3.dp else 1.dp,
@@ -848,7 +901,6 @@ private fun Poster(
                 RoundedCornerShape(12.dp),
             )
             .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
             .padding(5.dp)
     ) {
         AsyncImage(
@@ -942,7 +994,7 @@ private fun ReleaseDetail(model: AppViewModel, seed: Release) {
             )
             if (release.genres.isNotBlank()) Text(release.genres)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Action("Серии") { model.navigate(Route("episodes", release)) }
+                Action("Серии", autofocus = true) { model.navigate(Route("episodes", release)) }
                 Action(status?.label ?: "В библиотеку") { bookmarkDialog = true }
                 Action(if (subscribed) "Отписаться" else "Новые серии") {
                     model.mutateLocal(
@@ -1065,18 +1117,35 @@ private fun Episodes(model: AppViewModel, activity: MainActivity, release: Relea
 private fun Schedule(model: AppViewModel) {
     var retry by remember { mutableIntStateOf(0) }
     val data = resource(retry) { model.repository.schedule() }
+    val days = data.value?.value.orEmpty()
+    val firstDayIndex = days.indexOfFirst { it.releases.isNotEmpty() }
+    val firstRelease = days.getOrNull(firstDayIndex)?.releases?.firstOrNull()
+    val listState = rememberLazyListState()
+    var initialFocus by remember { mutableStateOf(true) }
+    LaunchedEffect(firstDayIndex, initialFocus) {
+        if (initialFocus && firstDayIndex >= 0) listState.scrollToItem(firstDayIndex)
+    }
     if (data.loading) Loading()
     data.error?.let { ErrorState(it) { retry++ } }
     if (data.value?.stale == true) Stale()
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        items(data.value?.value ?: emptyList(), key = { it.title }) { day ->
+    LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        items(days, key = { it.title }) { day ->
             Column {
                 Text(day.title, style = MaterialTheme.typography.titleLarge)
                 if (day.releases.isEmpty()) Text("Нет релизов")
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     items(day.releases, key = { it.id }) { release ->
                         Box(Modifier.width(170.dp)) {
-                            Poster(release) { model.navigate(Route("detail", release)) }
+                            Poster(
+                                release,
+                                restoreFocus =
+                                    initialFocus &&
+                                        day.title == days.getOrNull(firstDayIndex)?.title &&
+                                        release.id == firstRelease?.id,
+                                onFocused = { initialFocus = false },
+                            ) {
+                                model.navigate(Route("detail", release))
+                            }
                         }
                     }
                 }
@@ -1090,19 +1159,23 @@ private fun ChoiceDialog(
     title: String,
     items: List<String>,
     onDismiss: () -> Unit,
+    header: (@Composable () -> Unit)? = null,
     onSelect: (Int) -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            LazyColumn(
-                Modifier.heightIn(max = 330.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(items.size) { index ->
-                    Action(items[index], Modifier.fillMaxWidth(), autofocus = index == 0) {
-                        onSelect(index)
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                header?.invoke()
+                LazyColumn(
+                    Modifier.heightIn(max = 330.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(items.size) { index ->
+                        Action(items[index], Modifier.fillMaxWidth(), autofocus = index == 0) {
+                            onSelect(index)
+                        }
                     }
                 }
             }
@@ -1134,7 +1207,7 @@ private fun Settings(model: AppViewModel) {
         }
         item {
             Action(
-                "Проигрыватель: ${model.ui.streamTechnology.uppercase()}",
+                "Поток по умолчанию: ${if (model.ui.streamTechnology == "none") "выбирать вручную" else model.ui.streamTechnology.uppercase()}",
                 Modifier.fillMaxWidth(),
             ) {
                 dialog = "player"
@@ -1168,7 +1241,7 @@ private fun Settings(model: AppViewModel) {
             }
         "player" ->
             ChoiceDialog(
-                "Технология потока",
+                "Поток по умолчанию",
                 listOf("Выбирать вручную", "HLS", "DASH"),
                 { dialog = "" },
             ) { index ->
@@ -1296,52 +1369,222 @@ private fun Notifications(model: AppViewModel) {
 }
 
 @Composable
+private fun AboutPanel(title: String? = null, content: @Composable ColumnScope.() -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(22.dp),
+        border =
+            androidx.compose.foundation.BorderStroke(
+                1.dp,
+                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+            ),
+    ) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            if (title != null)
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Medium,
+                )
+            content()
+        }
+    }
+}
+
+@Composable
+private fun AboutAction(label: String, icon: Int, onClick: () -> Unit) {
+    GuiButton(
+        onClick = onClick,
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+    ) {
+        Icon(
+            painterResource(icon),
+            null,
+            tint = androidx.tv.material3.LocalContentColor.current,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.width(8.dp))
+        androidx.tv.material3.Text(label, fontSize = 14.sp, maxLines = 2)
+    }
+}
+
+/** Read-only documents retain focus and scroll with the D-pad, including long GPL text. */
+@Composable
+private fun AboutDocument(text: String) {
+    val scroll = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    val requester = remember { FocusRequester() }
+    val step = with(androidx.compose.ui.platform.LocalDensity.current) { 160.dp.roundToPx() }
+    LaunchedEffect(Unit) { requester.requestFocus() }
+    Text(
+        text,
+        fontSize = 14.sp,
+        lineHeight = 21.sp,
+        modifier =
+            Modifier.fillMaxWidth()
+                .heightIn(max = 320.dp)
+                .border(
+                    1.dp,
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
+                    RoundedCornerShape(12.dp),
+                )
+                .verticalScroll(scroll)
+                .focusRequester(requester)
+                .onPreviewKeyEvent { event ->
+                    val direction =
+                        when (event.key) {
+                            Key.DirectionUp -> -1
+                            Key.DirectionDown -> 1
+                            else -> 0
+                        }
+                    if (direction == 0) false
+                    else {
+                        if (event.type == KeyEventType.KeyDown)
+                            scope.launch {
+                                scroll.animateScrollTo(
+                                    (scroll.value + direction * step).coerceIn(0, scroll.maxValue)
+                                )
+                            }
+                        true
+                    }
+                }
+                .focusable()
+                .padding(14.dp),
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
 private fun About() {
     val context = LocalContext.current
-    var text by remember { mutableStateOf<String?>(null) }
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    var address by remember { mutableStateOf<String?>(null) }
+    var showLicense by remember { mutableStateOf(false) }
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+    ) {
         item {
-            Text(
-                "Dream Cast TV ${BuildConfig.VERSION_NAME}",
-                style = MaterialTheme.typography.titleLarge,
-            )
-        }
-        item {
-            Text(
-                "Нативный клиент для Android TV. Лицензия GNU GPL v3. Оригинальное приложение разработано rurin1x. Версия для Android TV является модификацией оригинального проекта."
-            )
-        }
-        val links =
-            listOf(
-                "Сайт" to BASE_URL,
-                "Telegram" to "https://t.me/dreamercast",
-                "ВКонтакте" to "https://vk.com/dreamerscast",
-                "YouTube" to "https://www.youtube.com/@AdminDreamCast",
-                "Оригинальные исходники" to "https://github.com/rurin1x/dreamcast-app",
-                "Исходники Android TV" to "https://github.com/Arleckin75/dreamcast-tv",
-            )
-        items(links) { (label, url) -> Action(label) { text = url } }
-        item {
-            Action("Текст лицензии GPLv3") {
-                text =
-                    context.assets.open("licenses/GPL-3.0.txt").bufferedReader().use {
-                        it.readText()
+            AboutPanel {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(24.dp),
+                ) {
+                    Image(
+                        painterResource(R.drawable.tv_banner),
+                        "Dream Cast TV",
+                        modifier =
+                            Modifier.width(150.dp).height(88.dp).clip(RoundedCornerShape(16.dp)),
+                        contentScale = ContentScale.Fit,
+                    )
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "Dream Cast TV",
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Medium,
+                        )
+                        Text(
+                            "Приложение для просмотра релизов Dream Cast на Android TV.",
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                        Text(
+                            "Версия ${BuildConfig.VERSION_NAME} • сборка ${BuildConfig.VERSION_CODE} • ${if (BuildConfig.FLAVOR == "hardwareAv1") "Аппаратный AV1" else "Программный AV1"}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
+                }
+            }
+        }
+        item {
+            AboutPanel("Открытый исходный код и лицензия") {
+                Text(
+                    "Dream Cast распространяется по лицензии GNU GPLv3. Оригинальное приложение разработано rurin1x. Версия для Android TV является модификацией оригинального проекта.",
+                    lineHeight = 23.sp,
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    AboutAction("Текст лицензии GPLv3", R.drawable.ic_about_document) {
+                        showLicense = true
+                    }
+                    AboutAction("Оригинальные исходники", R.drawable.ic_about_code) {
+                        address = "https://github.com/rurin1x/dreamcast-app"
+                    }
+                    AboutAction("Исходники Android TV", R.drawable.ic_about_tv) {
+                        address = "https://github.com/Arleckin75/dreamcast-tv"
+                    }
+                }
+            }
+        }
+        item {
+            AboutPanel("Dream Cast") {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    AboutAction("Telegram", R.drawable.ic_about_send) {
+                        address = "https://t.me/dreamercast"
+                    }
+                    AboutAction("Группа в VK", R.drawable.ic_about_groups) {
+                        address = "https://vk.com/dreamerscast"
+                    }
+                    AboutAction("Сайт", R.drawable.ic_about_language) { address = BASE_URL + "/" }
+                    AboutAction("YouTube", R.drawable.ic_about_play) {
+                        address = "https://www.youtube.com/@AdminDreamCast"
+                    }
+                }
+            }
+        }
+        item {
+            AboutPanel {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        painterResource(R.drawable.ic_about_heart),
+                        null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(28.dp),
+                    )
+                    Text(
+                        "Спасибо open-source сообществу и людям, чьи проекты и идеи помогли при разработке приложения.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 23.sp,
+                    )
+                }
             }
         }
     }
-    text?.let { content ->
+    address?.let { link ->
         AlertDialog(
-            onDismissRequest = { text = null },
-            title = { Text(if (content.startsWith("http")) "Ссылка" else "GNU GPL v3") },
+            onDismissRequest = { address = null },
+            title = { Text("Ссылка") },
             text = {
-                Text(
-                    content,
-                    modifier =
-                        Modifier.heightIn(max = 330.dp)
-                            .verticalScroll(rememberScrollState())
-                            .focusable(),
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text("Откройте этот адрес на телефоне или компьютере:")
+                    AboutDocument(link)
+                }
+            },
+            confirmButton = {},
+        )
+    }
+    if (showLicense) {
+        val license =
+            resource(Unit) {
+                context.assets.open("licenses/GPL-3.0.txt").bufferedReader().use { it.readText() }
+            }
+        AlertDialog(
+            onDismissRequest = { showLicense = false },
+            title = { Text("GNU General Public License v3") },
+            text = {
+                when {
+                    license.loading -> Loading()
+                    license.error != null -> Text("Не удалось открыть лицензию: ${license.error}")
+                    else -> AboutDocument(license.value.orEmpty())
+                }
             },
             confirmButton = {},
         )
