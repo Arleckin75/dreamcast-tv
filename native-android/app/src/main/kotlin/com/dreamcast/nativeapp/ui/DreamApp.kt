@@ -6,6 +6,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
@@ -34,6 +35,11 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
@@ -418,7 +424,8 @@ private fun Home(model: AppViewModel) {
         resource(retry) { model.repository.releases("", CatalogFilter(), 1, refresh = retry > 0) }
     val releases = data.value?.items.orEmpty()
     var featuredId by rememberSaveable { mutableIntStateOf(-1) }
-    val featured = releases.firstOrNull { it.id == featuredId } ?: releases.firstOrNull()
+    val featuredIndex = releases.indexOfFirst { it.id == featuredId }.coerceAtLeast(0)
+    val featured = releases.getOrNull(featuredIndex)
     val recent = model.ui.continueWatching
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(24.dp),
@@ -426,7 +433,20 @@ private fun Home(model: AppViewModel) {
     ) {
         item {
             if (featured != null)
-                FeaturedRelease(featured) { model.navigate(Route("detail", featured)) }
+                FeaturedRelease(
+                    featured,
+                    index = featuredIndex,
+                    count = releases.size,
+                    onPrevious = {
+                        if (featuredIndex > 0) featuredId = releases[featuredIndex - 1].id
+                    },
+                    onNext = {
+                        if (featuredIndex < releases.lastIndex)
+                            featuredId = releases[featuredIndex + 1].id
+                    },
+                ) {
+                    model.navigate(Route("detail", featured))
+                }
             else if (data.loading) Loading() else data.error?.let { ErrorState(it) { retry++ } }
         }
         if (data.value?.stale == true) item { Stale() }
@@ -465,36 +485,39 @@ private fun Home(model: AppViewModel) {
                 }
             }
         if (releases.isNotEmpty())
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Последние обновления", style = MaterialTheme.typography.titleLarge)
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(18.dp),
-                        contentPadding = PaddingValues(6.dp),
-                    ) {
-                        items(releases, key = { it.id }) { release ->
-                            Box(Modifier.width(200.dp)) {
-                                Poster(
-                                    release,
-                                    onFocused = { featuredId = release.id },
-                                    landscape = true,
-                                ) {
-                                    model.navigate(Route("detail", release))
-                                }
-                            }
-                        }
-                    }
-                    Action("Все релизы  ›") { model.selectSection("catalog") }
-                }
-            }
+            item { Action("Все релизы  ›") { model.selectSection("catalog") } }
     }
 }
 
 @Composable
-private fun FeaturedRelease(release: Release, onClick: () -> Unit) {
+private fun FeaturedRelease(
+    release: Release,
+    index: Int,
+    count: Int,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onClick: () -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
     Box(
         Modifier.fillMaxWidth()
             .height(270.dp)
+            .onFocusChanged { focused = it.hasFocus }
+            .focusGroup()
+            .onPreviewKeyEvent { event ->
+                if (event.key == Key.DirectionLeft || event.key == Key.DirectionRight) {
+                    if (event.type == KeyEventType.KeyDown) {
+                        if (event.key == Key.DirectionLeft) onPrevious() else onNext()
+                    }
+                    true
+                } else false
+            }
+            .border(
+                2.dp,
+                if (focused) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                else Color.Transparent,
+                RoundedCornerShape(22.dp),
+            )
             .clip(RoundedCornerShape(22.dp))
             .background(MaterialTheme.colorScheme.surface)
     ) {
@@ -521,9 +544,9 @@ private fun FeaturedRelease(release: Release, onClick: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                "DREAM CAST TV",
+                "ПОСЛЕДНИЕ ОБНОВЛЕНИЯ",
                 fontSize = 11.sp,
-                letterSpacing = 3.sp,
+                letterSpacing = 2.sp,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
             )
             Text(
@@ -547,6 +570,16 @@ private fun FeaturedRelease(release: Release, onClick: () -> Unit) {
             )
             Action("Подробнее", onClick = onClick)
         }
+        Text(
+            "${if (index > 0) "‹   " else ""}${index + 1} / $count${if (index < count - 1) "   ›" else ""}",
+            modifier =
+                Modifier.align(Alignment.BottomEnd)
+                    .padding(20.dp)
+                    .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(50))
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+            color = Color.White,
+            fontSize = 13.sp,
+        )
     }
 }
 

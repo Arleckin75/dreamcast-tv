@@ -50,7 +50,7 @@ class CatalogNavigationTest {
                         posts += request.body.readUtf8()
                         return MockResponse()
                             .setBody(
-                                """{"releases":[{"id":540,"russian":"Тестовый релиз","url":"${server.url("/home/release/540")}","series":6,"currentSeries":12,"dateissue":2024}],"count":1}"""
+                                """{"releases":[{"id":540,"russian":"Тестовый релиз","url":"${server.url("/home/release/540")}","series":6,"currentSeries":12,"dateissue":2024},{"id":541,"russian":"Другой релиз","dateissue":2024}],"count":2}"""
                             )
                     }
                     if (request.path?.contains("/home/release/") == true)
@@ -74,6 +74,16 @@ class CatalogNavigationTest {
                 compose.waitUntil(15000) {
                     compose.onAllNodesWithText("Тестовый релиз").fetchSemanticsNodes().isNotEmpty()
                 }
+                val bannerAction = compose.onNodeWithText("Подробнее")
+                bannerAction.performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+                bannerAction.performKeyInput { pressKey(Key.DirectionLeft) }
+                compose.onNodeWithText("Тестовый релиз").assertExists()
+                bannerAction.performKeyInput { pressKey(Key.DirectionRight) }
+                compose.onNodeWithText("Другой релиз").assertExists()
+                bannerAction.performKeyInput { pressKey(Key.DirectionRight) }
+                compose.onNodeWithText("Другой релиз").assertExists()
+                bannerAction.performKeyInput { pressKey(Key.DirectionLeft) }
+                compose.onNodeWithText("Тестовый релиз").assertExists()
                 compose.onNodeWithContentDescription("Каталог").remoteClick()
                 compose.waitUntil(15000) {
                     compose
