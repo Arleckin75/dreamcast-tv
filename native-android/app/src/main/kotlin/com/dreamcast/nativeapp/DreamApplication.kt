@@ -12,16 +12,43 @@ import androidx.work.WorkManager
 import com.dreamcast.nativeapp.data.Repository
 import com.dreamcast.nativeapp.data.Storage
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.*
 
 class DreamApplication : Application() {
+    private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var startup: Deferred<Unit>? = null
+
+    suspend fun awaitStorageReady() {
+        startup?.await()
+    }
+
     val storage by lazy { Storage(this) }
+    internal val progressWriter by lazy {
+        ProgressWriter(
+            write = { snapshot ->
+                storage.saveProgress(
+                    snapshot.release,
+                    snapshot.episode,
+                    snapshot.positionMs,
+                    snapshot.durationMs,
+                    snapshot.completed,
+                )
+            },
+            onError = {
+                android.util.Log.e("DCTV_PROGRESS", "Could not save playback progress", it)
+            },
+        )
+    }
     lateinit var repository: Repository
 
     override fun onCreate() {
         super.onCreate()
         repository = Repository(storage)
-        if (storage.profile().isBlank()) storage.saveProfile("TV")
-        storage.put("settings.onboarding_completed", true)
+        startup =
+            backgroundScope.async {
+                if (storage.profile().isBlank()) storage.saveProfile("TV")
+                storage.put("settings.onboarding_completed", true)
+            }
         WorkManager.getInstance(this).cancelUniqueWork("dream_cast_episode_notification_periodic")
         WorkManager.getInstance(this).cancelUniqueWork("dream_cast_episode_notification_once")
         WorkManager.getInstance(this)

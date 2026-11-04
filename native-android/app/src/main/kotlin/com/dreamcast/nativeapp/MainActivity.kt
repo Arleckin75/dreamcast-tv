@@ -15,6 +15,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewModelScope
 import com.dreamcast.nativeapp.data.*
 import com.dreamcast.nativeapp.ui.DreamApp
@@ -37,11 +38,18 @@ data class Route(val name: String, val release: Release? = null, val argument: S
 
 class FeedState {
     var page by mutableStateOf(1)
-    var loadedPage = 0
+    var loadedPage by mutableStateOf(0)
     var items by mutableStateOf<List<Release>>(emptyList())
     var total by mutableStateOf(0)
     var stale by mutableStateOf(false)
     var exhausted by mutableStateOf(false)
+
+    /** Guard repeated key/scroll events even before Compose has redrawn the loading state. */
+    fun requestNextPage(): Boolean {
+        if (page != loadedPage || exhausted || items.size >= total) return false
+        page++
+        return true
+    }
 }
 
 class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
@@ -60,7 +68,7 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
     private val localDataMutex = Mutex()
     private var localRefresh: Job? = null
 
-    private var preferenceRefresh: Job? = null
+    private val pendingSections = mutableSetOf<UiSection>()
     private val watchedPreferences =
         listOf(
             app.getSharedPreferences("dream_cast_native", android.content.Context.MODE_PRIVATE),
@@ -71,21 +79,8 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
         )
     private val preferenceListener =
         android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, rawKey ->
-            val key = rawKey?.removePrefix("flutter.")
-            if (
-                key == null ||
-                    key.startsWith("notifications.") ||
-                    key.startsWith("library.") ||
-                    key.startsWith("settings.") ||
-                    key == "search.history"
-            ) {
-                preferenceRefresh?.cancel()
-                preferenceRefresh =
-                    viewModelScope.launch {
-                        kotlinx.coroutines.delay(75)
-                        changed()
-                    }
-            }
+            val sections = uiSectionsForPreference(rawKey)
+            if (sections.isNotEmpty()) refreshLocalData(sections)
         }
 
     init {
@@ -102,22 +97,39 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
         super.onCleared()
     }
 
-    private fun refreshLocalData() {
-        localRefresh?.cancel()
+    private fun refreshLocalData(sections: Set<UiSection> = UiSection.entries.toSet()) {
+        pendingSections.addAll(sections)
+        if (localRefresh?.isActive == true) return
         localRefresh =
             viewModelScope.launch {
-                ui =
-                    withContext(Dispatchers.IO) {
-                        localDataMutex.withLock { storage.readUiSnapshot() }
+                // Merge preference callbacks and explicit mutations, including multi-key changes.
+                if (uiReady) kotlinx.coroutines.delay(75)
+                while (pendingSections.isNotEmpty()) {
+                    val requested = pendingSections.toSet()
+                    pendingSections.clear()
+                    val previous = ui
+                    try {
+                        application.awaitStorageReady()
+                        ui =
+                            withContext(Dispatchers.IO) {
+                                localDataMutex.withLock {
+                                    storage.readUiSnapshot(previous, requested)
+                                }
+                            }
+                        uiReady = true
+                    } catch (cancel: kotlinx.coroutines.CancellationException) {
+                        throw cancel
+                    } catch (error: Exception) {
+                        android.util.Log.e("DCTV_UI", "Could not refresh local data", error)
                     }
-                uiReady = true
+                }
             }
     }
 
-    fun mutateLocal(after: () -> Unit = {}, action: Storage.() -> Unit) {
+    fun mutateLocal(section: UiSection, after: () -> Unit = {}, action: Storage.() -> Unit) {
         viewModelScope.launch {
             withContext(Dispatchers.IO) { localDataMutex.withLock { storage.action() } }
-            changed()
+            changed(section)
             after()
         }
     }
@@ -125,10 +137,11 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
     fun refreshPlayerProgress(context: android.content.Context) {
         val appContext = context.applicationContext
         viewModelScope.launch {
+            application.progressWriter.awaitPending()
             withContext(Dispatchers.IO) {
                 localDataMutex.withLock { storage.syncVlcProgress(appContext) }
             }
-            changed()
+            changed(UiSection.PROGRESS)
         }
     }
 
@@ -136,7 +149,10 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
     var playbackError by mutableStateOf<String?>(null)
     var pendingStreams by mutableStateOf<Pair<Pair<Release, Episode>, List<VideoStream>>?>(null)
     var preparing by mutableStateOf(false)
-    val feeds = mutableMapOf<String, FeedState>()
+    private val feeds = FeedCache()
+
+    fun feed(key: String): FeedState = feeds.getOrCreate(key)
+
     val route
         get() = routes.last()
 
@@ -155,9 +171,9 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
         if (routes.size > 1) routes = routes.dropLast(1)
     }
 
-    fun changed() {
-        revision++
-        refreshLocalData()
+    fun changed(section: UiSection) {
+        if (section == UiSection.CACHE) revision++
+        refreshLocalData(setOf(section))
     }
 
     fun saveNavigation() = JSONArray(routes.map { it.json() }).toString()
@@ -216,6 +232,7 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
 }
 
 class MainActivity : ComponentActivity() {
+    private var playbackLaunch: Job? = null
     val model: AppViewModel by viewModels()
     private var softwareRelease: Release? = null
     private var softwareEpisode: Episode? = null
@@ -303,27 +320,43 @@ class MainActivity : ComponentActivity() {
     }
 
     fun launchPlayback(release: Release, episode: Episode, stream: VideoStream) {
+        if (playbackLaunch?.isActive == true) return
         model.pendingStreams = null
-        val progress = model.storage.progress(release.id, episode.id)
-        if (model.software) {
-            model.storage.saveProgress(
-                release,
-                episode,
-                if (progress?.watched == true) 0 else progress?.positionMs ?: 0,
-                progress?.durationMs ?: 0,
-            )
-            softwareRelease = release
-            softwareEpisode = episode
-            softwareStreamType = stream.type
-            SoftwareLauncher.launch(
-                this,
-                release,
-                episode,
-                stream,
-                model.storage.progress(release.id, episode.id),
-                model.storage,
-            )
-        } else HardwareLauncher.launch(this, release, episode, stream)
+        playbackLaunch =
+            lifecycleScope.launch {
+                try {
+                    model.application.awaitStorageReady()
+                    model.application.progressWriter.awaitPending()
+                    if (model.software) {
+                        val progress =
+                            withContext(Dispatchers.IO) {
+                                val previous = model.storage.progress(release.id, episode.id)
+                                model.storage.saveProgress(
+                                    release,
+                                    episode,
+                                    if (previous?.watched == true) 0 else previous?.positionMs ?: 0,
+                                    previous?.durationMs ?: 0,
+                                )
+                                model.storage.progress(release.id, episode.id)
+                            }
+                        softwareRelease = release
+                        softwareEpisode = episode
+                        softwareStreamType = stream.type
+                        SoftwareLauncher.launch(
+                            this@MainActivity,
+                            release,
+                            episode,
+                            stream,
+                            progress,
+                            model.storage,
+                        )
+                    } else HardwareLauncher.launch(this@MainActivity, release, episode, stream)
+                } catch (cancel: kotlinx.coroutines.CancellationException) {
+                    throw cancel
+                } catch (error: Exception) {
+                    model.playbackError = error.message ?: "Не удалось открыть плеер"
+                }
+            }
     }
 
     @Deprecated("Legacy LibVLC Activity result contract")
@@ -333,19 +366,21 @@ class MainActivity : ComponentActivity() {
             val release = softwareRelease ?: return
             val episode = softwareEpisode ?: return
             if (!data.getBooleanExtra("playbackError", false))
-                model.storage.saveProgress(
-                    release,
-                    episode,
-                    data.getLongExtra("positionMs", 0),
-                    data.getLongExtra("durationMs", 0),
-                    data.getBooleanExtra("completed", false),
+                model.application.progressWriter.save(
+                    ProgressSnapshot(
+                        release,
+                        episode,
+                        data.getLongExtra("positionMs", 0),
+                        data.getLongExtra("durationMs", 0),
+                        data.getBooleanExtra("completed", false),
+                    )
                 )
             if (data.hasExtra("quality"))
                 model.storage.put(
                     "software_av1_quality",
                     data.getIntExtra("quality", 720).toString(),
                 )
-            model.changed()
+            model.refreshPlayerProgress(this)
             if (data.getBooleanExtra("nextEpisode", false))
                 openNextSoftwareEpisode(release, episode)
             else if (

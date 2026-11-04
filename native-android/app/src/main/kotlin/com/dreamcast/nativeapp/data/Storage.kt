@@ -14,15 +14,17 @@ class Storage(context: Context) {
         context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
     private val nativePreferences =
         context.getSharedPreferences("dream_cast_native", Context.MODE_PRIVATE)
-    private val database: SQLiteDatabase
+    private val databaseDelegate = lazy { openDatabase(context.applicationContext) }
+    private val database: SQLiteDatabase by databaseDelegate
 
     fun close() {
-        database.close()
+        if (databaseDelegate.isInitialized()) database.close()
     }
 
-    init {
+    private fun openDatabase(context: Context): SQLiteDatabase {
         val directory = File(context.applicationInfo.dataDir, "app_flutter").apply { mkdirs() }
-        database = SQLiteDatabase.openOrCreateDatabase(File(directory, "dream_cast.sqlite"), null)
+        val database =
+            SQLiteDatabase.openOrCreateDatabase(File(directory, "dream_cast.sqlite"), null)
         database.rawQuery("PRAGMA busy_timeout=15000", null).use { it.moveToFirst() }
         database.enableWriteAheadLogging()
         database.execSQL(
@@ -37,14 +39,39 @@ class Storage(context: Context) {
         database.execSQL(
             "CREATE TABLE IF NOT EXISTS watch_entries (release_id TEXT NOT NULL, episode_id TEXT NOT NULL, release_title TEXT NOT NULL, episode_title TEXT NOT NULL, poster_url TEXT, episode_ordinal INTEGER NOT NULL, position_ms INTEGER NOT NULL DEFAULT 0, duration_ms INTEGER, is_watched INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL, PRIMARY KEY(release_id,episode_id))"
         )
+        return database
     }
 
-    fun string(key: String, default: String = "") =
-        (nativePreferences.all[key] ?: preferences.all["flutter.$key"]) as? String ?: default
+    private fun preferenceFor(key: String): Pair<android.content.SharedPreferences, String> =
+        if (nativePreferences.contains(key)) nativePreferences to key
+        else preferences to "flutter.$key"
+
+    fun string(key: String, default: String = ""): String {
+        val (source, name) = preferenceFor(key)
+        return try {
+            source.getString(name, default) ?: default
+        } catch (_: ClassCastException) {
+            default
+        }
+    }
 
     fun number(key: String, default: Long = 0): Long {
-        val value = nativePreferences.all[key] ?: preferences.all["flutter.$key"]
-        return (value as? Number)?.toLong() ?: (value as? String)?.toLongOrNull() ?: default
+        val (source, name) = preferenceFor(key)
+        if (!source.contains(name)) return default
+        try {
+            return source.getLong(name, default)
+        } catch (_: ClassCastException) {}
+        try {
+            return source.getInt(name, 0).toLong()
+        } catch (_: ClassCastException) {}
+        try {
+            return source.getFloat(name, 0f).toLong()
+        } catch (_: ClassCastException) {}
+        return try {
+            source.getString(name, null)?.toLongOrNull() ?: default
+        } catch (_: ClassCastException) {
+            default
+        }
     }
 
     fun boolean(key: String, default: Boolean = false) =
@@ -77,13 +104,17 @@ class Storage(context: Context) {
     }
 
     fun records(prefix: String): List<Pair<String, JSONObject>> {
-        val combined =
-            preferences.all.mapKeys { it.key.removePrefix("flutter.") } + nativePreferences.all
-        return combined
-            .filterKeys { it.startsWith(prefix) }
-            .mapNotNull { (key, value) ->
-                runCatching { key to JSONObject(value as String) }.getOrNull()
-            }
+        val matching = LinkedHashMap<String, Any?>()
+        preferences.all.forEach { (rawKey, value) ->
+            val key = rawKey.removePrefix("flutter.")
+            if (key.startsWith(prefix)) matching[key] = value
+        }
+        nativePreferences.all.forEach { (key, value) ->
+            if (key.startsWith(prefix)) matching[key] = value
+        }
+        return matching.mapNotNull { (key, value) ->
+            runCatching { key to JSONObject(value as String) }.getOrNull()
+        }
     }
 
     fun bookmarks(): List<Bookmark> =
@@ -267,10 +298,23 @@ class Storage(context: Context) {
     }
 
     fun progress(releaseId: Int, episodeId: String): WatchProgress? {
-        recentProgress()
-            .firstOrNull { it.release.id == releaseId && it.episodeId == episodeId }
-            ?.let {
-                return it
+        database
+            .rawQuery(
+                "SELECT release_title,episode_title,poster_url,episode_ordinal,position_ms,duration_ms,is_watched,updated_at FROM watch_entries WHERE release_id=? AND episode_id=?",
+                arrayOf(releaseId.toString(), episodeId),
+            )
+            .use {
+                if (it.moveToFirst())
+                    return WatchProgress(
+                        Release(releaseId, it.getString(0), posterUrl = it.getString(2).orEmpty()),
+                        episodeId,
+                        it.getString(1),
+                        it.getInt(3),
+                        it.getLong(4),
+                        it.getLong(5),
+                        it.getInt(6) != 0,
+                        it.getLong(7) * 1000,
+                    )
             }
         return database
             .rawQuery(

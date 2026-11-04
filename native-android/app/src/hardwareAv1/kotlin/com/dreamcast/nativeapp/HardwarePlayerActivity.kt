@@ -25,8 +25,10 @@ import com.dreamcast.app.SoftwarePlayerControls
 import com.dreamcast.app.showPlayerMenu
 import com.dreamcast.nativeapp.data.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
@@ -188,7 +190,9 @@ class HardwarePlayerActivity : ComponentActivity() {
                     episode = found
                     streams = PlayerJs.streams(found)
                     require(streams.isNotEmpty()) { "Потоки видео не найдены" }
-                    val progress = app.storage.progress(release.id, found.id)
+                    app.progressWriter.awaitPending()
+                    val progress =
+                        withContext(Dispatchers.IO) { app.storage.progress(release.id, found.id) }
                     if (resumePosition == 0L && progress?.watched != true)
                         resumePosition = progress?.positionMs ?: 0
                     controls.title.text = release.title
@@ -326,7 +330,7 @@ class HardwarePlayerActivity : ComponentActivity() {
         if (!ready || exo.playerError != null) return
         val duration = exo.duration.coerceAtLeast(0)
         resumePosition = exo.currentPosition.coerceAtLeast(0)
-        app.storage.saveProgress(release, ep, resumePosition, duration, completed)
+        app.progressWriter.save(ProgressSnapshot(release, ep, resumePosition, duration, completed))
     }
 
     private fun nextEpisode() {

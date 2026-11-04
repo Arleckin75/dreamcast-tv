@@ -101,6 +101,8 @@ class SiteClient(
 }
 
 class Repository(val storage: Storage, val site: SiteClient = SiteClient()) {
+    private val parsedCache = ParsedCache()
+
     /** Reuse a recent signed playlist; renew the page and playlist together after two hours. */
     suspend fun playback(release: Release, refresh: Boolean = false): Pair<Release, List<Episode>> {
         val entry =
@@ -119,17 +121,21 @@ class Repository(val storage: Storage, val site: SiteClient = SiteClient()) {
         ) to playlist
     }
 
-    private suspend fun <T> cached(
+    private suspend fun <T : Any> cached(
         key: String,
         ttl: Long,
         refresh: Boolean = false,
+        parseContext: Any? = null,
         parse: (String) -> T,
         fetch: suspend () -> String,
     ): Cached<T> {
         val old = withContext(Dispatchers.IO) { storage.cache(key) }
         val parsed =
             withContext(Dispatchers.Default) {
-                old?.let { runCatching { parse(it.value) }.getOrNull() }
+                old?.let {
+                    runCatching { parsedCache.parse(key, parseContext, it.value, parse) }
+                        .getOrNull()
+                }
             }
         val now = System.currentTimeMillis()
         val fresh =
@@ -139,7 +145,10 @@ class Repository(val storage: Storage, val site: SiteClient = SiteClient()) {
         if (!refresh && fresh && parsed != null) return Cached(parsed, false)
         try {
             val text = fetch()
-            val result = withContext(Dispatchers.Default) { parse(text) }
+            val result =
+                withContext(Dispatchers.Default) {
+                    parsedCache.parse(key, parseContext, text, parse)
+                }
             withContext(Dispatchers.IO) { storage.putCache(key, text) }
             return Cached(result, false)
         } catch (cancel: CancellationException) {
@@ -199,6 +208,7 @@ class Repository(val storage: Storage, val site: SiteClient = SiteClient()) {
             "dreamcast:detail:${release.id}",
             8 * 3600000L,
             refresh,
+            parseContext = release,
             parse = {
                 if (it.trimStart().startsWith("{")) {
                     val json = JSONObject(it)

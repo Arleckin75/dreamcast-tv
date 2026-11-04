@@ -17,6 +17,86 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [28], manifest = Config.NONE)
 class StorageTest {
+    @Test
+    fun `point progress still reads legacy position without watch entry`() {
+        storage.profile() // Initialize the schema before inserting an old-format position.
+        val path = File(context.applicationInfo.dataDir, "app_flutter/dream_cast.sqlite")
+        SQLiteDatabase.openDatabase(path.path, null, SQLiteDatabase.OPEN_READWRITE).use {
+            it.execSQL("INSERT INTO playback_positions VALUES('91','legacy',12345,60000,100)")
+        }
+        val progress = storage.progress(91, "legacy")!!
+        assertEquals(12345L, progress.positionMs)
+        assertEquals(60000L, progress.durationMs)
+        assertEquals(100000L, progress.updatedAt)
+        assertFalse(progress.watched)
+    }
+
+    @Test
+    fun `filtered preference records retain native precedence and ignore malformed values`() {
+        context
+            .getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            .edit()
+            .putString("flutter.test.item.one", """{"value":"legacy"}""")
+            .putString("flutter.test.item.two", """{"value":"legacy only"}""")
+            .putString("flutter.test.item.hidden", """{"value":"shadowed"}""")
+            .putString("flutter.unrelated", "invalid JSON")
+            .commit()
+        storage.put("test.item.one", """{"value":"native"}""")
+        storage.put("test.item.hidden", "invalid JSON")
+        val records = storage.records("test.item.").toMap()
+        assertEquals(2, records.size)
+        assertEquals("native", records["test.item.one"]!!.getString("value"))
+        assertEquals("legacy only", records["test.item.two"]!!.getString("value"))
+    }
+
+    @Test
+    fun `settings and close do not create a database`() {
+        val path = File(context.applicationInfo.dataDir, "app_flutter/dream_cast.sqlite")
+        assertFalse(path.exists())
+        storage.put("settings.theme_mode", "light")
+        assertEquals("light", storage.string("settings.theme_mode"))
+        storage.close()
+        assertFalse(path.exists())
+    }
+
+    @Test
+    fun `typed preference reads preserve numeric formats and native precedence`() {
+        val legacy = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+        legacy
+            .edit()
+            .putLong("flutter.long", 123)
+            .putInt("flutter.int", 42)
+            .putFloat("flutter.float", 4.5f)
+            .putString("flutter.text", "720")
+            .putBoolean("flutter.invalid", true)
+            .putString("flutter.override", "legacy")
+            .commit()
+        assertEquals(123L, storage.number("long"))
+        assertEquals(42L, storage.number("int"))
+        assertEquals(4L, storage.number("float"))
+        assertEquals(720L, storage.number("text"))
+        assertEquals(9L, storage.number("invalid", 9))
+        assertEquals("fallback", storage.string("long", "fallback"))
+        storage.put("override", "native")
+        assertEquals("native", storage.string("override"))
+        storage.put("override", true)
+        assertEquals("fallback", storage.string("override", "fallback"))
+    }
+
+    @Test
+    fun `point progress query matches history metadata without mixing episodes`() {
+        val release = Release(31, "Title", posterUrl = "poster")
+        val first = Episode("one", 31, 1, "First", "")
+        val second = Episode("two", 31, 2, "Second", "")
+        storage.saveProgress(release, first, 10000, 10000, true)
+        storage.saveProgress(release, second, 2000, 10000)
+        val history = storage.recentProgress()
+        assertEquals(history.first { it.episodeId == "one" }, storage.progress(31, "one"))
+        assertEquals(history.first { it.episodeId == "two" }, storage.progress(31, "two"))
+        assertNull(storage.progress(32, "one"))
+        assertNull(storage.progress(31, "missing"))
+    }
+
     private lateinit var context: Context
     private lateinit var storage: Storage
 
@@ -121,6 +201,7 @@ class StorageTest {
     fun `opening an existing Drift database retains rows and schema version`() {
         storage.close()
         val path = File(context.applicationInfo.dataDir, "app_flutter/dream_cast.sqlite")
+        path.parentFile!!.mkdirs()
         SQLiteDatabase.deleteDatabase(path)
         val schema =
             JSONObject(javaClass.classLoader!!.getResource("flutter_schema_v3.json")!!.readText())

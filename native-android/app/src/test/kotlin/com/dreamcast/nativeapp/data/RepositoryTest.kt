@@ -19,6 +19,95 @@ import org.robolectric.annotation.Config
 @Config(application = Application::class, sdk = [28], manifest = Config.NONE)
 class RepositoryTest {
     @Test
+    fun `invalid refresh preserves cached data and next valid refresh replaces it`() = runBlocking {
+        fun response(title: String) =
+            MockResponse().setBody("""{"releases":[{"id":1,"russian":"$title"}],"count":1}""")
+        server.enqueue(response("Original"))
+        val original = repository.releases()
+        server.enqueue(MockResponse().setBody("invalid JSON"))
+        val fallback = repository.releases(refresh = true)
+        assertTrue(fallback.stale)
+        assertSame(original.items, fallback.items)
+        val reused = repository.releases()
+        assertFalse(reused.stale)
+        assertSame(original.items, reused.items)
+        server.enqueue(response("Recovered"))
+        assertEquals("Recovered", repository.releases(refresh = true).items.single().title)
+        assertEquals(3, server.requestCount)
+    }
+
+    @Test
+    fun `playback renewal replaces parsed playlist and stream URLs`() = runBlocking {
+        fun page(file: String): MockResponse {
+            val payload =
+                "#2" +
+                    java.util.Base64.getEncoder()
+                        .encodeToString(
+                            """{"file":"https://example.com/$file.mp4"}""".toByteArray()
+                        )
+            return MockResponse()
+                .setBody(
+                    """<h3>Release</h3><script src="/js/playerjs.js"></script><script>new Playerjs('$payload')</script>"""
+                )
+        }
+        val release = Release(1, "Release", url = server.url("/home/release/1").toString())
+        server.enqueue(page("old"))
+        val first = repository.playback(release).second
+        assertTrue(PlayerJs.streams(first.single()).single().url.contains("old.mp4"))
+        server.enqueue(page("renewed"))
+        val renewed = repository.playback(release, refresh = true).second
+        assertTrue(PlayerJs.streams(renewed.single()).single().url.contains("renewed.mp4"))
+        val reused = repository.playback(release).second
+        assertSame(renewed, reused)
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
+    fun `parsed cache reuses objects but refresh and disk clearing still fetch new data`() =
+        runBlocking {
+            fun response(title: String) =
+                MockResponse().setBody("""{"releases":[{"id":1,"russian":"$title"}],"count":1}""")
+            server.enqueue(response("Original"))
+            val first = repository.releases()
+            val reused = repository.releases()
+            assertSame(first.items, reused.items)
+            assertEquals(1, server.requestCount)
+            server.enqueue(response("Updated"))
+            assertEquals("Updated", repository.releases(refresh = true).items.single().title)
+            storage.clearCache()
+            server.enqueue(response("After clear"))
+            assertEquals("After clear", repository.releases().items.single().title)
+            assertEquals(3, server.requestCount)
+        }
+
+    @Test
+    fun `parsed objects do not hide external disk changes or expiration`() = runBlocking {
+        val key = "dreamcast:releases:ongoing:1:16"
+        fun json(title: String) = """{"releases":[{"id":1,"russian":"$title"}],"count":1}"""
+        storage.putCache(key, json("First"))
+        assertEquals("First", repository.releases().items.single().title)
+        storage.putCache(key, json("External update"))
+        assertEquals("External update", repository.releases().items.single().title)
+        storage.retention(-1)
+        server.enqueue(MockResponse().setBody(json("Renewed")))
+        assertEquals("Renewed", repository.releases().items.single().title)
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun `detail parser fallback follows changed release metadata`() = runBlocking {
+        storage.putCache(
+            "dreamcast:detail:1",
+            """{"playerPayload":"cached","playerScriptUrl":"script"}""",
+        )
+        val first = repository.detail(Release(1, "First"))
+        val second = repository.detail(Release(1, "Second"))
+        assertEquals("First", first.value.release.title)
+        assertEquals("Second", second.value.release.title)
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
     fun `playback reuses fresh playlist and explicit renewal refetches the page`() = runBlocking {
         val payload =
             "#2" +

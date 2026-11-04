@@ -3,7 +3,7 @@ package com.dreamcast.nativeapp
 import com.dreamcast.nativeapp.data.*
 
 object SoftwareLauncher {
-    fun launch(
+    suspend fun launch(
         activity: MainActivity,
         release: Release,
         episode: Episode,

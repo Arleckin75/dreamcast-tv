@@ -1,7 +1,9 @@
 package com.dreamcast.nativeapp.data
 
 import android.app.Application
+import com.dreamcast.nativeapp.UiSection
 import com.dreamcast.nativeapp.readUiSnapshot
+import com.dreamcast.nativeapp.uiSectionsForPreference
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.*
@@ -81,5 +83,69 @@ class UiSnapshotTest {
         assertEquals(30000L, refreshed.continueWatching.single().positionMs)
         assertEquals(0, refreshed.unreadNotifications)
         assertFalse(refreshed.notifications.single().unread)
+    }
+
+    @Test
+    fun `settings refresh does not open database or replace unrelated collections`() {
+        val show = Release(31, "Show")
+        storage.saveProgress(show, Episode("one", 31, 1, "Episode", ""), 100, 1000)
+        storage.bookmark(show, LibraryStatus.planned)
+        storage.saveSearch("Show")
+        val before = storage.readUiSnapshot()
+        storage.put("settings.theme_mode", "light")
+        storage.put("player.preferred_stream_technology", "dash")
+        // Any accidental progress/profile read would fail against this closed database.
+        storage.close()
+        val after = storage.readUiSnapshot(before, setOf(UiSection.SETTINGS))
+        assertEquals("light", after.theme)
+        assertEquals("dash", after.streamTechnology)
+        assertSame(before.bookmarks, after.bookmarks)
+        assertSame(before.progressByRelease, after.progressByRelease)
+        assertSame(before.continueWatching, after.continueWatching)
+        assertSame(before.searchHistory, after.searchHistory)
+        assertSame(before.notifications, after.notifications)
+        // Restore the fixture for @After.
+        storage = Storage(RuntimeEnvironment.getApplication())
+    }
+
+    @Test
+    fun `partial updates merge without losing earlier changes`() {
+        val show = Release(32, "Show")
+        val before = storage.readUiSnapshot()
+        storage.bookmark(show, LibraryStatus.watching)
+        storage.saveSearch("Updated query")
+        storage.put("settings.accent", "rose")
+        val library = storage.readUiSnapshot(before, setOf(UiSection.BOOKMARKS))
+        assertEquals(LibraryStatus.watching, library.bookmarksById[32]!!.status)
+        assertSame(before.searchHistory, library.searchHistory)
+        val merged = storage.readUiSnapshot(library, setOf(UiSection.SETTINGS, UiSection.SEARCH))
+        assertSame(library.bookmarks, merged.bookmarks)
+        assertEquals("rose", merged.accent)
+        assertEquals(listOf("Updated query"), merged.searchHistory)
+    }
+
+    @Test
+    fun `preference invalidation targets only affected sections including legacy keys`() {
+        assertEquals(
+            setOf(UiSection.SETTINGS),
+            uiSectionsForPreference("flutter.settings.theme_mode"),
+        )
+        assertEquals(
+            setOf(UiSection.SETTINGS),
+            uiSectionsForPreference("player.preferred_stream_technology"),
+        )
+        assertEquals(setOf(UiSection.SEARCH), uiSectionsForPreference("search.history"))
+        assertEquals(setOf(UiSection.BOOKMARKS), uiSectionsForPreference("library.release.item.1"))
+        assertEquals(
+            setOf(UiSection.SUBSCRIPTIONS),
+            uiSectionsForPreference("notifications.release.item.1"),
+        )
+        assertEquals(
+            setOf(UiSection.NOTIFICATIONS),
+            uiSectionsForPreference("notifications.history.item.1"),
+        )
+        assertEquals(setOf(UiSection.CACHE), uiSectionsForPreference("cache.retention.native"))
+        assertTrue(uiSectionsForPreference("progress.updatedAt.1:one").isEmpty())
+        assertEquals(UiSection.entries.toSet(), uiSectionsForPreference(null))
     }
 }

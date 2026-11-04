@@ -189,6 +189,8 @@ internal class SoftwarePlayerControls(
     private var activeQuality = 720
     private var duration = 0L
     private var position = 0L
+    private var playbackPlaying = false
+    private var playbackSeekable = false
     private var dragging = false
     private var errorVisible = false
     private var shown = true
@@ -389,21 +391,33 @@ internal class SoftwarePlayerControls(
     fun update(positionMs: Long, durationMs: Long, playing: Boolean, seekable: Boolean) {
         position = positionMs.coerceAtLeast(0)
         duration = durationMs.coerceAtLeast(0)
+        playbackPlaying = playing
+        playbackSeekable = seekable
+        if (shown) renderPlaybackState()
+    }
+
+    private fun renderPlaybackState() {
         if (!dragging) {
-            positionLabel.text = formatTime(position)
+            val text = formatTime(position)
+            if (positionLabel.text.toString() != text) positionLabel.text = text
             timeline.progress =
                 if (duration > 0) (position.coerceAtMost(duration) * 1000 / duration).toInt() else 0
         }
-        durationLabel.text = if (duration > 0) formatTime(duration) else "--:--"
-        timeline.isEnabled = seekable && duration > 0
-        toggle.kind = if (playing) "pause" else "play"
-        toggle.contentDescription = if (playing) "Пауза" else "Воспроизвести"
-        toggle.invalidate()
+        val durationText = if (duration > 0) formatTime(duration) else "--:--"
+        if (durationLabel.text.toString() != durationText) durationLabel.text = durationText
+        timeline.isEnabled = playbackSeekable && duration > 0
+        val kind = if (playbackPlaying) "pause" else "play"
+        if (toggle.kind != kind) {
+            toggle.kind = kind
+            toggle.contentDescription = if (playbackPlaying) "Пауза" else "Воспроизвести"
+            toggle.invalidate()
+        }
     }
 
     fun show(focus: Boolean = false) {
         if (!shown) {
             shown = true
+            renderPlaybackState()
             panel.animate().cancel()
             bottom.animate().cancel()
             if (panel.visibility != View.VISIBLE) {

@@ -256,7 +256,8 @@ private fun DreamAppContent(model: AppViewModel, activity: MainActivity) {
                         if (rememberChoice && stream.type in listOf("hls", "dash")) {
                             model.pendingStreams = null
                             model.mutateLocal(
-                                after = { activity.launchPlayback(pair.first, pair.second, stream) }
+                                UiSection.SETTINGS,
+                                after = { activity.launchPlayback(pair.first, pair.second, stream) },
                             ) {
                                 put("player.preferred_stream_technology", stream.type)
                             }
@@ -759,14 +760,15 @@ private fun Search(model: AppViewModel) {
                     onSearch = {
                         val search = query.trim()
                         submitted = search
-                        if (search.isNotBlank()) model.mutateLocal { saveSearch(search) }
+                        if (search.isNotBlank())
+                            model.mutateLocal(UiSection.SEARCH) { saveSearch(search) }
                     }
                 ),
         )
         Action("Найти") {
             val search = query.trim()
             submitted = search
-            if (search.isNotBlank()) model.mutateLocal { saveSearch(search) }
+            if (search.isNotBlank()) model.mutateLocal(UiSection.SEARCH) { saveSearch(search) }
         }
     }
     Spacer(Modifier.height(12.dp))
@@ -780,7 +782,7 @@ private fun Search(model: AppViewModel) {
                         query = item
                         submitted = item
                     }
-                    Action("Удалить") { model.mutateLocal { removeSearch(item) } }
+                    Action("Удалить") { model.mutateLocal(UiSection.SEARCH) { removeSearch(item) } }
                 }
             }
         }
@@ -790,7 +792,7 @@ private fun Search(model: AppViewModel) {
 @Composable
 private fun ReleaseFeed(model: AppViewModel, filter: CatalogFilter, query: String) {
     val key = "${filter.cacheKey}:$query"
-    val feed = remember(key) { model.feeds.getOrPut(key) { FeedState() } }
+    val feed = remember(key) { model.feed(key) }
     var page by feed::page
     var retry by remember(key) { mutableIntStateOf(0) }
     var all by feed::items
@@ -799,15 +801,17 @@ private fun ReleaseFeed(model: AppViewModel, filter: CatalogFilter, query: Strin
     var exhausted by feed::exhausted
     val data =
         resource("$key:$page:$retry") {
-            model.repository.releases(query, filter, page, refresh = retry > 0)
+            feed to model.repository.releases(query, filter, page, refresh = retry > 0)
         }
-    LaunchedEffect(data.value) {
-        data.value?.let { response ->
+    val response = data.value?.takeIf { it.first === feed }?.second
+    // Do not request another page until the current response has been merged and published.
+    val loading = data.loading || (data.error == null && page > feed.loadedPage)
+    LaunchedEffect(feed, response) {
+        response?.let { response ->
             if (response.page <= feed.loadedPage) return@LaunchedEffect
-            val added =
-                if (page == 1) response.items else (all + response.items).distinctBy { it.id }
-            exhausted = page > 1 && added.size == all.size
-            all = added
+            val merged = mergeFeedPage(all, response)
+            exhausted = merged.exhausted
+            all = merged.items
             total = response.total
             stale = stale || response.stale
             feed.loadedPage = response.page
@@ -816,7 +820,7 @@ private fun ReleaseFeed(model: AppViewModel, filter: CatalogFilter, query: Strin
     val grid = rememberLazyGridState()
     var focused by rememberSaveable(key) { mutableIntStateOf(-1) }
     val hasMore = !exhausted && all.size < total
-    LaunchedEffect(grid, key, hasMore, data.loading, data.error) {
+    LaunchedEffect(grid, key, hasMore, loading, data.error) {
         snapshotFlow { grid.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
             .distinctUntilChanged()
             .collect { last ->
@@ -824,16 +828,16 @@ private fun ReleaseFeed(model: AppViewModel, filter: CatalogFilter, query: Strin
                     last >= all.size - 8 &&
                         all.isNotEmpty() &&
                         hasMore &&
-                        !data.loading &&
+                        !loading &&
                         data.error == null
                 )
-                    page++
+                    feed.requestNextPage()
             }
     }
     Column(Modifier.fillMaxSize()) {
         if (stale) Stale()
-        if (data.loading && all.isEmpty()) Loading()
-        if (!data.loading && all.isEmpty() && data.error == null)
+        if (loading && all.isEmpty()) Loading()
+        if (!loading && all.isEmpty() && data.error == null)
             Text("Релизы не найдены", modifier = Modifier.padding(24.dp))
         if (all.isNotEmpty()) {
             Row(
@@ -856,9 +860,9 @@ private fun ReleaseFeed(model: AppViewModel, filter: CatalogFilter, query: Strin
                     }
                 }
                 item {
-                    if (data.loading) CircularProgressIndicator()
+                    if (loading) CircularProgressIndicator()
                     else if (data.error != null) Action("Повторить") { retry++ }
-                    else if (hasMore) Action("Загрузить ещё") { page++ }
+                    else if (hasMore) Action("Загрузить ещё") { feed.requestNextPage() }
                 }
             }
         }
@@ -1004,7 +1008,8 @@ private fun ReleaseDetail(model: AppViewModel, seed: Release) {
                 Action(status?.label ?: "В библиотеку") { bookmarkDialog = true }
                 Action(if (subscribed) "Отписаться" else "Новые серии") {
                     model.mutateLocal(
-                        after = { if (!subscribed) EpisodeScheduler.checkSoon(context) }
+                        UiSection.SUBSCRIPTIONS,
+                        after = { if (!subscribed) EpisodeScheduler.checkSoon(context) },
                     ) {
                         if (subscribed) remove("notifications.release.item.${release.id}")
                         else subscribe(release, release.currentEpisodes)
@@ -1026,7 +1031,9 @@ private fun ReleaseDetail(model: AppViewModel, seed: Release) {
             LibraryStatus.entries.map { it.label } + "Убрать из библиотеки",
             { bookmarkDialog = false },
         ) { index ->
-            model.mutateLocal { bookmark(release, LibraryStatus.entries.getOrNull(index)) }
+            model.mutateLocal(UiSection.BOOKMARKS) {
+                bookmark(release, LibraryStatus.entries.getOrNull(index))
+            }
             bookmarkDialog = false
         }
 }
@@ -1108,7 +1115,8 @@ private fun Episodes(model: AppViewModel, activity: MainActivity, release: Relea
                     if (watched != null && watched.positionMs > 0)
                         EpisodeAction("С начала", Modifier.width(restartWidth)) {
                             model.mutateLocal(
-                                after = { model.prepare(activity, release, episode.id) }
+                                UiSection.PROGRESS,
+                                after = { model.prepare(activity, release, episode.id) },
                             ) {
                                 saveProgress(release, episode, 0, watched.durationMs)
                             }
@@ -1206,7 +1214,7 @@ private fun Settings(model: AppViewModel) {
                 "Цвета системы: ${if(model.ui.dynamicColor)"включены" else "выключены"}",
                 Modifier.fillMaxWidth(),
             ) {
-                model.mutateLocal {
+                model.mutateLocal(UiSection.SETTINGS) {
                     put("settings.dynamic_color", !boolean("settings.dynamic_color", true))
                 }
             }
@@ -1226,7 +1234,7 @@ private fun Settings(model: AppViewModel) {
         "theme" ->
             ChoiceDialog("Тема", listOf("Системная", "Светлая", "Тёмная"), { dialog = "" }) { index
                 ->
-                model.mutateLocal {
+                model.mutateLocal(UiSection.SETTINGS) {
                     put("settings.theme_mode", listOf("system", "light", "dark")[index])
                 }
                 dialog = ""
@@ -1237,7 +1245,7 @@ private fun Settings(model: AppViewModel) {
                 listOf("Системный", "Синий", "Зелёный", "Фиолетовый", "Розовый"),
                 { dialog = "" },
             ) { index ->
-                model.mutateLocal {
+                model.mutateLocal(UiSection.SETTINGS) {
                     put(
                         "settings.accent",
                         listOf("system", "blue", "green", "violet", "rose")[index],
@@ -1251,7 +1259,7 @@ private fun Settings(model: AppViewModel) {
                 listOf("Выбирать вручную", "HLS", "DASH"),
                 { dialog = "" },
             ) { index ->
-                model.mutateLocal {
+                model.mutateLocal(UiSection.SETTINGS) {
                     put("player.preferred_stream_technology", listOf("none", "hls", "dash")[index])
                 }
                 dialog = ""
@@ -1281,7 +1289,10 @@ private fun Profile(model: AppViewModel) {
         )
         Action("Сохранить", enabled = name.trim().isNotEmpty()) {
             val updatedName = name
-            model.mutateLocal(after = { if (name == updatedName) saved = true }) {
+            model.mutateLocal(
+                UiSection.PROFILE,
+                after = { if (name == updatedName) saved = true },
+            ) {
                 saveProfile(updatedName)
             }
         }
@@ -1301,7 +1312,7 @@ private fun Cache(model: AppViewModel) {
         Text(stats?.let { "Записей: ${it.first} • ${it.second/1024} КБ" } ?: "Подсчёт кэша…")
         Text("Срок хранения: ${model.ui.retentionHours.let{if(it==0L)"бессрочно" else "$it ч."}}")
         Action("Срок хранения") { retentionDialog = true }
-        Action("Очистить просроченные") { model.mutateLocal { clearExpired() } }
+        Action("Очистить просроченные") { model.mutateLocal(UiSection.CACHE) { clearExpired() } }
         Action("Очистить весь кэш") { clearDialog = true }
     }
     if (retentionDialog)
@@ -1310,7 +1321,9 @@ private fun Cache(model: AppViewModel) {
             listOf("8 часов", "12 часов", "1 день", "3 дня", "7 дней", "30 дней", "Бессрочно"),
             { retentionDialog = false },
         ) { index ->
-            model.mutateLocal { retention(listOf(8L, 12L, 24L, 72L, 168L, 720L, 0L)[index]) }
+            model.mutateLocal(UiSection.CACHE) {
+                retention(listOf(8L, 12L, 24L, 72L, 168L, 720L, 0L)[index])
+            }
             retentionDialog = false
         }
     if (clearDialog)
@@ -1322,7 +1335,7 @@ private fun Cache(model: AppViewModel) {
                 Action(
                     "Очистить",
                     onClick = {
-                        model.mutateLocal { clearCache() }
+                        model.mutateLocal(UiSection.CACHE) { clearCache() }
                         clearDialog = false
                     },
                 )
@@ -1335,7 +1348,7 @@ private fun Notifications(model: AppViewModel) {
     val entries = model.ui.notifications
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Action("Прочитать все") {
-            model.mutateLocal {
+            model.mutateLocal(UiSection.NOTIFICATIONS) {
                 entries.forEach { entry ->
                     put(
                         entry.key,
@@ -1347,7 +1360,9 @@ private fun Notifications(model: AppViewModel) {
                 }
             }
         }
-        Action("Очистить историю") { model.mutateLocal { entries.forEach { remove(it.key) } } }
+        Action("Очистить историю") {
+            model.mutateLocal(UiSection.NOTIFICATIONS) { entries.forEach { remove(it.key) } }
+        }
     }
     Spacer(Modifier.height(16.dp))
     if (entries.isEmpty()) Text("Уведомлений пока нет")
@@ -1358,7 +1373,7 @@ private fun Notifications(model: AppViewModel) {
                     "${if(entry.unread)"● " else ""}${release.title} • ${entry.message}",
                     Modifier.fillMaxWidth(),
                 ) {
-                    model.mutateLocal {
+                    model.mutateLocal(UiSection.NOTIFICATIONS) {
                         put(
                             entry.key,
                             org.json
