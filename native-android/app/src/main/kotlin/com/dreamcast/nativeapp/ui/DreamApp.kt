@@ -97,8 +97,17 @@ private fun <T> resource(key: Any, loader: suspend () -> T): Load<T> {
     return state
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DreamApp(model: AppViewModel, activity: MainActivity) {
+    // Keep focused items stationary until their reserved bounds leave the viewport.
+    CompositionLocalProvider(LocalBringIntoViewSpec provides VisibleItemScrollSpec) {
+        DreamAppContent(model, activity)
+    }
+}
+
+@Composable
+private fun DreamAppContent(model: AppViewModel, activity: MainActivity) {
     if (!model.uiReady) {
         Box(
             Modifier.fillMaxSize().background(Color(0xFF101114)),
@@ -439,7 +448,6 @@ private fun TopNavigation(model: AppViewModel) {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun Home(model: AppViewModel) {
     var retry by remember { mutableIntStateOf(0) }
@@ -460,73 +468,71 @@ private fun Home(model: AppViewModel) {
             listState.scrollToItem(0, 0)
         }
     }
-    CompositionLocalProvider(LocalBringIntoViewSpec provides VisibleItemScrollSpec) {
-        LazyColumn(
-            state = listState,
-            verticalArrangement = Arrangement.spacedBy(24.dp),
-            contentPadding = PaddingValues(bottom = 32.dp),
-        ) {
+    LazyColumn(
+        state = listState,
+        verticalArrangement = Arrangement.spacedBy(24.dp),
+        contentPadding = PaddingValues(bottom = 32.dp),
+    ) {
+        item {
+            if (featured != null)
+                FeaturedRelease(
+                    featured,
+                    index = featuredIndex,
+                    count = releases.size,
+                    autofocus = initialBannerFocus,
+                    onBannerFocusChange = {
+                        bannerFocused = it
+                        if (it) initialBannerFocus = false
+                    },
+                    onPrevious = {
+                        if (featuredIndex > 0) featuredId = releases[featuredIndex - 1].id
+                    },
+                    onNext = {
+                        if (featuredIndex < releases.lastIndex)
+                            featuredId = releases[featuredIndex + 1].id
+                    },
+                ) {
+                    model.navigate(Route("detail", featured))
+                }
+            else if (data.loading) Loading() else data.error?.let { ErrorState(it) { retry++ } }
+        }
+        if (data.value?.stale == true) item { Stale() }
+        if (recent.isNotEmpty())
             item {
-                if (featured != null)
-                    FeaturedRelease(
-                        featured,
-                        index = featuredIndex,
-                        count = releases.size,
-                        autofocus = initialBannerFocus,
-                        onBannerFocusChange = {
-                            bannerFocused = it
-                            if (it) initialBannerFocus = false
-                        },
-                        onPrevious = {
-                            if (featuredIndex > 0) featuredId = releases[featuredIndex - 1].id
-                        },
-                        onNext = {
-                            if (featuredIndex < releases.lastIndex)
-                                featuredId = releases[featuredIndex + 1].id
-                        },
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Продолжить просмотр", style = MaterialTheme.typography.titleLarge)
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(18.dp),
+                        contentPadding = PaddingValues(6.dp),
                     ) {
-                        model.navigate(Route("detail", featured))
-                    }
-                else if (data.loading) Loading() else data.error?.let { ErrorState(it) { retry++ } }
-            }
-            if (data.value?.stale == true) item { Stale() }
-            if (recent.isNotEmpty())
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("Продолжить просмотр", style = MaterialTheme.typography.titleLarge)
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(18.dp),
-                            contentPadding = PaddingValues(6.dp),
-                        ) {
-                            items(recent, key = { it.release.id }) { item ->
-                                Column(Modifier.width(220.dp)) {
-                                    Poster(item.release, landscape = true) {
-                                        model.navigate(
-                                            Route("episodes", item.release, item.episodeId)
-                                        )
-                                    }
-                                    LinearProgressIndicator(
-                                        progress = {
-                                            if (item.durationMs > 0)
-                                                (item.positionMs.toFloat() / item.durationMs)
-                                                    .coerceIn(0f, 1f)
-                                            else 0f
-                                        },
-                                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                                    )
-                                    Text(
-                                        "Серия ${item.ordinal}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        modifier = Modifier.padding(top = 6.dp),
-                                    )
+                        items(recent, key = { it.release.id }) { item ->
+                            Column(Modifier.width(220.dp)) {
+                                Poster(item.release, landscape = true) {
+                                    model.navigate(Route("episodes", item.release, item.episodeId))
                                 }
+                                LinearProgressIndicator(
+                                    progress = {
+                                        if (item.durationMs > 0)
+                                            (item.positionMs.toFloat() / item.durationMs).coerceIn(
+                                                0f,
+                                                1f,
+                                            )
+                                        else 0f
+                                    },
+                                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                                )
+                                Text(
+                                    "Серия ${item.ordinal}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.padding(top = 6.dp),
+                                )
                             }
                         }
                     }
                 }
-            if (releases.isNotEmpty())
-                item { Action("Все релизы  ›") { model.selectSection("catalog") } }
-        }
+            }
+        if (releases.isNotEmpty())
+            item { Action("Все релизы  ›") { model.selectSection("catalog") } }
     }
 }
 
