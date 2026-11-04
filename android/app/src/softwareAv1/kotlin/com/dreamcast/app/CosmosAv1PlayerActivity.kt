@@ -280,7 +280,7 @@ class CosmosAv1PlayerActivity : Activity() {
         root.addView(surface, FrameLayout.LayoutParams(-1, -1))
         controls = SoftwarePlayerControls(this, root,
             intent.getIntExtra("accent", 0xFFD0BCFF.toInt()), intent.getIntExtra("onAccent", 0xFF381E72.toInt()),
-            ::togglePlayback, ::seekBy, ::retryPlayback, ::exitToEpisodes,
+            ::togglePlayback, ::seekBy, ::retryPlayback,
             ::requestNextEpisode, intent.getStringExtra("nextTitle"), ::selectQuality, ::reveal).apply {
             title.text = intent.getStringExtra("title").orEmpty()
             subtitle.text = intent.getStringExtra("subtitle").orEmpty()

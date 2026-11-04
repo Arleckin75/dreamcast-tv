@@ -35,15 +35,24 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.constrainHeight
+import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Button as TvButton
+import androidx.tv.material3.ButtonDefaults as TvButtonDefaults
 import coil.compose.AsyncImage
 import com.dreamcast.nativeapp.*
+import com.dreamcast.nativeapp.R
 import com.dreamcast.nativeapp.data.*
 import java.time.Instant
 import kotlinx.coroutines.CancellationException
@@ -145,7 +154,6 @@ fun DreamApp(model: AppViewModel, activity: MainActivity) {
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(18.dp),
                         ) {
-                            Action("‹ Назад") { model.back() }
                             Text(
                                 when (route.name) {
                                     "settings" -> "Настройки"
@@ -192,9 +200,7 @@ fun DreamApp(model: AppViewModel, activity: MainActivity) {
                         onDismissRequest = { model.playbackError = null },
                         title = { Text("Не удалось открыть серию") },
                         text = { Text(error) },
-                        confirmButton = {
-                            TextButton(onClick = { model.playbackError = null }) { Text("Закрыть") }
-                        },
+                        confirmButton = {},
                     )
                 }
                 model.pendingStreams?.let { pending ->
@@ -212,18 +218,89 @@ fun DreamApp(model: AppViewModel, activity: MainActivity) {
     }
 }
 
+/** Reserve the maximum focused bounds even while unfocused, including an antialiasing margin. */
+private fun Modifier.reserveFocusScale(scale: Float): Modifier = layout { measurable, constraints ->
+    val edge = 1.dp.roundToPx()
+    fun shrink(value: Int) =
+        if (value == Constraints.Infinity) value
+        else ((value - edge * 2).coerceAtLeast(0) / scale).toInt()
+    val child =
+        measurable.measure(
+            Constraints(
+                minWidth = shrink(constraints.minWidth),
+                maxWidth = shrink(constraints.maxWidth),
+                minHeight = shrink(constraints.minHeight),
+                maxHeight = shrink(constraints.maxHeight),
+            )
+        )
+    val width = constraints.constrainWidth(kotlin.math.ceil(child.width * scale).toInt() + edge * 2)
+    val height =
+        constraints.constrainHeight(kotlin.math.ceil(child.height * scale).toInt() + edge * 2)
+    layout(width, height) {
+        child.placeRelative((width - child.width) / 2, (height - child.height) / 2)
+    }
+}
+
+/** Shared shape, palette and focus treatment for every text action in the TV UI. */
+@Composable
+private fun GuiButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    selected: Boolean = false,
+    iconOnly: Boolean = false,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+    content: @Composable RowScope.() -> Unit,
+) {
+    val foreground = MaterialTheme.colorScheme.onSurface
+    TvButton(
+        onClick = onClick,
+        modifier = modifier.reserveFocusScale(1.04f).heightIn(min = 44.dp),
+        enabled = enabled,
+        contentPadding = contentPadding,
+        shape = TvButtonDefaults.shape(shape = RoundedCornerShape(50)),
+        colors =
+            TvButtonDefaults.colors(
+                containerColor =
+                    foreground.copy(alpha = if (selected) 0.22f else if (iconOnly) 0f else 0.12f),
+                contentColor = foreground,
+                focusedContainerColor = foreground,
+                focusedContentColor = MaterialTheme.colorScheme.surface,
+            ),
+        scale =
+            TvButtonDefaults.scale(
+                focusedScale = 1.04f,
+                pressedScale = 1.04f,
+                focusedDisabledScale = 1.04f,
+            ),
+        content = content,
+    )
+}
+
 @Composable
 private fun Action(
     text: String,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     autofocus: Boolean = false,
+    selected: Boolean = false,
     onClick: () -> Unit,
 ) {
     val focus = remember { FocusRequester() }
     LaunchedEffect(enabled) { if (autofocus && enabled) focus.requestFocus() }
-    TvButton(onClick = onClick, modifier = modifier.focusRequester(focus), enabled = enabled) {
-        androidx.tv.material3.Text(text)
+    GuiButton(
+        onClick = onClick,
+        modifier = modifier.focusRequester(focus),
+        enabled = enabled,
+        selected = selected,
+    ) {
+        androidx.tv.material3.Text(
+            text,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -259,57 +336,73 @@ private fun Stale() {
 
 @Composable
 private fun TopNavigation(model: AppViewModel) {
+    val unread =
+        model.storage.records("notifications.history.item.").count { it.second.isNull("readAt") }
     val tabs =
         listOf(
-            "search" to "Поиск",
-            "home" to "Главная",
-            "catalog" to "# Каталог",
-            "library" to "Библиотека",
-            "schedule" to "Расписание",
+            Triple("catalog", "Каталог", R.drawable.ic_nav_catalog),
+            Triple("search", "Поиск", R.drawable.ic_nav_search),
+            Triple(
+                "notifications",
+                if (unread > 0) "Уведомления ($unread)" else "Уведомления",
+                R.drawable.ic_nav_notifications,
+            ),
+            Triple("library", "Библиотека", R.drawable.ic_nav_library),
+            Triple("schedule", "Расписание", R.drawable.ic_nav_schedule),
+            Triple("settings", "Настройки", R.drawable.ic_nav_settings),
         )
     Row(
         Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
     ) {
-        tabs.forEach { (route, label) ->
-            var focused by remember { mutableStateOf(false) }
-            val selected = model.route.name == route
+        tabs.forEach { (route, label, icon) ->
             val requester = remember { FocusRequester() }
             LaunchedEffect(Unit) {
-                if (route == "home" && model.route.name == "home") requester.requestFocus()
+                if (route == "search" && model.route.name == "home") requester.requestFocus()
             }
-            Text(
-                label,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium,
-                color =
-                    if (focused) Color(0xFF17181C)
-                    else if (selected) MaterialTheme.colorScheme.onSurface
-                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            GuiButton(
+                onClick = {
+                    if (route in listOf("notifications", "settings")) model.navigate(Route(route))
+                    else model.selectSection(route)
+                },
                 modifier =
-                    Modifier.focusRequester(requester)
-                        .onFocusChanged { focused = it.isFocused }
-                        .clip(RoundedCornerShape(50))
-                        .background(
-                            if (focused) Color(0xFFF1F1F3)
-                            else if (selected)
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
-                            else Color.Transparent
-                        )
-                        .clickable { model.selectSection(route) }
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-            )
-        }
-        Spacer(Modifier.weight(1f))
-        val unread =
-            model.storage.records("notifications.history.item.").count {
-                it.second.isNull("readAt")
+                    Modifier.size(44.dp).focusRequester(requester).semantics {
+                        contentDescription = label
+                    },
+                selected =
+                    model.route.name == route ||
+                        (route == "settings" &&
+                            model.route.name in listOf("profile", "cache", "about")),
+                iconOnly = true,
+                contentPadding = PaddingValues(0.dp),
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Icon(
+                        painterResource(icon),
+                        contentDescription = null,
+                        tint = androidx.tv.material3.LocalContentColor.current,
+                        modifier = Modifier.size(24.dp),
+                    )
+                    if (route == "notifications" && unread > 0) {
+                        Box(
+                            Modifier.align(Alignment.TopEnd)
+                                .padding(2.dp)
+                                .size(16.dp)
+                                .background(Color(0xFFBF223C), RoundedCornerShape(50)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                if (unread > 9) "9+" else unread.toString(),
+                                color = Color.White,
+                                fontSize = 9.sp,
+                                lineHeight = 10.sp,
+                            )
+                        }
+                    }
+                }
             }
-        Action(if (unread > 0) "Уведомления ($unread)" else "Уведомления") {
-            model.navigate(Route("notifications"))
         }
-        Action("Настройки") { model.navigate(Route("settings")) }
     }
 }
 
@@ -543,18 +636,12 @@ private fun Catalog(model: AppViewModel) {
                     }
                 },
                 confirmButton = {
-                    TextButton(
-                        onClick = {
-                            genres = draft.sorted().joinToString(",")
-                            genreDialog = false
-                        }
-                    ) {
-                        Text("Применить")
+                    Action("Применить") {
+                        genres = draft.sorted().joinToString(",")
+                        genreDialog = false
                     }
                 },
-                dismissButton = {
-                    TextButton(onClick = { draft = emptySet() }) { Text("Сбросить") }
-                },
+                dismissButton = { Action("Сбросить") { draft = emptySet() } },
             )
         }
 }
@@ -715,10 +802,11 @@ private fun Poster(
 ) {
     val requester = remember { FocusRequester() }
     var focused by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { if (restoreFocus) requester.requestFocus() }
     val scale by animateFloatAsState(if (focused) 1.035f else 1f, label = "posterFocus")
+    LaunchedEffect(Unit) { if (restoreFocus) requester.requestFocus() }
     Column(
         Modifier.fillMaxWidth()
+            .reserveFocusScale(1.035f)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
@@ -860,6 +948,32 @@ private fun ReleaseDetail(model: AppViewModel, seed: Release) {
 }
 
 @Composable
+private fun EpisodeAction(
+    text: String,
+    modifier: Modifier,
+    primary: Boolean = false,
+    onClick: () -> Unit,
+) {
+    GuiButton(
+        onClick = onClick,
+        modifier = modifier.height(44.dp),
+        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+    ) {
+        androidx.tv.material3.Text(
+            text,
+            modifier = Modifier.fillMaxWidth(),
+            fontSize = if (primary) 12.sp else 10.sp,
+            lineHeight = 12.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign =
+                if (primary) androidx.compose.ui.text.style.TextAlign.Start
+                else androidx.compose.ui.text.style.TextAlign.Center,
+        )
+    }
+}
+
+@Composable
 private fun Episodes(model: AppViewModel, activity: MainActivity, release: Release) {
     var retry by remember { mutableIntStateOf(0) }
     val data =
@@ -884,24 +998,33 @@ private fun Episodes(model: AppViewModel, activity: MainActivity, release: Relea
     if (data.loading) Loading()
     data.error?.let { ErrorState(it) { retry++ } }
     if (data.value?.stale == true) Stale()
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(
+        modifier = Modifier.fillMaxWidth(1f / 3f),
+        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
         items(data.value?.value ?: emptyList(), key = { it.id }) { episode ->
             val watched = progress[episode.id]
             Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Action(
+                EpisodeAction(
                     (if (watched?.watched == true) "✓ " else "") +
                         episode.title +
                         if (watched != null && !watched.watched)
                             " • ${watched.positionMs/60000} мин."
                         else "",
-                    Modifier.weight(1f),
+                    Modifier.weight(2f),
+                    primary = true,
                 ) {
                     model.prepare(activity, release, episode.id)
                 }
-                Action(if (watched?.watched == true) "Не просмотрено" else "Просмотрено") {
+                EpisodeAction(
+                    if (watched?.watched == true) "Не просмотрено" else "Просмотрено",
+                    Modifier.weight(1f),
+                ) {
                     model.storage.saveProgress(
                         release,
                         episode,
@@ -912,10 +1035,11 @@ private fun Episodes(model: AppViewModel, activity: MainActivity, release: Relea
                     model.changed()
                 }
                 if (watched != null && watched.positionMs > 0)
-                    Action("С начала") {
+                    EpisodeAction("С начала", Modifier.weight(1f)) {
                         model.storage.saveProgress(release, episode, 0, watched.durationMs)
                         model.prepare(activity, release, episode.id)
                     }
+                else Spacer(Modifier.weight(1f))
             }
         }
     }
@@ -967,7 +1091,7 @@ private fun ChoiceDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Закрыть") } },
+        confirmButton = {},
     )
 }
 
@@ -1106,17 +1230,15 @@ private fun Cache(model: AppViewModel) {
             title = { Text("Очистить кэш?") },
             text = { Text("Библиотека и история просмотра сохранятся.") },
             confirmButton = {
-                TextButton(
+                Action(
+                    "Очистить",
                     onClick = {
                         model.storage.clearCache()
                         revision++
                         clearDialog = false
-                    }
-                ) {
-                    Text("Очистить")
-                }
+                    },
+                )
             },
-            dismissButton = { TextButton(onClick = { clearDialog = false }) { Text("Отмена") } },
         )
 }
 
@@ -1213,7 +1335,7 @@ private fun About() {
                             .focusable(),
                 )
             },
-            confirmButton = { TextButton(onClick = { text = null }) { Text("Закрыть") } },
+            confirmButton = {},
         )
     }
 }

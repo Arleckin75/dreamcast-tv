@@ -74,7 +74,7 @@ class CatalogNavigationTest {
                 compose.waitUntil(15000) {
                     compose.onAllNodesWithText("Тестовый релиз").fetchSemanticsNodes().isNotEmpty()
                 }
-                compose.onNodeWithText("# Каталог").remoteClick()
+                compose.onNodeWithContentDescription("Каталог").remoteClick()
                 compose.waitUntil(15000) {
                     compose
                         .onAllNodes(hasText("Год: любой") and isEnabled())
@@ -108,7 +108,8 @@ class CatalogNavigationTest {
                 compose.onNodeWithText("В библиотеку").remoteClick()
                 compose.onNodeWithText("В планах").remoteClick()
                 assertEquals("planned", app.storage.string("library.release.status.540"))
-                compose.onNodeWithText("‹ Назад").remoteClick()
+                InstrumentationRegistry.getInstrumentation()
+                    .sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
                 compose.onNodeWithText("Год: любой").assertExists()
             }
         } finally {

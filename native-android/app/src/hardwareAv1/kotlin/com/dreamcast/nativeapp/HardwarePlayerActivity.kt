@@ -100,7 +100,6 @@ class HardwarePlayerActivity : ComponentActivity() {
                     retryCount = 0
                     episode?.let { load(it.id, null, refresh = true) }
                 },
-                onExit = { finish() },
                 onNext = ::nextEpisode,
                 nextTitle = null,
                 onQuality = {},
@@ -266,11 +265,14 @@ class HardwarePlayerActivity : ComponentActivity() {
                         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                         if (episode?.ordinal ?: Int.MAX_VALUE < episodes.size) {
                             endDialog =
-                                AlertDialog.Builder(this@HardwarePlayerActivity)
-                                    .setTitle("Серия завершена")
-                                    .setPositiveButton("Следующая серия") { _, _ -> nextEpisode() }
-                                    .setNegativeButton("К списку серий") { _, _ -> finish() }
-                                    .show()
+                                showPlayerMenu(
+                                    this@HardwarePlayerActivity,
+                                    "Серия завершена",
+                                    listOf("Следующая серия"),
+                                    onCancel = { finish() },
+                                ) {
+                                    nextEpisode()
+                                }
                         } else finish()
                     }
                 }
@@ -468,16 +470,17 @@ class HardwarePlayerActivity : ComponentActivity() {
 
     private fun failure(message: String) {
         if (isFinishing) return
-        AlertDialog.Builder(this)
-            .setTitle("Ошибка воспроизведения")
-            .setMessage(message)
-            .setPositiveButton("Повторить") { _, _ ->
+        showPlayerMenu(
+            this,
+            "Ошибка воспроизведения\n$message",
+            listOf("Повторить", "Другой поток"),
+            onCancel = { finish() },
+        ) { index ->
+            if (index == 0) {
                 retryCount = 0
                 episode?.let { load(it.id, null, refresh = true) }
-            }
-            .setNeutralButton("Другой поток") { _, _ -> chooseStream() }
-            .setNegativeButton("Назад") { _, _ -> finish() }
-            .show()
+            } else chooseStream()
+        }
     }
 
     private fun pip() {

@@ -19,7 +19,6 @@ internal class SoftwarePlayerControls(
     onToggle: () -> Unit,
     private val onSeek: (Long) -> Unit,
     onRetry: () -> Unit,
-    onExit: () -> Unit,
     onNext: () -> Unit,
     nextTitle: String?,
     private val onQuality: (Int) -> Unit,
@@ -71,7 +70,6 @@ internal class SoftwarePlayerControls(
             layoutParams = LinearLayout.LayoutParams(dp(52), dp(52)).apply { marginEnd = dp(10) }
         }
 
-    private val back = transport("back", "Назад", onExit)
     private val toggle = transport("pause", "Пауза", onToggle)
     private val rewind = transport("rewind", "Назад на 10 секунд") { onSeek(-10_000) }
     private val forward = transport("forward", "Вперёд на 10 секунд") { onSeek(10_000) }
@@ -178,7 +176,6 @@ internal class SoftwarePlayerControls(
         }
 
     private val retry = errorButton("Повторить", onRetry)
-    private val errorExit = errorButton("Назад", onExit)
     private val feedback =
         label(18f).apply {
             gravity = Gravity.CENTER
@@ -204,7 +201,6 @@ internal class SoftwarePlayerControls(
         get() = dialog?.isShowing == true
 
     init {
-        panel.addView(back, FrameLayout.LayoutParams(dp(48), dp(48), Gravity.TOP or Gravity.START))
         bottom.addView(title, LinearLayout.LayoutParams(-1, -2))
         bottom.addView(
             subtitle,
@@ -252,7 +248,6 @@ internal class SoftwarePlayerControls(
                     retry,
                     LinearLayout.LayoutParams(dp(150), dp(48)).apply { marginEnd = dp(12) },
                 )
-                addView(errorExit, LinearLayout.LayoutParams(dp(120), dp(48)))
             },
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(20) },
         )
@@ -296,8 +291,7 @@ internal class SoftwarePlayerControls(
             it.nextFocusUpId = timeline.id
         }
         timeline.nextFocusDownId = toggle.id
-        timeline.nextFocusUpId = back.id
-        back.nextFocusDownId = timeline.id
+        timeline.nextFocusUpId = timeline.id
         toggle.nextFocusLeftId = rewind.id
         toggle.nextFocusRightId = forward.id
         rewind.nextFocusRightId = toggle.id
@@ -446,6 +440,7 @@ internal fun showPlayerMenu(
     items: List<String>,
     selected: Int = -1,
     onDismiss: () -> Unit = {},
+    onCancel: () -> Unit = {},
     onSelected: (Int) -> Unit,
 ): AlertDialog {
     val density = context.resources.displayMetrics.density
@@ -483,10 +478,10 @@ internal fun showPlayerMenu(
                 textSize = 16f
                 setTextColor(Color.WHITE)
                 setPadding(dp(16), 0, dp(16), 0)
-                background = rounded(Color.TRANSPARENT, dp(10))
+                background = rounded(0xFF303030.toInt(), dp(27))
                 setOnFocusChangeListener { _, focused ->
                     setTextColor(if (focused) Color.BLACK else Color.WHITE)
-                    background = rounded(if (focused) Color.WHITE else Color.TRANSPARENT, dp(10))
+                    background = rounded(if (focused) Color.WHITE else 0xFF303030.toInt(), dp(27))
                 }
                 setOnClickListener {
                     dialog.dismiss()
@@ -496,6 +491,7 @@ internal fun showPlayerMenu(
             LinearLayout.LayoutParams(-1, dp(54)).apply { bottomMargin = dp(4) },
         )
     }
+    dialog.setOnCancelListener { onCancel() }
     dialog.setOnDismissListener { onDismiss() }
     dialog.show()
     dialog.window?.apply {
@@ -547,18 +543,6 @@ private class TransportButton(context: Context, var kind: String) : View(context
                     paint,
                 )
                 if (kind == "next") canvas.drawRect(12f, -12f, 16f, 12f, paint)
-            }
-            "back" -> {
-                paint.style = Paint.Style.STROKE
-                canvas.drawLine(11f, 0f, -11f, 0f, paint)
-                canvas.drawPath(
-                    Path().apply {
-                        moveTo(-1f, -10f)
-                        lineTo(-11f, 0f)
-                        lineTo(-1f, 10f)
-                    },
-                    paint,
-                )
             }
             "rewind",
             "forward" -> {
