@@ -66,6 +66,13 @@ class ParsersTest {
         assertEquals("hello world hello", PlayerJs.unpack(fixture("playerjs_packed.js")))
     }
 
+    @Test(timeout = 5000)
+    fun `large packed scripts preserve ASCII tokens and punctuation`() {
+        val payload = "0(1);_0;10;é0;0é;".repeat(30000)
+        val source = "return p}('" + payload + "',36,2,'hello|world'.split('|'))"
+        assertEquals("hello(world);_0;10;éhello;helloé;".repeat(30000), PlayerJs.unpack(source))
+    }
+
     @Test
     fun `direct and URI encoded playlists retain episode IDs and stream choices`() {
         for (text in listOf(playlist().toString(), urlEncode(playlist().toString()))) {

@@ -197,6 +197,9 @@ object PlayerJs {
         error("Не найдена закрывающая кавычка PlayerJS")
     }
 
+    private fun Char.isPackerWord() =
+        this in 'a'..'z' || this in 'A'..'Z' || this in '0'..'9' || this == '_'
+
     fun unpack(source: String): String {
         val marker = source.indexOf("return p}(")
         if (marker < 0) return source
@@ -218,7 +221,22 @@ object PlayerJs {
             (0 until count).associate {
                 encode(it) to (dictionary.getOrNull(it)?.takeIf(String::isNotEmpty) ?: encode(it))
             }
-        return Regex("\\b\\w+\\b").replace(payload) { substitutions[it.value] ?: it.value }
+        // JavaScript packers use ASCII word tokens. Avoid ICU word boundaries on
+        // Android: scanning a large player script with \b allocates excessively.
+        val result = StringBuilder(payload.length)
+        var offset = 0
+        while (offset < payload.length) {
+            val start = offset
+            if (payload[offset].isPackerWord()) {
+                while (offset < payload.length && payload[offset].isPackerWord()) offset++
+                val token = payload.substring(start, offset)
+                result.append(substitutions[token] ?: token)
+            } else {
+                while (offset < payload.length && !payload[offset].isPackerWord()) offset++
+                result.append(payload, start, offset)
+            }
+        }
+        return result.toString()
     }
 
     fun decode(script: String, encoded: String): JSONObject {
@@ -255,7 +273,7 @@ object PlayerJs {
             }
         val unpacked = unpack(script)
         val code =
-            Regex("""(?:["']u["']|\bu)\s*:\s*\\?\s*["']([^"']+)["']""")
+            Regex("""(?:["']u["']|(?<![A-Za-z0-9_])u)\s*:\s*\\?\s*["']([^"']+)["']""")
                 .find(unpacked)
                 ?.groupValues
                 ?.get(1) ?: error("Не найдены ключи декодирования PlayerJS")
