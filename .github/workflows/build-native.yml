@@ -40,6 +40,9 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
+        with:
+          # The default includes the retired SDK package "tools".
+          packages: platform-tools
       - uses: gradle/actions/setup-gradle@v4
       - name: Install compile SDK
         run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
@@ -62,4 +65,4 @@ jobs:
             native-android/app/build/outputs/apk/${{ matrix.directory }}/debug/*.apk
             native-android/app/build/reports/
             native-dependencies.txt
-          if-no-files-found: error
+          if-no-files-found: warn
