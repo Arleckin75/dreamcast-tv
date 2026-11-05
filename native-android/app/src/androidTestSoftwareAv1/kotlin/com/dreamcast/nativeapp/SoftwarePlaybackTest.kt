@@ -59,28 +59,38 @@ class SoftwarePlaybackTest {
                         .putExtra("title", "AV1 playback regression test")
                 )
                 .use { scenario ->
-                    // A fresh Mali shader cache on old ATV can take substantially longer to initialize.
-                    val deadline = System.nanoTime() + 90_000_000_000L
+                    val deadline = System.nanoTime() + 10_000_000_000L
                     while (prefs.getLong(key, 0) < 1000 && System.nanoTime() < deadline) Thread
                         .sleep(100)
                     assertTrue(
                         "LibVLC must decode and advance AV1 720p playback",
                         prefs.getLong(key, 0) >= 1000,
                     )
-                scenario.moveToState(Lifecycle.State.CREATED)
-                Thread.sleep(500) // Exercise Surface destruction while the Activity is stopped.
-                val pausedPosition = prefs.getLong(key, 0)
-                scenario.moveToState(Lifecycle.State.RESUMED)
-                val resumeDeadline = System.nanoTime() + 15_000_000_000L
-                while (prefs.getLong(key, 0) <= pausedPosition + 500 && System.nanoTime() < resumeDeadline)
-                    Thread.sleep(100)
-                assertTrue("Playback must resume after recreating SurfaceView",
-                    prefs.getLong(key, 0) > pausedPosition + 500)
-                scenario.onActivity { activity ->
-                    val vout = CosmosAv1PlayerActivity::class.java.getDeclaredField("voutCount")
-                        .apply { isAccessible = true }.getInt(activity)
-                    assertTrue("Resuming must restore video output, not only the playback clock", vout > 0)
-                }
+                    scenario.moveToState(Lifecycle.State.CREATED)
+                    Thread.sleep(500) // Exercise Surface destruction while the Activity is stopped.
+                    val pausedPosition = prefs.getLong(key, 0)
+                    scenario.moveToState(Lifecycle.State.RESUMED)
+                    val resumeDeadline = System.nanoTime() + 15_000_000_000L
+                    while (
+                        prefs.getLong(key, 0) <= pausedPosition + 500 &&
+                            System.nanoTime() < resumeDeadline
+                    ) Thread.sleep(100)
+                    assertTrue(
+                        "Playback must resume after recreating SurfaceView",
+                        prefs.getLong(key, 0) > pausedPosition + 500,
+                    )
+                    scenario.onActivity { activity ->
+                        val vout =
+                            CosmosAv1PlayerActivity::class
+                                .java
+                                .getDeclaredField("voutCount")
+                                .apply { isAccessible = true }
+                                .getInt(activity)
+                        assertTrue(
+                            "Resuming must restore video output, not only the playback clock",
+                            vout > 0,
+                        )
+                    }
                     instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
                     Thread.sleep(300)
                     if (scenario.state != Lifecycle.State.DESTROYED)

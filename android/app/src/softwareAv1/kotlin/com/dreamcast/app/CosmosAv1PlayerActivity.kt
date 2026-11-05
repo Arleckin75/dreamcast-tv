@@ -360,7 +360,16 @@ class CosmosAv1PlayerActivity : Activity() {
         Log.i("DCTV_QUALITY", "starting LibVLC with forced ${activeHeight}p fMP4 media playlist")
         try {
             setPlaybackScreenOn(true)
-            val vlc = LibVLC(this, arrayListOf("--no-video-title-show", "--network-caching=1200", "--avcodec-hw=none", "--verbose=0"))
+            val diagnostic = applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 &&
+                intent.getBooleanExtra("diagnosticVlcLogging", false)
+            // The software streams use burnt-in text. Loading FreeType here scans all
+            // system fonts on the first play (about 56 s on Cosmos), even without subtitles.
+            // Android draws our controls; audio and text already inside video are unaffected.
+            val options = arrayListOf("--no-video-title-show", "--text-renderer=none", "--network-caching=1200", "--avcodec-hw=none", "--verbose=${if (diagnostic) 2 else 0}")
+            val creatingEngineAt = android.os.SystemClock.elapsedRealtime()
+            Log.i("DCTV_STARTUP", "engine.create.begin")
+            val vlc = LibVLC(this, options)
+            Log.i("DCTV_STARTUP", "engine.create.end elapsedMs=${android.os.SystemClock.elapsedRealtime() - creatingEngineAt}")
             engine = vlc
             val mp = MediaPlayer(vlc)
             player = mp
@@ -439,6 +448,7 @@ class CosmosAv1PlayerActivity : Activity() {
                 }
             }
             mp.play()
+            Log.i("DCTV_STARTUP", "play.requested elapsedMs=${(android.os.SystemClock.elapsedRealtimeNanos() - activityStartedAt) / 1000000}")
             uiHandler.postDelayed(progressSaver, 3000L)
             if (resumeMs > 5000L) uiHandler.postDelayed({ if (player === mp) restorePosition(mp) }, 2200L)
             reveal()
