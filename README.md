@@ -5,7 +5,7 @@
 Неофициальный клиент Dream Cast для **Android TV и Google TV**: каталог аниме,
 библиотека и просмотр серий с управлением пультом.
 
-Ветка `Kotlin` содержит нативную Android-версию **0.8.6-kotlin** на Kotlin и
+Содержит нативную Android-версию **0.8.6-kotlin** на Kotlin и
 Jetpack Compose / TV Material. Приложение и его сборка работают без Flutter.
 Минимальная версия Android — **6.0 (API 23)**.
 
