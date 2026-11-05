@@ -8,6 +8,21 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// Identify the actual sources even when several debug APKs share a version number.
+val sourceRevision = providers.environmentVariable("GITHUB_SHA").orElse(provider {
+    runCatching {
+        val revision = providers.exec {
+            workingDir(rootProject.projectDir.parentFile)
+            commandLine("git", "rev-parse", "--short=8", "HEAD")
+        }.standardOutput.asText.get().trim()
+        val changes = providers.exec {
+            workingDir(rootProject.projectDir.parentFile)
+            commandLine("git", "status", "--porcelain", "--untracked-files=no")
+        }.standardOutput.asText.get()
+        revision + if (changes.isNotBlank()) "-local" else ""
+    }.getOrDefault("local")
+}).get().replace(Regex("[^A-Za-z0-9._-]"), "").take(40)
+
 android {
     namespace = "com.dreamcast.nativeapp"
     compileSdk = 36
@@ -17,6 +32,7 @@ android {
         targetSdk = 36
         versionCode = 805002
         versionName = "0.8.6-kotlin"
+        buildConfigField("String", "SOURCE_REVISION", "\"$sourceRevision\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
