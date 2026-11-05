@@ -24,6 +24,8 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -1307,37 +1309,86 @@ private fun ChoiceDialog(
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Settings(model: AppViewModel) {
     var dialog by remember { mutableStateOf("") }
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item {
-            Action("Профиль: ${model.ui.profile.ifBlank{"Не задан"}}", Modifier.fillMaxWidth()) {
-                model.navigate(Route("profile"))
-            }
+    val themeLabel =
+        when (model.ui.theme) {
+            "system" -> "Системная"
+            "light" -> "Светлая"
+            else -> "Тёмная"
         }
-        item { Action("Тема", Modifier.fillMaxWidth()) { dialog = "theme" } }
-        item { Action("Акцент", Modifier.fillMaxWidth()) { dialog = "accent" } }
+    val accentLabel =
+        when (model.ui.accent) {
+            "blue" -> "Синий"
+            "green" -> "Зелёный"
+            "violet" -> "Фиолетовый"
+            "rose" -> "Розовый"
+            else -> "Системный"
+        }
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+    ) {
         item {
-            Action(
-                "Цвета системы: ${if(model.ui.dynamicColor)"включены" else "выключены"}",
-                Modifier.fillMaxWidth(),
-            ) {
-                model.mutateLocal(UiSection.SETTINGS) {
-                    put("settings.dynamic_color", !boolean("settings.dynamic_color", true))
+            AboutPanel("Профиль") {
+                AboutAction(
+                    "Профиль: ${model.ui.profile.ifBlank { "Не задан" }}",
+                    R.drawable.ic_about_groups,
+                ) {
+                    model.navigate(Route("profile"))
                 }
             }
         }
         item {
-            Action(
-                "Поток по умолчанию: ${if (model.ui.streamTechnology == "none") "выбирать вручную" else model.ui.streamTechnology.uppercase()}",
-                Modifier.fillMaxWidth(),
-            ) {
-                dialog = "player"
+            AboutPanel("Оформление") {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    AboutAction("Тема: $themeLabel", R.drawable.ic_nav_settings) {
+                        dialog = "theme"
+                    }
+                    AboutAction("Акцент: $accentLabel", R.drawable.ic_about_heart) {
+                        dialog = "accent"
+                    }
+                    AboutAction(
+                        "Цвета системы: ${if (model.ui.dynamicColor) "включены" else "выключены"}",
+                        R.drawable.ic_about_tv,
+                    ) {
+                        model.mutateLocal(UiSection.SETTINGS) {
+                            put("settings.dynamic_color", !boolean("settings.dynamic_color", true))
+                        }
+                    }
+                }
             }
         }
-        item { Action("Кэш", Modifier.fillMaxWidth()) { model.navigate(Route("cache")) } }
-        item { Action("О приложении", Modifier.fillMaxWidth()) { model.navigate(Route("about")) } }
+        item {
+            AboutPanel("Воспроизведение") {
+                AboutAction(
+                    "Поток по умолчанию: ${if (model.ui.streamTechnology == "none") "выбирать вручную" else model.ui.streamTechnology.uppercase()}",
+                    R.drawable.ic_about_play,
+                ) {
+                    dialog = "player"
+                }
+            }
+        }
+        item {
+            AboutPanel("Приложение") {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    AboutAction("Кэш", R.drawable.ic_about_document) {
+                        model.navigate(Route("cache"))
+                    }
+                    AboutAction("О приложении", R.drawable.ic_about_tv) {
+                        model.navigate(Route("about"))
+                    }
+                }
+            }
+        }
     }
     when (dialog) {
         "theme" ->
@@ -1501,16 +1552,35 @@ private fun Notifications(model: AppViewModel) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun AboutPanel(title: String? = null, content: @Composable ColumnScope.() -> Unit) {
+private fun AboutPanel(
+    title: String? = null,
+    readOnly: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val reveal = remember { BringIntoViewRequester() }
+    val scope = rememberCoroutineScope()
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier =
+            Modifier.fillMaxWidth()
+                .bringIntoViewRequester(reveal)
+                .onFocusChanged { if (it.hasFocus) scope.launch { reveal.bringIntoView() } }
+                .focusGroup()
+                .then(
+                    if (readOnly)
+                        Modifier.semantics(mergeDescendants = true) {}
+                            .onFocusChanged { focused = it.isFocused }
+                            .focusable()
+                    else Modifier
+                ),
         color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(22.dp),
         border =
             androidx.compose.foundation.BorderStroke(
-                1.dp,
-                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                if (focused) 2.dp else 1.dp,
+                MaterialTheme.colorScheme.onSurface.copy(alpha = if (focused) 0.65f else 0.12f),
             ),
     ) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -1598,7 +1668,7 @@ private fun About() {
         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
     ) {
         item {
-            AboutPanel {
+            AboutPanel(readOnly = true) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(24.dp),
@@ -1671,7 +1741,7 @@ private fun About() {
             }
         }
         item {
-            AboutPanel {
+            AboutPanel(readOnly = true) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                     verticalAlignment = Alignment.CenterVertically,

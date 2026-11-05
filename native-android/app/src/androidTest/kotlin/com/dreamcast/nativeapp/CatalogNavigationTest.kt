@@ -32,7 +32,7 @@ class CatalogNavigationTest {
         return this
     }
 
-    private fun assertBackdrop(red: Boolean) {
+    private fun assertBackdrop(red: Boolean, dimmed: Boolean = false) {
         compose.waitUntil(7000) {
             val bitmap =
                 InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
@@ -41,7 +41,9 @@ class CatalogNavigationTest {
                 val colour = bitmap.getPixel(24, bitmap.height / 2)
                 val r = android.graphics.Color.red(colour)
                 val b = android.graphics.Color.blue(colour)
-                if (red) r > b + 15 else b > r + 15
+                // Android darkens the entire underlying window while a dialog is open.
+                val minimumDifference = if (dimmed) 6 else 15
+                if (red) r > b + minimumDifference else b > r + minimumDifference
             } finally {
                 bitmap.recycle()
             }
@@ -75,14 +77,24 @@ class CatalogNavigationTest {
                     android.graphics.Bitmap.Config.ARGB_8888,
                 )
             bitmap.eraseColor(colour)
+            // A dark cover with pale lettering used to produce an almost grey background.
+            android.graphics
+                .Canvas(bitmap)
+                .drawRect(
+                    0f,
+                    32f,
+                    32f,
+                    48f,
+                    android.graphics.Paint().apply { color = 0xffe4e2dc.toInt() },
+                )
             return java.io.ByteArrayOutputStream().use { output ->
                 bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output)
                 bitmap.recycle()
                 output.toByteArray()
             }
         }
-        val redPoster = poster(0xffdc2828.toInt())
-        val bluePoster = poster(0xff285adc.toInt())
+        val redPoster = poster(0xff531d21.toInt())
+        val bluePoster = poster(0xff1d3153.toInt())
         val playlist =
             "#2" +
                 java.util.Base64.getEncoder()
@@ -219,7 +231,7 @@ class CatalogNavigationTest {
                 compose.onNodeWithText("Серия 1").assertIsFocused()
                 compose.onNodeWithText("Серия 1").performKeyInput { pressKey(Key.DirectionDown) }
                 compose.onNodeWithText("Серия 2").assertIsFocused()
-                assertBackdrop(red = true)
+                assertBackdrop(red = true, dimmed = true)
                 InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()?.let {
                     bitmap ->
                     java.io.File(app.cacheDir, "episodes-dialog.png").outputStream().use {

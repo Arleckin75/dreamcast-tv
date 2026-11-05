@@ -55,6 +55,12 @@ internal data class PosterPalette(val primary: Int, val secondary: Int) {
                 return PosterPalette(average, average)
             }
             val primary = colour(first)
+            fun chroma(colour: Int): Int {
+                val r = (colour ushr 16) and 255
+                val g = (colour ushr 8) and 255
+                val b = colour and 255
+                return maxOf(r, g, b) - minOf(r, g, b)
+            }
             fun distanceSquared(colour: Int): Int {
                 val r = ((primary ushr 16) and 255) - ((colour ushr 16) and 255)
                 val g = ((primary ushr 8) and 255) - ((colour ushr 8) and 255)
@@ -64,12 +70,28 @@ internal data class PosterPalette(val primary: Int, val secondary: Int) {
             val second =
                 counts.indices
                     .filter {
-                        counts[it] >= maxOf(1, total / 50) && distanceSquared(colour(it)) >= 80 * 80
+                        counts[it] >= maxOf(1, total / 50) &&
+                            distanceSquared(colour(it)) >= 80 * 80 &&
+                            (chroma(primary) < 35 || chroma(colour(it)) >= 35)
                     }
                     .maxByOrNull(::score)
             return PosterPalette(primary, second?.let(::colour) ?: primary)
         }
     }
+}
+
+/** Keep the cover's hue visible even when its dominant colour is a dark shade. */
+internal fun backdropTint(colour: Int): Int {
+    val r = (colour ushr 16) and 255
+    val g = (colour ushr 8) and 255
+    val b = colour and 255
+    val brightest = maxOf(r, g, b)
+    if (brightest == 0) return colour
+    val scale = brightest.coerceIn(150, 210).toFloat() / brightest
+    return (255 shl 24) or
+        ((r * scale).toInt().coerceIn(0, 255) shl 16) or
+        ((g * scale).toInt().coerceIn(0, 255) shl 8) or
+        (b * scale).toInt().coerceIn(0, 255)
 }
 
 /** Retain colours only, never image resources or activity references. */

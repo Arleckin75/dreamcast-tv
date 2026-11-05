@@ -107,13 +107,16 @@ internal fun PosterBackdrop(state: PosterBackdropState, base: Color, dark: Boole
     }
     val first =
         animateColorAsState(
-            palette?.let { lerp(base, Color(it.primary), if (dark) 0.34f else 0.16f) } ?: base,
+            palette?.let { lerp(base, Color(backdropTint(it.primary)), if (dark) 0.55f else 0.24f) }
+                ?: base,
             tween(450),
             label = "posterBackgroundPrimary",
         )
     val second =
         animateColorAsState(
-            palette?.let { lerp(base, Color(it.secondary), if (dark) 0.18f else 0.09f) } ?: base,
+            palette?.let {
+                lerp(base, Color(backdropTint(it.secondary)), if (dark) 0.32f else 0.14f)
+            } ?: base,
             tween(450),
             label = "posterBackgroundSecondary",
         )

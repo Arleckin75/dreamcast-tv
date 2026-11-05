@@ -41,6 +41,24 @@ class PosterPaletteTest {
     }
 
     @Test
+    fun darkRedCoverDoesNotUsePaleLetteringAsItsSecondaryColour() {
+        val red = 0xff531d21.toInt()
+        val lettering = 0xffe4e2dc.toInt()
+        val result = PosterPalette.fromPixels(IntArray(650) { red } + IntArray(350) { lettering })!!
+        assertEquals(PosterPalette(red, red), result)
+        val tint = backdropTint(result.primary)
+        assertEquals(150, (tint ushr 16) and 255)
+        assertTrue(((tint ushr 16) and 255) > ((tint ushr 8) and 255) * 2)
+    }
+
+    @Test
+    fun neutralCoversStayNeutralAndBrightCoversAreBounded() {
+        assertEquals(0xff000000.toInt(), backdropTint(0xff000000.toInt()))
+        assertEquals(0xff969696.toInt(), backdropTint(0xff202020.toInt()))
+        assertEquals(0xffd2d2d2.toInt(), backdropTint(0xffffffff.toInt()))
+    }
+
+    @Test
     fun recentlyUsedPalettesSurviveEviction() {
         val cache = PosterPaletteCache(2)
         val a = PosterPalette(1, 2)
