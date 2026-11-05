@@ -32,6 +32,31 @@ class CatalogNavigationTest {
         return this
     }
 
+    private fun assertBackdrop(red: Boolean) {
+        compose.waitUntil(7000) {
+            val bitmap =
+                InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+                    ?: return@waitUntil false
+            try {
+                val colour = bitmap.getPixel(24, bitmap.height / 2)
+                val r = android.graphics.Color.red(colour)
+                val b = android.graphics.Color.blue(colour)
+                if (red) r > b + 15 else b > r + 15
+            } finally {
+                bitmap.recycle()
+            }
+        }
+    }
+
+    private fun saveScreenshot(app: DreamApplication, name: String) {
+        InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()?.let { bitmap ->
+            java.io.File(app.cacheDir, name).outputStream().use {
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+            }
+            bitmap.recycle()
+        }
+    }
+
     @Test
     fun catalogFiltersLibraryAndBackNavigation() {
         val app =
@@ -42,6 +67,22 @@ class CatalogNavigationTest {
                 .uiAutomation
                 .grantRuntimePermission(app.packageName, Manifest.permission.POST_NOTIFICATIONS)
         val server = MockWebServer()
+        fun poster(colour: Int): ByteArray {
+            val bitmap =
+                android.graphics.Bitmap.createBitmap(
+                    32,
+                    48,
+                    android.graphics.Bitmap.Config.ARGB_8888,
+                )
+            bitmap.eraseColor(colour)
+            return java.io.ByteArrayOutputStream().use { output ->
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output)
+                bitmap.recycle()
+                output.toByteArray()
+            }
+        }
+        val redPoster = poster(0xffdc2828.toInt())
+        val bluePoster = poster(0xff285adc.toInt())
         val playlist =
             "#2" +
                 java.util.Base64.getEncoder()
@@ -53,11 +94,22 @@ class CatalogNavigationTest {
         server.dispatcher =
             object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
+                    if (request.path == "/poster-red.png" || request.path == "/poster-blue.png")
+                        return MockResponse()
+                            .setHeader("Content-Type", "image/png")
+                            .setBody(
+                                okio
+                                    .Buffer()
+                                    .write(
+                                        if (request.path == "/poster-red.png") redPoster
+                                        else bluePoster
+                                    )
+                            )
                     if (request.method == "POST") {
                         posts += request.body.readUtf8()
                         return MockResponse()
                             .setBody(
-                                """{"releases":[{"id":540,"russian":"Тестовый релиз","url":"${server.url("/home/release/540")}","series":6,"currentSeries":12,"dateissue":2024},{"id":541,"russian":"Другой релиз","dateissue":2024}],"count":2}"""
+                                """{"releases":[{"id":540,"russian":"Тестовый релиз","url":"${server.url("/home/release/540")}","image":"${server.url("/poster-red.png")}","series":6,"currentSeries":12,"dateissue":2024},{"id":541,"russian":"Другой релиз","image":"${server.url("/poster-blue.png")}","dateissue":2024}],"count":2}"""
                             )
                     }
                     if (request.path?.contains("/home/release/") == true)
@@ -83,10 +135,14 @@ class CatalogNavigationTest {
                 }
                 val bannerAction = compose.onNodeWithText("Подробнее")
                 bannerAction.performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+                assertBackdrop(red = true)
+                saveScreenshot(app, "poster-backdrop-red.png")
                 bannerAction.performKeyInput { pressKey(Key.DirectionLeft) }
                 compose.onNodeWithText("Тестовый релиз").assertExists()
                 bannerAction.performKeyInput { pressKey(Key.DirectionRight) }
                 compose.onNodeWithText("Другой релиз").assertExists()
+                assertBackdrop(red = false)
+                saveScreenshot(app, "poster-backdrop-blue.png")
                 bannerAction.performKeyInput { pressKey(Key.DirectionRight) }
                 compose.onNodeWithText("Другой релиз").assertExists()
                 bannerAction.performKeyInput { pressKey(Key.DirectionLeft) }
@@ -138,10 +194,23 @@ class CatalogNavigationTest {
                 compose.waitUntil(15000) {
                     compose.onAllNodesWithText("Тестовый релиз").fetchSemanticsNodes().isNotEmpty()
                 }
+                compose.onNodeWithText("Тестовый релиз").performSemanticsAction(
+                    SemanticsActions.RequestFocus
+                ) {
+                    it()
+                }
+                assertBackdrop(red = true)
+                compose.onNodeWithText("Другой релиз").performSemanticsAction(
+                    SemanticsActions.RequestFocus
+                ) {
+                    it()
+                }
+                assertBackdrop(red = false)
                 compose.onNodeWithText("Тестовый релиз").performClick()
                 compose.waitUntil(15000) {
                     compose.onAllNodesWithText("В библиотеку").fetchSemanticsNodes().isNotEmpty()
                 }
+                assertBackdrop(red = true)
                 compose.onNodeWithText("Серии").remoteClick()
                 compose.waitUntil(15000) {
                     compose.onAllNodesWithText("Серия 1").fetchSemanticsNodes().isNotEmpty()
@@ -150,6 +219,7 @@ class CatalogNavigationTest {
                 compose.onNodeWithText("Серия 1").assertIsFocused()
                 compose.onNodeWithText("Серия 1").performKeyInput { pressKey(Key.DirectionDown) }
                 compose.onNodeWithText("Серия 2").assertIsFocused()
+                assertBackdrop(red = true)
                 InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()?.let {
                     bitmap ->
                     java.io.File(app.cacheDir, "episodes-dialog.png").outputStream().use {

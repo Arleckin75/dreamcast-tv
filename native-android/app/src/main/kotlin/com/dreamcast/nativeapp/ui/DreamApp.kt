@@ -190,6 +190,8 @@ private fun DreamAppContent(model: AppViewModel, activity: MainActivity) {
                     if (route.name == "episodes")
                         model.routes.dropLast(1).lastOrNull() ?: Route("detail", route.release)
                     else route
+                val backdrop = remember(contentRoute.key) { PosterBackdropState() }
+                PosterBackdrop(backdrop, colors.background, dark)
                 val saved = rememberSaveableStateHolder()
                 val retainedRoutes =
                     model.routes.map { it.key }.toSet() +
@@ -238,18 +240,20 @@ private fun DreamAppContent(model: AppViewModel, activity: MainActivity) {
                         Spacer(Modifier.height(18.dp))
                     }
                     saved.SaveableStateProvider(contentRoute.key) {
-                        when (contentRoute.name) {
-                            "home" -> Home(model)
-                            "catalog" -> Catalog(model)
-                            "search" -> Search(model)
-                            "library" -> Library(model)
-                            "schedule" -> Schedule(model)
-                            "detail" -> ReleaseDetail(model, contentRoute.release!!)
-                            "settings" -> Settings(model)
-                            "profile" -> Profile(model)
-                            "cache" -> Cache(model)
-                            "about" -> About()
-                            "notifications" -> Notifications(model)
+                        CompositionLocalProvider(LocalPosterBackdrop provides backdrop) {
+                            when (contentRoute.name) {
+                                "home" -> Home(model)
+                                "catalog" -> Catalog(model)
+                                "search" -> Search(model)
+                                "library" -> Library(model)
+                                "schedule" -> Schedule(model)
+                                "detail" -> ReleaseDetail(model, contentRoute.release!!)
+                                "settings" -> Settings(model)
+                                "profile" -> Profile(model)
+                                "cache" -> Cache(model)
+                                "about" -> About()
+                                "notifications" -> Notifications(model)
+                            }
                         }
                     }
                 }
@@ -618,11 +622,14 @@ private fun FeaturedRelease(
     onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
+    val artwork = rememberPosterArtwork(release.posterUrl)
+    LaunchedEffect(artwork) { if (focused || autofocus) artwork.focus() }
     Box(
         Modifier.fillMaxWidth()
             .height(270.dp)
             .onFocusChanged {
                 focused = it.hasFocus
+                if (it.hasFocus) artwork.focus()
                 onBannerFocusChange(it.hasFocus)
             }
             .focusGroup()
@@ -648,6 +655,8 @@ private fun FeaturedRelease(
             null,
             Modifier.align(Alignment.CenterEnd).fillMaxWidth(0.56f).fillMaxHeight(),
             contentScale = ContentScale.Crop,
+            onSuccess = { artwork.loaded(it.result.drawable) },
+            onError = { artwork.failed() },
         )
         Box(
             Modifier.fillMaxSize()
@@ -967,6 +976,7 @@ private fun Poster(
     landscape: Boolean = false,
     onClick: () -> Unit,
 ) {
+    val artwork = rememberPosterArtwork(release.posterUrl)
     val requester = remember { FocusRequester() }
     var focused by remember { mutableStateOf(false) }
     val scale by
@@ -981,7 +991,10 @@ private fun Poster(
             .focusRequester(requester)
             .onFocusChanged {
                 focused = it.isFocused
-                if (it.isFocused) onFocused()
+                if (it.isFocused) {
+                    artwork.focus()
+                    onFocused()
+                }
             }
             // Focus and bring-into-view track the fixed reserved slot, not the animated layer.
             .clickable(
@@ -1010,6 +1023,8 @@ private fun Poster(
                     .aspectRatio(if (landscape) 16f / 9f else 0.70f)
                     .clip(RoundedCornerShape(8.dp)),
             contentScale = ContentScale.Crop,
+            onSuccess = { artwork.loaded(it.result.drawable) },
+            onError = { artwork.failed() },
         )
         Text(
             release.title,
@@ -1065,6 +1080,8 @@ private fun ReleaseDetail(model: AppViewModel, seed: Release) {
             model.repository.detail(seed, refresh = retry > 0, onStale = publish)
         }
     val release = loaded.value?.value?.release ?: seed
+    val artwork = rememberPosterArtwork(release.posterUrl)
+    LaunchedEffect(artwork) { artwork.focus() }
     var bookmarkDialog by remember { mutableStateOf(false) }
     val status = model.ui.bookmarksById[release.id]?.status
     val subscribed = release.id in model.ui.subscriptions
@@ -1075,6 +1092,8 @@ private fun ReleaseDetail(model: AppViewModel, seed: Release) {
             release.title,
             modifier = Modifier.width(210.dp).aspectRatio(0.7f),
             contentScale = ContentScale.Crop,
+            onSuccess = { artwork.loaded(it.result.drawable) },
+            onError = { artwork.failed() },
         )
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()),

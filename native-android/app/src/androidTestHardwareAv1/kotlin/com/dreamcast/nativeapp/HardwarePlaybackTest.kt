@@ -28,13 +28,17 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class HardwarePlaybackTest {
     private fun openSettings() {
-        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_DPAD_UP)
+        InstrumentationRegistry.getInstrumentation()
+            .sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_DPAD_UP)
         val settings = onView(withContentDescription("Настройки воспроизведения"))
         val deadline = System.nanoTime() + 3_000_000_000L
         while (true) {
             try {
-                settings.check(androidx.test.espresso.assertion.ViewAssertions.matches(
-                    androidx.test.espresso.matcher.ViewMatchers.isCompletelyDisplayed()))
+                settings.check(
+                    androidx.test.espresso.assertion.ViewAssertions.matches(
+                        androidx.test.espresso.matcher.ViewMatchers.isCompletelyDisplayed()
+                    )
+                )
                 break
             } catch (error: AssertionError) {
                 if (System.nanoTime() >= deadline) throw error
@@ -127,25 +131,18 @@ class HardwarePlaybackTest {
                     onView(withText(startsWith("Скорость ·"))).perform(click())
                     onView(withContentDescription("1.5×")).perform(click())
                     openSettings()
-                    onView(withContentDescription("Звук и субтитры")).perform(click())
-                    onView(withContentDescription("Звук")).perform(click())
-                    onView(withContentDescription("Выключены")).perform(click())
-                    scenario.onActivity { activity ->
-                        val field =
-                            HardwarePlayerActivity::class.java.getDeclaredField("player").apply {
-                                isAccessible = true
-                            }
-                        val engine = field.get(activity) as androidx.media3.exoplayer.ExoPlayer
-                        assertTrue(
-                            androidx.media3.common.C.TRACK_TYPE_AUDIO in
-                                engine.trackSelectionParameters.disabledTrackTypes
-                        )
+                    onView(withContentDescription("Звук и субтитры"))
+                        .check(androidx.test.espresso.assertion.ViewAssertions.doesNotExist())
+                    onView(withContentDescription("Картинка в картинке"))
+                        .check(androidx.test.espresso.assertion.ViewAssertions.doesNotExist())
+                    androidx.test.espresso.Espresso.pressBack()
+                    val focusDeadline = System.nanoTime() + 3_000_000_000L
+                    var windowFocused = false
+                    while (!windowFocused && System.nanoTime() < focusDeadline) {
+                        scenario.onActivity { windowFocused = it.hasWindowFocus() }
+                        if (!windowFocused) Thread.sleep(25)
                     }
-                    openSettings()
-                    onView(withContentDescription("Звук и субтитры")).perform(click())
-                    onView(withContentDescription("Звук")).perform(click())
-                    onView(withContentDescription("Авто")).perform(click())
-
+                    assertTrue("Player window must regain focus after closing settings", windowFocused)
                     InstrumentationRegistry.getInstrumentation()
                         .sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_DPAD_UP)
                     scenario.onActivity { activity ->

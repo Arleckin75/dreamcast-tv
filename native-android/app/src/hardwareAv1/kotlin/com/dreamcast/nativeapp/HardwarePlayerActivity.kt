@@ -119,14 +119,6 @@ class HardwarePlayerActivity : ComponentActivity() {
                         add(
                             "Поток · ${activeStream?.type?.uppercase().orEmpty()}" to ::chooseStream
                         )
-                        add("Звук и субтитры" to ::tracks)
-                        if (
-                            Build.VERSION.SDK_INT >= 26 &&
-                                packageManager.hasSystemFeature(
-                                    android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE
-                                )
-                        )
-                            add("Картинка в картинке" to ::pip)
                     }
                 },
             )
