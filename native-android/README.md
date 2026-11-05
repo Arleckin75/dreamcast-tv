@@ -35,7 +35,7 @@ Debug имеет отдельный applicationId `com.dreamcast.app.kotlin` и 
 Workflow собирает оба нативных debug-варианта с unit-тестами, lint и аудитом APK.
 Готовые APK и SHA256 находятся в артефактах `dreamcast-tv-hardware-debug`
 и `dreamcast-tv-software-debug`; отчёты загружаются отдельно с суффиксом `-reports`.
-`Build Dream Cast TV Release APK` собирает и публикует существующий выпуск
+`Build Dream Cast TV Release APK` собирает и публикует нативный релиз v0.9.1
 из `main`. `build-libvlc-tv.yml` — внутренняя зависимость, без отдельного запуска.
 
 ## Проверки

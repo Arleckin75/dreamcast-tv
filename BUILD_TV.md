@@ -15,7 +15,7 @@
 собирает либо восстанавливает проверенный сокращённый LibVLC.
 
 Для выпуска откройте **Build Dream Cast TV Release APK** и выберите `main`.
-Параметр **Publish v0.8.5 on GitHub Releases (main only)** включён по умолчанию:
+Параметр **Publish v0.9.1 on GitHub Releases (main only)** включён по умолчанию:
 после сборки и проверок будет опубликован релиз. Снимите флажок, если нужны
 только подписанные APK без публикации. Используются прежние секреты подписи
 и окружение `release-signing`.
@@ -46,7 +46,7 @@ bash android/gradlew -p native-android :app:testSoftwareAv1DebugUnitTest :app:as
 Flutter SDK не требуется. Готовые APK находятся в
 `native-android/app/build/outputs/apk/{hardwareAv1,softwareAv1}/debug/`.
 Команды PowerShell и сведения о тестах — в [нативном проекте](native-android/README.md).
-Существующий релиз `main` собирается отдельно; порядок выпуска и настройки
+Нативный релиз v0.9.1 собирается отдельно из `main`; порядок выпуска и настройки
 ключа описаны в [инструкции подписи](RELEASE_SIGNING_RU.md).
 
 ## Установка и проверка

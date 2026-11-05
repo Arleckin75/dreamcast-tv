@@ -59,6 +59,7 @@ android {
     buildTypes {
         debug { applicationIdSuffix = providers.gradleProperty("nativeDebugSuffix").getOrElse(".kotlin") }
         release {
+            ndk { abiFilters += setOf("armeabi-v7a", "arm64-v8a") }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
