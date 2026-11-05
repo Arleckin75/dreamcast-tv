@@ -15,13 +15,24 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.dreamcast.nativeapp.data.Release
 import java.time.Instant
-import kotlinx.coroutines.CancellationException
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 
 class EpisodeWorker(context: Context, parameters: WorkerParameters) :
     CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result {
         val app = applicationContext as DreamApplication
+        return withContext(Dispatchers.IO) {
+            withTimeoutOrNull(120_000) {
+                app.episodeCheckMutex.withLock { checkSubscriptions(app) }
+            } ?: Result.retry()
+        }
+    }
+
+    private suspend fun checkSubscriptions(app: DreamApplication): Result {
+        app.awaitStorageReady()
         val subscriptions =
             app.storage.records("notifications.release.item.").sortedBy {
                 it.second.optJSONObject("release")?.optInt("id") ?: Int.MAX_VALUE
@@ -32,10 +43,6 @@ class EpisodeWorker(context: Context, parameters: WorkerParameters) :
             List(minOf(40, subscriptions.size)) {
                 subscriptions[(offset + it) % subscriptions.size]
             }
-        app.storage.put(
-            "notifications.check.cursor",
-            ((offset + selected.size) % subscriptions.size).toString(),
-        )
         val latest =
             try {
                 val page = app.repository.releases(refresh = true)
@@ -45,49 +52,77 @@ class EpisodeWorker(context: Context, parameters: WorkerParameters) :
             } catch (_: Exception) {
                 emptyMap()
             }
-        var failed = false
-        for ((_, record) in selected) {
-            try {
-                val release = Release.fromJson(record.getJSONObject("release"))
-                val fresh =
-                    latest[release.id]
-                        ?: app.repository
-                            .releases(
-                                query = release.title.ifBlank { release.originalTitle },
-                                refresh = true,
-                            )
-                            .takeUnless { it.stale }
-                            ?.items
-                            ?.firstOrNull { it.id == release.id }
-                        ?: continue
-                val count = fresh.currentEpisodes
-                val previous = record.optInt("lastKnownEpisodes")
-                if (count > previous && previous > 0) {
-                    val id = "${release.id}-$count"
-                    val message = "Доступно серий: $count (было $previous)"
-                    if (app.storage.string("notifications.history.item.$id").isEmpty()) {
-                        app.storage.put(
-                            "notifications.history.item.$id",
-                            JSONObject()
-                                .put("id", id)
-                                .put("release", fresh.json())
-                                .put("message", message)
-                                .put("previousCount", previous)
-                                .put("currentCount", count)
-                                .put("createdAt", Instant.now().toString())
-                                .toString(),
-                        )
-                        notify(fresh, id, message)
+        val failed = AtomicBoolean(false)
+        for ((batchIndex, batch) in selected.chunked(2).withIndex()) {
+            coroutineScope {
+                batch
+                    .map { (key, record) ->
+                        async {
+                            try {
+                                val release = Release.fromJson(record.getJSONObject("release"))
+                                val fresh =
+                                    latest[release.id]
+                                        ?: app.repository
+                                            .releases(
+                                                query =
+                                                    release.title.ifBlank { release.originalTitle },
+                                                refresh = true,
+                                            )
+                                            .takeUnless { it.stale }
+                                            ?.items
+                                            ?.firstOrNull { it.id == release.id }
+                                        ?: run {
+                                            failed.set(true)
+                                            return@async
+                                        }
+                                // A user may unsubscribe while the HTTP request is in flight.
+                                val currentRecord = app.storage.string(key)
+                                if (
+                                    currentRecord.isBlank() ||
+                                        JSONObject(currentRecord).toString() != record.toString()
+                                )
+                                    return@async
+                                val count = fresh.currentEpisodes
+                                val previous = record.optInt("lastKnownEpisodes")
+                                if (count > previous && previous > 0) {
+                                    val id = "${release.id}-$count"
+                                    val message = "Доступно серий: $count (было $previous)"
+                                    if (
+                                        app.storage
+                                            .string("notifications.history.item.$id")
+                                            .isEmpty()
+                                    ) {
+                                        app.storage.put(
+                                            "notifications.history.item.$id",
+                                            JSONObject()
+                                                .put("id", id)
+                                                .put("release", fresh.json())
+                                                .put("message", message)
+                                                .put("previousCount", previous)
+                                                .put("currentCount", count)
+                                                .put("createdAt", Instant.now().toString())
+                                                .toString(),
+                                        )
+                                        notify(fresh, id, message)
+                                    }
+                                }
+                                if (count != previous || fresh != release)
+                                    app.storage.subscribe(fresh, count)
+                            } catch (cancel: CancellationException) {
+                                throw cancel
+                            } catch (_: Exception) {
+                                failed.set(true)
+                            }
+                        }
                     }
-                }
-                app.storage.subscribe(fresh, count)
-            } catch (cancel: CancellationException) {
-                throw cancel
-            } catch (_: Exception) {
-                failed = true
+                    .awaitAll()
             }
+            app.storage.put(
+                "notifications.check.cursor",
+                ((offset + batchIndex * 2 + batch.size) % subscriptions.size).toString(),
+            )
         }
-        return if (failed) Result.retry() else Result.success()
+        return if (failed.get()) Result.retry() else Result.success()
     }
 
     private fun notify(release: Release, id: String, message: String) {

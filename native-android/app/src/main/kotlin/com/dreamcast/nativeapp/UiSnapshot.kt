@@ -60,8 +60,10 @@ internal fun uiSectionsForPreference(rawKey: String?): Set<UiSection> {
 internal fun Storage.readUiSnapshot(
     previous: UiSnapshot = UiSnapshot(),
     sections: Set<UiSection> = UiSection.entries.toSet(),
+    progressReleaseIds: Set<Int>? = null,
 ): UiSnapshot {
     var result = previous
+    val records by lazy { recordSnapshot() }
     if (UiSection.SETTINGS in sections)
         result =
             result.copy(
@@ -73,7 +75,7 @@ internal fun Storage.readUiSnapshot(
     if (UiSection.PROFILE in sections) result = result.copy(profile = profile())
     if (UiSection.CACHE in sections) result = result.copy(retentionHours = retentionHours())
     if (UiSection.BOOKMARKS in sections) {
-        val bookmarks = bookmarks()
+        val bookmarks = bookmarks(records)
         result =
             result.copy(
                 bookmarks = bookmarks,
@@ -84,18 +86,20 @@ internal fun Storage.readUiSnapshot(
         result =
             result.copy(
                 subscriptions =
-                    records("notifications.release.item.")
+                    records("notifications.release.item.", records)
                         .mapNotNull { (key, _) ->
                             key.removePrefix("notifications.release.item.").toIntOrNull()
                         }
                         .toSet()
             )
     if (UiSection.PROGRESS in sections) {
-        val progress = recentProgress()
+        val recent = continueProgress()
+        val progress =
+            if (progressReleaseIds == null) recentProgress()
+            else recent + progressReleaseIds.flatMap { releaseProgress(it) }
         result =
             result.copy(
-                continueWatching =
-                    progress.distinctBy { it.release.id }.filterNot { it.watched }.take(10),
+                continueWatching = recent,
                 progressByRelease =
                     progress
                         .groupBy { it.release.id }
@@ -105,7 +109,7 @@ internal fun Storage.readUiSnapshot(
     if (UiSection.SEARCH in sections) result = result.copy(searchHistory = searchHistory())
     if (UiSection.NOTIFICATIONS in sections) {
         val notifications =
-            records("notifications.history.item.")
+            records("notifications.history.item.", records)
                 .map { (key, record) ->
                     UiNotification(
                         key,

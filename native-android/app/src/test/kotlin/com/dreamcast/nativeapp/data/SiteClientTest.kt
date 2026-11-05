@@ -8,6 +8,22 @@ import org.junit.Test
 
 class SiteClientTest {
     @Test
+    fun `permanent HTTP failures are not retried`() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(MockResponse().setResponseCode(404))
+            try {
+                SiteClient(server.url("/").toString()).html("/")
+                fail("Expected HTTP failure")
+            } catch (_: java.io.IOException) {}
+            assertEquals(1, server.requestCount)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
     fun `server filters use site identifiers and pagination`() = runBlocking {
         val server = MockWebServer()
         server.start()

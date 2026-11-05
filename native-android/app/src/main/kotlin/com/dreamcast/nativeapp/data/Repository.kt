@@ -1,5 +1,6 @@
 package com.dreamcast.nativeapp.data
 
+import com.dreamcast.nativeapp.NativePerformance
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
@@ -9,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.FormBody
@@ -23,8 +25,11 @@ class SiteClient(
         OkHttpClient.Builder()
             .connectTimeout(45, TimeUnit.SECONDS)
             .readTimeout(45, TimeUnit.SECONDS)
+            .callTimeout(12, TimeUnit.SECONDS)
             .build(),
 ) {
+    private class HttpFailure(val status: Int) : IOException("Ошибка сервера: $status")
+
     val headers =
         mapOf(
             "User-Agent" to
@@ -35,7 +40,11 @@ class SiteClient(
             "Accept-Language" to "ru-RU,ru;q=0.9",
         )
 
-    private suspend fun execute(request: Request): String {
+    private suspend fun execute(request: Request): String =
+        withTimeoutOrNull(20_000) { executeAttempts(request) }
+            ?: throw IOException("Превышено время ожидания сервера")
+
+    private suspend fun executeAttempts(request: Request): String {
         var last: Exception? = null
         repeat(3) { attempt ->
             try {
@@ -53,9 +62,7 @@ class SiteClient(
                                     response.use {
                                         if (!continuation.isActive) return
                                         if (!it.isSuccessful)
-                                            continuation.resumeWithException(
-                                                IOException("Ошибка сервера: ${it.code}")
-                                            )
+                                            continuation.resumeWithException(HttpFailure(it.code))
                                         else continuation.resume(it.body?.string() ?: "")
                                     }
                                 } catch (error: IOException) {
@@ -69,6 +76,8 @@ class SiteClient(
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (error: IOException) {
+                if (error is HttpFailure && error.status !in setOf(408, 429, 500, 502, 503, 504))
+                    throw error
                 last = error
                 if (attempt < 2) delay(350L shl attempt)
             }
@@ -102,9 +111,20 @@ class SiteClient(
 
 class Repository(val storage: Storage, val site: SiteClient = SiteClient()) {
     private val parsedCache = ParsedCache()
+    private val loads = SharedLoads()
+
+    private data class LoadKey(val key: String, val context: Any?, val refresh: Boolean)
 
     /** Reuse a recent signed playlist; renew the page and playlist together after two hours. */
-    suspend fun playback(release: Release, refresh: Boolean = false): Pair<Release, List<Episode>> {
+    suspend fun playback(release: Release, refresh: Boolean = false): Pair<Release, List<Episode>> =
+        loads.run(LoadKey("playback:${release.id}", release, refresh)) {
+            loadPlayback(release, refresh)
+        }
+
+    private suspend fun loadPlayback(
+        release: Release,
+        refresh: Boolean,
+    ): Pair<Release, List<Episode>> {
         val entry =
             withContext(Dispatchers.IO) { storage.cache("dreamcast:episodes:${release.id}") }
         val now = System.currentTimeMillis()
@@ -126,14 +146,36 @@ class Repository(val storage: Storage, val site: SiteClient = SiteClient()) {
         ttl: Long,
         refresh: Boolean = false,
         parseContext: Any? = null,
+        onStale: ((Cached<T>) -> Unit)? = null,
+        parse: (String) -> T,
+        fetch: suspend () -> String,
+    ): Cached<T> =
+        loads.run(LoadKey(key, parseContext, refresh)) {
+            loadCached(key, ttl, refresh, parseContext, onStale, parse, fetch)
+        }
+
+    private suspend fun <T : Any> loadCached(
+        key: String,
+        ttl: Long,
+        refresh: Boolean,
+        parseContext: Any?,
+        onStale: ((Cached<T>) -> Unit)?,
         parse: (String) -> T,
         fetch: suspend () -> String,
     ): Cached<T> {
-        val old = withContext(Dispatchers.IO) { storage.cache(key) }
+        val started = NativePerformance.now()
+        val old =
+            withContext(Dispatchers.IO) {
+                NativePerformance.trace("DCTV.cache.read") { storage.cache(key) }
+            }
         val parsed =
             withContext(Dispatchers.Default) {
                 old?.let {
-                    runCatching { parsedCache.parse(key, parseContext, it.value, parse) }
+                    runCatching {
+                            NativePerformance.trace("DCTV.cache.parse") {
+                                parsedCache.parse(key, parseContext, it.value, parse)
+                            }
+                        }
                         .getOrNull()
                 }
             }
@@ -142,7 +184,11 @@ class Repository(val storage: Storage, val site: SiteClient = SiteClient()) {
             old != null &&
                 now - old.updatedAt < ttl &&
                 (old.expiresAt == null || now < old.expiresAt)
-        if (!refresh && fresh && parsed != null) return Cached(parsed, false)
+        if (!refresh && fresh && parsed != null) {
+            NativePerformance.event("repository.native.load", started, "cache")
+            return Cached(parsed, false)
+        }
+        if (!refresh && parsed != null) onStale?.invoke(Cached(parsed, true))
         try {
             val text = fetch()
             val result =
@@ -150,11 +196,15 @@ class Repository(val storage: Storage, val site: SiteClient = SiteClient()) {
                     parsedCache.parse(key, parseContext, text, parse)
                 }
             withContext(Dispatchers.IO) { storage.putCache(key, text) }
+            NativePerformance.event("repository.native.load", started, "network")
             return Cached(result, false)
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (error: Exception) {
-            if (parsed != null) return Cached(parsed, true)
+            if (parsed != null) {
+                NativePerformance.event("repository.native.load", started, "stale_cache")
+                return Cached(parsed, true)
+            }
             throw error
         }
     }
@@ -164,11 +214,14 @@ class Repository(val storage: Storage, val site: SiteClient = SiteClient()) {
         filter: CatalogFilter = CatalogFilter(),
         page: Int = 1,
         refresh: Boolean = false,
+        onStale: ((ReleasePage) -> Unit)? = null,
     ): ReleasePage {
         val normalized = query.trim().lowercase()
         val key =
             when {
-                normalized.isNotEmpty() -> "dreamcast:releases:search:$normalized:$page:16"
+                normalized.isNotEmpty() ->
+                    "dreamcast:releases:search:$normalized:$page:16" +
+                        if (filter == CatalogFilter()) "" else ":${filter.cacheKey}"
                 filter.year != null || filter.genres.isNotEmpty() ->
                     "dreamcast:catalog:${filter.cacheKey}:$page:16"
                 else -> "dreamcast:releases:ongoing:$page:16"
@@ -178,6 +231,7 @@ class Repository(val storage: Storage, val site: SiteClient = SiteClient()) {
                 key,
                 20 * 60 * 1000L,
                 refresh,
+                onStale = { onStale?.invoke(it.value.copy(stale = true)) },
                 parse = { text ->
                     val json = JSONObject(text)
                     ReleasePage(
@@ -191,10 +245,13 @@ class Repository(val storage: Storage, val site: SiteClient = SiteClient()) {
         return data.value.copy(stale = data.stale)
     }
 
-    suspend fun options(): Cached<CatalogOptions> =
+    suspend fun options(
+        onStale: ((Cached<CatalogOptions>) -> Unit)? = null
+    ): Cached<CatalogOptions> =
         cached(
             "dreamcast:catalog:options",
             86400000L,
+            onStale = onStale,
             parse = {
                 SiteParser.options(
                     if (it.trimStart().startsWith("{")) JSONObject(it).getString("html") else it
@@ -203,12 +260,17 @@ class Repository(val storage: Storage, val site: SiteClient = SiteClient()) {
             fetch = { site.html("/") },
         )
 
-    suspend fun detail(release: Release, refresh: Boolean = false): Cached<Detail> =
+    suspend fun detail(
+        release: Release,
+        refresh: Boolean = false,
+        onStale: ((Cached<Detail>) -> Unit)? = null,
+    ): Cached<Detail> =
         cached(
             "dreamcast:detail:${release.id}",
             8 * 3600000L,
             refresh,
             parseContext = release,
+            onStale = onStale,
             parse = {
                 if (it.trimStart().startsWith("{")) {
                     val json = JSONObject(it)
@@ -270,10 +332,13 @@ class Repository(val storage: Storage, val site: SiteClient = SiteClient()) {
         return decoded
     }
 
-    suspend fun schedule(): Cached<List<ScheduleDay>> =
+    suspend fun schedule(
+        onStale: ((Cached<List<ScheduleDay>>) -> Unit)? = null
+    ): Cached<List<ScheduleDay>> =
         cached(
             "dreamcast:schedule",
             30 * 60000L,
+            onStale = onStale,
             parse = {
                 if (it.trimStart().startsWith("{"))
                     JSONObject(it).getJSONArray("days").objects().map { day ->

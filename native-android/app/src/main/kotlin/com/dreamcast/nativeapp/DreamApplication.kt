@@ -15,8 +15,23 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.*
 
 class DreamApplication : Application() {
+    internal val episodeCheckMutex = kotlinx.coroutines.sync.Mutex()
     private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var startup: Deferred<Unit>? = null
+    private val maintenanceStarted = java.util.concurrent.atomic.AtomicBoolean()
+
+    internal fun maintainCacheAfterFirstFrame() {
+        if (maintenanceStarted.compareAndSet(false, true)) backgroundScope.launch {
+            try {
+                awaitStorageReady()
+                storage.maintainCache(force = true)
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (error: Exception) {
+                android.util.Log.e("DCTV_CACHE", "Cache maintenance failed", error)
+            }
+        }
+    }
 
     suspend fun awaitStorageReady() {
         startup?.await()
@@ -43,6 +58,7 @@ class DreamApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        NativePerformance.processStart
         repository = Repository(storage)
         startup =
             backgroundScope.async {

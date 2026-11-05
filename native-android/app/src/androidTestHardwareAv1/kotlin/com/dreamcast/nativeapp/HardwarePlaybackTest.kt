@@ -27,6 +27,22 @@ import org.junit.runner.RunWith
 /** Verifies the real Media3 lifecycle and saved position using deterministic silent PCM media. */
 @RunWith(AndroidJUnit4::class)
 class HardwarePlaybackTest {
+    private fun openSettings() {
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_DPAD_UP)
+        val settings = onView(withContentDescription("Настройки воспроизведения"))
+        val deadline = System.nanoTime() + 3_000_000_000L
+        while (true) {
+            try {
+                settings.check(androidx.test.espresso.assertion.ViewAssertions.matches(
+                    androidx.test.espresso.matcher.ViewMatchers.isCompletelyDisplayed()))
+                break
+            } catch (error: AssertionError) {
+                if (System.nanoTime() >= deadline) throw error
+                Thread.sleep(25)
+            }
+        }
+        settings.perform(click())
+    }
 
     @Test
     fun playbackSavesProgressWhenLeavingPlayer() {
@@ -96,13 +112,21 @@ class HardwarePlaybackTest {
                             ),
                         )
                     }
-                    onView(withContentDescription("Настройки воспроизведения")).perform(click())
+                    openSettings()
+                    kotlinx.coroutines.runBlocking { app.progressWriter.awaitPending() }
+                    val pausedTimestamp = app.storage.number("progress.updatedAt.990001:990001-1")
+                    Thread.sleep(5500)
+                    assertEquals(
+                        "Paused playback must not rewrite unchanged progress",
+                        pausedTimestamp,
+                        app.storage.number("progress.updatedAt.990001:990001-1"),
+                    )
                     onView(withText(startsWith("Качество ·"))).perform(click())
                     onView(withContentDescription("720p")).perform(click())
-                    onView(withContentDescription("Настройки воспроизведения")).perform(click())
+                    openSettings()
                     onView(withText(startsWith("Скорость ·"))).perform(click())
                     onView(withContentDescription("1.5×")).perform(click())
-                    onView(withContentDescription("Настройки воспроизведения")).perform(click())
+                    openSettings()
                     onView(withContentDescription("Звук и субтитры")).perform(click())
                     onView(withContentDescription("Звук")).perform(click())
                     onView(withContentDescription("Выключены")).perform(click())
@@ -117,7 +141,7 @@ class HardwarePlaybackTest {
                                 engine.trackSelectionParameters.disabledTrackTypes
                         )
                     }
-                    onView(withContentDescription("Настройки воспроизведения")).perform(click())
+                    openSettings()
                     onView(withContentDescription("Звук и субтитры")).perform(click())
                     onView(withContentDescription("Звук")).perform(click())
                     onView(withContentDescription("Авто")).perform(click())

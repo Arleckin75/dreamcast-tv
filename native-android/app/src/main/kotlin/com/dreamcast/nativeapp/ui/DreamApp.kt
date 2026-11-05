@@ -81,13 +81,22 @@ private data class Load<T>(
 )
 
 @Composable
-private fun <T> resource(key: Any, loader: suspend () -> T): Load<T> {
+private fun <T> resource(key: Any, loader: suspend ((T) -> Unit) -> T): Load<T> {
     val state by
         produceState(Load<T>(), key) {
             value = Load()
             value =
                 try {
-                    Load(value = withContext(Dispatchers.IO) { loader() }, loading = false)
+                    val owner = kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
+                    Load(
+                        value =
+                            withContext(Dispatchers.IO) {
+                                loader { cached ->
+                                    if (owner?.isActive == true) value = Load(value = cached)
+                                }
+                            },
+                        loading = false,
+                    )
                 } catch (cancel: CancellationException) {
                     throw cancel
                 } catch (error: Exception) {
@@ -108,6 +117,11 @@ fun DreamApp(model: AppViewModel, activity: MainActivity) {
 
 @Composable
 private fun DreamAppContent(model: AppViewModel, activity: MainActivity) {
+    LaunchedEffect(Unit) {
+        withFrameNanos {}
+        NativePerformance.firstFrame()
+        model.application.maintainCacheAfterFirstFrame()
+    }
     if (!model.uiReady) {
         Box(
             Modifier.fillMaxSize().background(Color(0xFF101114)),
@@ -173,6 +187,23 @@ private fun DreamAppContent(model: AppViewModel, activity: MainActivity) {
             Surface(modifier = Modifier.fillMaxSize(), color = colors.background) {
                 val route = model.route
                 val saved = rememberSaveableStateHolder()
+                val retainedRoutes =
+                    model.routes.map { it.key }.toSet() +
+                        setOf("home", "catalog", "search", "library", "schedule").map {
+                            Route(it).key
+                        }
+                val previousRoutes = remember { mutableSetOf<String>() }
+                DisposableEffect(route.key) {
+                    previousRoutes += route.key
+                    onDispose {}
+                }
+                LaunchedEffect(retainedRoutes) {
+                    val removed = previousRoutes.filter { it !in retainedRoutes }
+                    removed.forEach {
+                        saved.removeState(it)
+                        previousRoutes.remove(it)
+                    }
+                }
                 BackHandler(model.routes.size > 1) { model.back() }
                 Column(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 20.dp)) {
                     TopNavigation(model)
@@ -453,8 +484,23 @@ private fun TopNavigation(model: AppViewModel) {
 private fun Home(model: AppViewModel) {
     var retry by remember { mutableIntStateOf(0) }
     val data =
-        resource(retry) { model.repository.releases("", CatalogFilter(), 1, refresh = retry > 0) }
+        resource(retry) { publish ->
+            model.repository.releases(
+                "",
+                CatalogFilter(),
+                1,
+                refresh = retry > 0,
+                onStale = publish,
+            )
+        }
     val releases = data.value?.items.orEmpty()
+    val started = remember(retry) { NativePerformance.now() }
+    LaunchedEffect(data.loading) {
+        if (!data.loading && data.value != null) {
+            withFrameNanos {}
+            NativePerformance.event("home.native.catalogue_framework_frame", started)
+        }
+    }
     var featuredId by rememberSaveable { mutableIntStateOf(-1) }
     val featuredIndex = releases.indexOfFirst { it.id == featuredId }.coerceAtLeast(0)
     val featured = releases.getOrNull(featuredIndex)
@@ -641,7 +687,7 @@ private fun Catalog(model: AppViewModel) {
     var year by rememberSaveable { mutableStateOf(0) }
     var genres by rememberSaveable { mutableStateOf("") }
     var retry by remember { mutableIntStateOf(0) }
-    val options = resource(retry) { model.repository.options() }
+    val options = resource(retry) { publish -> model.repository.options(onStale = publish) }
     var yearDialog by remember { mutableStateOf(false) }
     var genreDialog by remember { mutableStateOf(false) }
     val selected = genres.split(',').filter(String::isNotBlank).toSet()
@@ -800,13 +846,21 @@ private fun ReleaseFeed(model: AppViewModel, filter: CatalogFilter, query: Strin
     var stale by feed::stale
     var exhausted by feed::exhausted
     val data =
-        resource("$key:$page:$retry") {
-            feed to model.repository.releases(query, filter, page, refresh = retry > 0)
+        resource("$key:$page:$retry") { publish ->
+            feed to
+                model.repository.releases(
+                    query,
+                    filter,
+                    page,
+                    refresh = retry > 0,
+                    onStale = { publish(feed to it) },
+                )
         }
     val response = data.value?.takeIf { it.first === feed }?.second
     // Do not request another page until the current response has been merged and published.
     val loading = data.loading || (data.error == null && page > feed.loadedPage)
-    LaunchedEffect(feed, response) {
+    LaunchedEffect(feed, response, data.loading) {
+        if (data.loading) return@LaunchedEffect
         response?.let { response ->
             if (response.page <= feed.loadedPage) return@LaunchedEffect
             val merged = mergeFeedPage(all, response)
@@ -815,11 +869,13 @@ private fun ReleaseFeed(model: AppViewModel, filter: CatalogFilter, query: Strin
             total = response.total
             stale = stale || response.stale
             feed.loadedPage = response.page
+            model.trimFeeds(key)
         }
     }
     val grid = rememberLazyGridState()
     var focused by rememberSaveable(key) { mutableIntStateOf(-1) }
     val hasMore = !exhausted && all.size < total
+    val displayed = if (all.isEmpty()) response?.items.orEmpty() else all
     LaunchedEffect(grid, key, hasMore, loading, data.error) {
         snapshotFlow { grid.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
             .distinctUntilChanged()
@@ -835,11 +891,11 @@ private fun ReleaseFeed(model: AppViewModel, filter: CatalogFilter, query: Strin
             }
     }
     Column(Modifier.fillMaxSize()) {
-        if (stale) Stale()
-        if (loading && all.isEmpty()) Loading()
+        if (stale || response?.stale == true) Stale()
+        if (loading && displayed.isEmpty()) Loading()
         if (!loading && all.isEmpty() && data.error == null)
             Text("Релизы не найдены", modifier = Modifier.padding(24.dp))
-        if (all.isNotEmpty()) {
+        if (displayed.isNotEmpty()) {
             Row(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -854,7 +910,7 @@ private fun ReleaseFeed(model: AppViewModel, filter: CatalogFilter, query: Strin
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                items(all, key = { it.id }) { release ->
+                items(displayed, key = { it.id }) { release ->
                     Poster(release, focused == release.id, { focused = release.id }) {
                         model.navigate(Route("detail", release))
                     }
@@ -971,7 +1027,10 @@ private fun Library(model: AppViewModel) {
 private fun ReleaseDetail(model: AppViewModel, seed: Release) {
     val context = LocalContext.current
     var retry by remember { mutableIntStateOf(0) }
-    val loaded = resource("${seed.id}:$retry") { model.repository.detail(seed) }
+    val loaded =
+        resource("${seed.id}:$retry") { publish ->
+            model.repository.detail(seed, refresh = retry > 0, onStale = publish)
+        }
     val release = loaded.value?.value?.release ?: seed
     var bookmarkDialog by remember { mutableStateOf(false) }
     val status = model.ui.bookmarksById[release.id]?.status
@@ -1130,7 +1189,7 @@ private fun Episodes(model: AppViewModel, activity: MainActivity, release: Relea
 @Composable
 private fun Schedule(model: AppViewModel) {
     var retry by remember { mutableIntStateOf(0) }
-    val data = resource(retry) { model.repository.schedule() }
+    val data = resource(retry) { publish -> model.repository.schedule(onStale = publish) }
     val days = data.value?.value.orEmpty()
     val firstDayIndex = days.indexOfFirst { it.releases.isNotEmpty() }
     val firstRelease = days.getOrNull(firstDayIndex)?.releases?.firstOrNull()
@@ -1311,6 +1370,9 @@ private fun Cache(model: AppViewModel) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(stats?.let { "Записей: ${it.first} • ${it.second/1024} КБ" } ?: "Подсчёт кэша…")
         Text("Срок хранения: ${model.ui.retentionHours.let{if(it==0L)"бессрочно" else "$it ч."}}")
+        Text(
+            "Кэш очищается автоматически при заполнении. Библиотека и история просмотра сохраняются."
+        )
         Action("Срок хранения") { retentionDialog = true }
         Action("Очистить просроченные") { model.mutateLocal(UiSection.CACHE) { clearExpired() } }
         Action("Очистить весь кэш") { clearDialog = true }

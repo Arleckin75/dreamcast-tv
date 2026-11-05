@@ -41,8 +41,11 @@ android {
         getByName("softwareAv1").java.srcDir(layout.buildDirectory.dir("generated/vlc"))
     }
     buildTypes {
-        debug { applicationIdSuffix = ".kotlin" }
+        debug { applicationIdSuffix = providers.gradleProperty("nativeDebugSuffix").getOrElse(".kotlin") }
         release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             val signingFile = rootProject.file("../android/key.properties")
             if (signingFile.exists()) {
                 val props = Properties().apply { signingFile.inputStream().use { load(it) } }
@@ -126,6 +129,7 @@ dependencies {
     testImplementation("org.json:json:20240303")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.work:work-testing:2.10.3")
     androidTestImplementation(platform("androidx.compose:compose-bom:2025.08.01"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.test:runner:1.7.0")

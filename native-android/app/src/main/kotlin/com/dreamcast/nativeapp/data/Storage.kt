@@ -9,7 +9,15 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** Uses the original on-device names so a signed update can retain user data. */
-class Storage(context: Context) {
+class Storage(
+    context: Context,
+    private val maxCacheEntries: Int = 512,
+    private val maxCacheBytes: Long = 16 * 1024 * 1024,
+) {
+    init {
+        require(maxCacheEntries > 0 && maxCacheBytes > 0)
+    }
+
     private val preferences =
         context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
     private val nativePreferences =
@@ -38,6 +46,12 @@ class Storage(context: Context) {
         )
         database.execSQL(
             "CREATE TABLE IF NOT EXISTS watch_entries (release_id TEXT NOT NULL, episode_id TEXT NOT NULL, release_title TEXT NOT NULL, episode_title TEXT NOT NULL, poster_url TEXT, episode_ordinal INTEGER NOT NULL, position_ms INTEGER NOT NULL DEFAULT 0, duration_ms INTEGER, is_watched INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL, PRIMARY KEY(release_id,episode_id))"
+        )
+        database.execSQL(
+            "CREATE INDEX IF NOT EXISTS native_watch_recent ON watch_entries(updated_at DESC)"
+        )
+        database.execSQL(
+            "CREATE INDEX IF NOT EXISTS native_watch_release_recent ON watch_entries(release_id,updated_at DESC)"
         )
         return database
     }
@@ -103,22 +117,31 @@ class Storage(context: Context) {
         preferences.edit().remove("flutter.$key").apply()
     }
 
-    fun records(prefix: String): List<Pair<String, JSONObject>> {
+    fun recordSnapshot(): Map<String, Any?> {
         val matching = LinkedHashMap<String, Any?>()
         preferences.all.forEach { (rawKey, value) ->
             val key = rawKey.removePrefix("flutter.")
-            if (key.startsWith(prefix)) matching[key] = value
+            matching[key] = value
         }
-        nativePreferences.all.forEach { (key, value) ->
-            if (key.startsWith(prefix)) matching[key] = value
-        }
-        return matching.mapNotNull { (key, value) ->
-            runCatching { key to JSONObject(value as String) }.getOrNull()
-        }
+        nativePreferences.all.forEach { (key, value) -> matching[key] = value }
+        return matching
     }
 
-    fun bookmarks(): List<Bookmark> =
-        records("library.release.item.")
+    fun records(
+        prefix: String,
+        snapshot: Map<String, Any?> = recordSnapshot(),
+    ): List<Pair<String, JSONObject>> {
+        return snapshot
+            .asSequence()
+            .filter { it.key.startsWith(prefix) }
+            .mapNotNull { (key, value) ->
+                runCatching { key to JSONObject(value as String) }.getOrNull()
+            }
+            .toList()
+    }
+
+    fun bookmarks(snapshot: Map<String, Any?> = recordSnapshot()): List<Bookmark> =
+        records("library.release.item.", snapshot)
             .mapNotNull { (_, json) ->
                 runCatching {
                         Bookmark(
@@ -136,15 +159,18 @@ class Storage(context: Context) {
             remove("library.release.status.${release.id}")
             return
         }
-        put("library.release.status.${release.id}", status.name)
-        put(
-            "library.release.item.${release.id}",
-            JSONObject()
-                .put("status", status.name)
-                .put("release", release.json())
-                .put("updatedAt", Instant.now().toString())
-                .toString(),
-        )
+        nativePreferences
+            .edit()
+            .putString("library.release.status.${release.id}", status.name)
+            .putString(
+                "library.release.item.${release.id}",
+                JSONObject()
+                    .put("status", status.name)
+                    .put("release", release.json())
+                    .put("updatedAt", Instant.now().toString())
+                    .toString(),
+            )
+            .apply()
     }
 
     fun subscribed(id: Int) = string("notifications.release.item.$id").isNotEmpty()
@@ -246,7 +272,12 @@ class Storage(context: Context) {
                     )
             }
 
+    @Synchronized
     fun putCache(key: String, value: String) {
+        // An oversized response may still be used by the caller, but must not evict the whole
+        // cache.
+        val byteCount = value.toByteArray(Charsets.UTF_8).size
+        if (byteCount > maxCacheBytes) return
         val now = System.currentTimeMillis() / 1000
         val hours = retentionHours()
         val values =
@@ -262,6 +293,61 @@ class Storage(context: Context) {
             values,
             SQLiteDatabase.CONFLICT_REPLACE,
         )
+        pendingCacheBytes += byteCount
+        maintainCache()
+    }
+
+    private var cacheWrites = 0
+    private var lastCacheMaintenance = 0L
+    private var pendingCacheBytes = 0L
+
+    /** Keep a seven-day stale fallback window; storage budgets still apply in forever mode. */
+    @Synchronized
+    fun maintainCache(force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        if (
+            !force &&
+                ++cacheWrites < 32 &&
+                pendingCacheBytes < maxCacheBytes / 16 &&
+                now - lastCacheMaintenance < 3600000L
+        )
+            return
+        database.beginTransaction()
+        try {
+            database.delete(
+                "cache_entries",
+                "expires_at IS NOT NULL AND expires_at < ?",
+                arrayOf((now / 1000 - 7 * 86400).toString()),
+            )
+            val (count, bytes) = cacheStats()
+            var remainingCount = count
+            var remainingBytes = bytes
+            if (remainingCount > maxCacheEntries || remainingBytes > maxCacheBytes) {
+                val remove = mutableListOf<String>()
+                database
+                    .rawQuery(
+                        "SELECT `key`,LENGTH(CAST(value_json AS BLOB)) FROM cache_entries ORDER BY updated_at ASC,rowid ASC",
+                        null,
+                    )
+                    .use {
+                        while (
+                            (remainingCount > maxCacheEntries || remainingBytes > maxCacheBytes) &&
+                                it.moveToNext()
+                        ) {
+                            remove += it.getString(0)
+                            remainingCount--
+                            remainingBytes -= it.getLong(1)
+                        }
+                    }
+                remove.forEach { database.delete("cache_entries", "`key`=?", arrayOf(it)) }
+            }
+            database.setTransactionSuccessful()
+            cacheWrites = 0
+            pendingCacheBytes = 0
+            lastCacheMaintenance = now
+        } finally {
+            database.endTransaction()
+        }
     }
 
     fun clearCache() {
@@ -339,12 +425,15 @@ class Storage(context: Context) {
 
     fun syncVlcProgress(context: Context) {
         val vlc = context.getSharedPreferences("dream_cast_vlc_progress", Context.MODE_PRIVATE)
-        for (entry in recentProgress()) {
-            val key = "${entry.release.id}:${entry.episodeId}"
-            if (
-                vlc.getLong("$key:updatedAt", 0) >
-                    number("progress.updatedAt.$key", entry.updatedAt) && vlc.contains(key)
-            ) {
+        val values = vlc.all
+        for ((timestampKey, value) in values) {
+            if (!timestampKey.endsWith(":updatedAt") || value !is Long) continue
+            val key = timestampKey.removeSuffix(":updatedAt")
+            val position = values[key] as? Long ?: continue
+            if (value <= number("progress.updatedAt.$key")) continue
+            val releaseId = key.substringBefore(':').toIntOrNull() ?: continue
+            val entry = progress(releaseId, key.substringAfter(':')) ?: continue
+            if (value > number("progress.updatedAt.$key", entry.updatedAt)) {
                 saveProgress(
                     entry.release,
                     Episode(
@@ -354,18 +443,35 @@ class Storage(context: Context) {
                         entry.episodeTitle,
                         "",
                     ),
-                    vlc.getLong(key, entry.positionMs),
+                    position,
                     entry.durationMs,
                 )
             }
         }
     }
 
-    fun recentProgress(): List<WatchProgress> =
+    fun continueProgress(limit: Int = 10): List<WatchProgress> =
+        queryProgress(
+            "WHERE is_watched=0 AND NOT EXISTS (SELECT 1 FROM watch_entries newer WHERE newer.release_id=w.release_id AND (newer.updated_at>w.updated_at OR (newer.updated_at=w.updated_at AND newer.rowid>w.rowid)))",
+            emptyArray(),
+            limit,
+        )
+
+    fun releaseProgress(releaseId: Int): List<WatchProgress> =
+        queryProgress("WHERE release_id=?", arrayOf(releaseId.toString()))
+
+    fun recentProgress(): List<WatchProgress> = queryProgress()
+
+    private fun queryProgress(
+        where: String = "",
+        args: Array<String> = emptyArray(),
+        limit: Int? = null,
+    ): List<WatchProgress> =
         database
             .rawQuery(
-                "SELECT release_id,episode_id,release_title,episode_title,poster_url,episode_ordinal,position_ms,duration_ms,is_watched,updated_at FROM watch_entries ORDER BY updated_at DESC,rowid DESC",
-                null,
+                "SELECT release_id,episode_id,release_title,episode_title,poster_url,episode_ordinal,position_ms,duration_ms,is_watched,updated_at FROM watch_entries w $where ORDER BY updated_at DESC,rowid DESC" +
+                    (limit?.let { " LIMIT ${it.coerceAtLeast(0)}" } ?: ""),
+                args,
             )
             .use { cursor ->
                 buildList {

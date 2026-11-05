@@ -19,6 +19,46 @@ import org.robolectric.annotation.Config
 @Config(application = Application::class, sdk = [28], manifest = Config.NONE)
 class RepositoryTest {
     @Test
+    fun `stale catalog is published before the network finishes and then replaced`() = runBlocking {
+        val old = """{"releases":[{"id":1,"russian":"Old"}],"count":1}"""
+        storage.putCache("dreamcast:releases:ongoing:1:16", old)
+        storage.retention(-1)
+        server.enqueue(
+            MockResponse()
+                .setBody("""{"releases":[{"id":1,"russian":"New"}],"count":1}""")
+                .setBodyDelay(300, java.util.concurrent.TimeUnit.MILLISECONDS)
+        )
+        val published = CompletableDeferred<ReleasePage>()
+        val request = async { repository.releases(onStale = { published.complete(it) }) }
+        val cached = withTimeout(2000) { published.await() }
+        assertTrue(cached.stale)
+        assertEquals("Old", cached.items.single().title)
+        assertFalse(request.isCompleted)
+        assertEquals("New", request.await().items.single().title)
+    }
+
+    @Test
+    fun `concurrent forced refreshes share one HTTP request`() = runBlocking {
+        server.enqueue(
+            MockResponse()
+                .setBody("""{"releases":[],"count":0}""")
+                .setBodyDelay(200, java.util.concurrent.TimeUnit.MILLISECONDS)
+        )
+        val readers = List(8) { async { repository.releases(refresh = true) } }
+        readers.awaitAll()
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun `filtered searches have separate cache keys`() = runBlocking {
+        repeat(2) { server.enqueue(MockResponse().setBody("""{"releases":[],"count":0}""")) }
+        repository.releases("show", CatalogFilter(2024))
+        repository.releases("show", CatalogFilter(2023))
+        repository.releases("show", CatalogFilter(2024))
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
     fun `invalid refresh preserves cached data and next valid refresh replaces it`() = runBlocking {
         fun response(title: String) =
             MockResponse().setBody("""{"releases":[{"id":1,"russian":"$title"}],"count":1}""")

@@ -6,6 +6,18 @@ import org.junit.Test
 
 class FeedCacheTest {
     @Test
+    fun itemBudgetEvictsInactiveFeedsWithoutTruncatingTheActiveCatalogue() {
+        val cache = FeedCache(maxRetainedItems = 3)
+        val old = cache.getOrCreate("old")
+        old.items = List(3) { Release(it, "Old") }
+        val active = cache.getOrCreate("active")
+        active.items = List(8) { Release(it + 10, "Active") }
+        cache.trim("active")
+        assertSame(active, cache.getOrCreate("active"))
+        assertEquals(8, active.items.size)
+        assertNotSame(old, cache.getOrCreate("old"))
+    }
+    @Test
     fun defaultLimitEvictsOnlyTheOldestOfNineDifferentFeeds() {
         val cache = FeedCache()
         val original = (0 until 8).map { cache.getOrCreate("query:$it") }

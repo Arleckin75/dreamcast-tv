@@ -101,6 +101,7 @@ class CosmosAv1PlayerActivity : Activity() {
         Log.i("DCTV_PROGRESS", "saved positionMs=$ms durationMs=$length")
     }
     private fun restorePosition(mp: MediaPlayer) {
+        if (!activityResumed || !surfaceReady) return
         if (hasRestoredPosition || resumeMs <= 0L || !mp.isSeekable) return
         val length = runCatching { mp.length }.getOrDefault(0L)
         val target = if (length > 0L && resumeMs >= length - 1000L) 0L else resumeMs
@@ -111,6 +112,30 @@ class CosmosAv1PlayerActivity : Activity() {
 
     private var activeHeight = 720
     private var requestSerial = 0
+    private var resolution: CosmosFmp4Resolver.Resolution? = null
+    private var resumeAfterPause = false
+    private var pendingResolvedUrl: String? = null
+
+    private fun resumeWhenSurfaceReady() {
+        if (!activityResumed || !surfaceReady || backExitRequested || retrying) return
+        val surface = videoSurface ?: return
+        pendingResolvedUrl?.let { url ->
+            pendingResolvedUrl = null
+            startVlcFmp4(url, surface)
+            return
+        }
+        player?.let { mp ->
+            if (!mp.vlcVout.areViewsAttached()) {
+                mp.vlcVout.setVideoView(surface)
+                mp.vlcVout.attachViews()
+                syncVlcWindowSize("resumed")
+            }
+        }
+        if (resumeAfterPause) {
+            resumeAfterPause = false
+            player?.play()
+        }
+    }
     private var userAgent: String? = null
     private var referer: String? = null
     // Progress persistence is independent of diagnostic logging and continues throughout playback.
@@ -192,6 +217,7 @@ class CosmosAv1PlayerActivity : Activity() {
 
     private fun restartPlayback(height: Int? = null) {
         if (retrying || backExitRequested || isFinishing || isDestroyed) return
+        resolution?.cancel()
         val mp = player
         val wasPlaying = mp?.isPlaying == true
         persistPosition(true)
@@ -267,6 +293,7 @@ class CosmosAv1PlayerActivity : Activity() {
                 surfaceReady = true
                 Log.i("DCTV_AV1", "surfaceCreated valid=${holder.surface?.isValid}")
                 syncVlcWindowSize("surfaceCreated")
+                uiHandler.post { resumeWhenSurfaceReady() }
             }
             override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
                 Log.i("DCTV_AV1", "surfaceChanged width=$width height=$height format=$format")
@@ -293,18 +320,21 @@ class CosmosAv1PlayerActivity : Activity() {
 
     /** Software AV1 fallback uses the preselected 720p or 1080p fMP4 variant. */
     private fun startSelectedQuality(master: String) {
+        resolution?.cancel()
+        pendingResolvedUrl = null
         val serial = ++requestSerial
         Log.i("DCTV_QUALITY", "automatic fallback: requested AV1 ${activeHeight}p fMP4")
         setPlaybackScreenOn(true)
         showLoading("Открытие видео ${activeHeight}p…")
-        CosmosFmp4Resolver.resolve(master, userAgent, referer, activeHeight) { direct ->
+        resolution = CosmosFmp4Resolver.resolve(master, userAgent, referer, activeHeight) { direct ->
             if (backExitRequested || isFinishing || isDestroyed || serial != requestSerial) return@resolve
             if (direct == null) {
                 setPlaybackScreenOn(false)
                 Log.e("DCTV_QUALITY", "AV1 ${activeHeight}p fMP4 unavailable; no other quality fallback")
                 showPlaybackError("Не удалось загрузить видео ${activeHeight}p. Проверьте подключение и повторите попытку.")
             } else {
-                startVlcFmp4(direct, videoSurface ?: return@resolve)
+                pendingResolvedUrl = direct
+                resumeWhenSurfaceReady()
             }
         }
     }
@@ -380,6 +410,11 @@ class CosmosAv1PlayerActivity : Activity() {
                         setPlaybackScreenOn(true)
                         Log.i("DCTV_AV1", "LibVLC playing; software decode requested")
                         postPlayerUpdate(mp) {
+                            if (!activityResumed) {
+                                resumeAfterPause = true
+                                mp.pause()
+                                return@postPlayerUpdate
+                            }
                             restorePosition(mp)
                             if (pauseAfterRestart) { pauseAfterRestart = false; mp.pause() }
                             showLoading(null); reveal()
@@ -484,6 +519,7 @@ class CosmosAv1PlayerActivity : Activity() {
     }
 
     private fun exitToEpisodes() {
+        resolution?.cancel()
         if (backExitRequested || isFinishing || isDestroyed) return
         backExitRequested = true
         requestSerial++
@@ -570,12 +606,17 @@ class CosmosAv1PlayerActivity : Activity() {
     override fun onResume() {
         super.onResume()
         activityResumed = true
+        resumeWhenSurfaceReady()
         applyPlaybackScreenOn()
         if (controls?.visible == true) reveal()
     }
 
     override fun onPause() {
         activityResumed = false
+        // Quiesce rendering before Android destroys SurfaceView (notably on Cosmos/Mali).
+        // Back/quality transitions already own their explicit stop/release sequence.
+        resumeAfterPause = !backExitRequested && !retrying && player?.isPlaying == true
+        if (resumeAfterPause) player?.pause()
         uiHandler.removeCallbacks(controlsTicker)
         applyPlaybackScreenOn()
         persistPosition(true)
@@ -605,6 +646,7 @@ class CosmosAv1PlayerActivity : Activity() {
     }
 
     override fun onDestroy() {
+        resolution?.cancel()
         controls?.dispose()
         uiHandler.removeCallbacksAndMessages(null)
         uiHandler.removeCallbacks(hideUi)

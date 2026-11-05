@@ -51,6 +51,8 @@ class HardwarePlayerActivity : ComponentActivity() {
     private var resumePosition = 0L
     private var ready = false
     private var completed = false
+    private var activityStarted = false
+    private var lastSaved: ProgressSnapshot? = null
     private var retryCount = 0
     private val failedStreams = mutableSetOf<String>()
     private var completionCountdown: EpisodeCompletionCountdown? = null
@@ -58,8 +60,9 @@ class HardwarePlayerActivity : ComponentActivity() {
     private val saveTick =
         object : Runnable {
             override fun run() {
-                save()
-                handler.postDelayed(this, 5000)
+                if (!activityStarted && !inPip()) return
+                save(force = false)
+                if (player?.isPlaying == true) handler.postDelayed(this, 5000)
             }
         }
 
@@ -162,7 +165,6 @@ class HardwarePlayerActivity : ComponentActivity() {
             } else false
         }
         root.requestFocus()
-        handler.post(controlTick)
         resumePosition = savedInstanceState?.getLong("position") ?: 0
         streamTypePreference = savedInstanceState?.getString("streamType")
         selectedQuality = savedInstanceState?.getInt("qualityHeight") ?: 0
@@ -171,7 +173,6 @@ class HardwarePlayerActivity : ComponentActivity() {
             savedInstanceState?.getString("episodeId") ?: intent.getStringExtra("episodeId")!!,
             if (savedInstanceState == null) intent.getStringExtra("stream") else null,
         )
-        handler.postDelayed(saveTick, 5000)
     }
 
     private fun load(
@@ -187,6 +188,9 @@ class HardwarePlayerActivity : ComponentActivity() {
                     release = playback.first
                     episodes = playback.second
                     val found = episodes.firstOrNull { it.id == id } ?: error("Серия не найдена")
+                    // Save the previous episode before replacing its identity during a reload.
+                    save()
+                    ready = false
                     episode = found
                     streams = PlayerJs.streams(found)
                     require(streams.isNotEmpty()) { "Потоки видео не найдены" }
@@ -215,6 +219,7 @@ class HardwarePlayerActivity : ComponentActivity() {
     }
 
     private fun play(stream: VideoStream, playWhenReady: Boolean = true) {
+        val playbackStarted = NativePerformance.now()
         save()
         ready = false
         completed = false
@@ -234,6 +239,22 @@ class HardwarePlayerActivity : ComponentActivity() {
         video.player = exo
         exo.addListener(
             object : Player.Listener {
+                override fun onRenderedFirstFrame() {
+                    if (player === exo)
+                        NativePerformance.event(
+                            "player.hardware.first_rendered_frame",
+                            playbackStarted,
+                        )
+                }
+
+                override fun onPositionDiscontinuity(
+                    oldPosition: Player.PositionInfo,
+                    newPosition: Player.PositionInfo,
+                    reason: Int,
+                ) {
+                    if (player === exo && reason == Player.DISCONTINUITY_REASON_SEEK) save()
+                }
+
                 override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
                     if (player !== exo || !BuildConfig.DEBUG) return
                     for (group in tracks.groups) {
@@ -290,6 +311,7 @@ class HardwarePlayerActivity : ComponentActivity() {
                         save()
                         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     }
+                    scheduleSave()
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
@@ -324,13 +346,17 @@ class HardwarePlayerActivity : ComponentActivity() {
         exo.playWhenReady = playWhenReady
     }
 
-    private fun save() {
+    private fun save(force: Boolean = true) {
         val ep = episode ?: return
         val exo = player ?: return
         if (!ready || exo.playerError != null) return
         val duration = exo.duration.coerceAtLeast(0)
         resumePosition = exo.currentPosition.coerceAtLeast(0)
-        app.progressWriter.save(ProgressSnapshot(release, ep, resumePosition, duration, completed))
+        val snapshot = ProgressSnapshot(release, ep, resumePosition, duration, completed)
+        if (force || snapshot != lastSaved) {
+            app.progressWriter.save(snapshot)
+            lastSaved = snapshot
+        }
     }
 
     private fun nextEpisode() {
@@ -529,7 +555,28 @@ class HardwarePlayerActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        if (Build.VERSION.SDK_INT < 24 || !isInPictureInPictureMode) player?.pause()
+        activityStarted = false
+        handler.removeCallbacks(controlTick)
+        handler.removeCallbacks(hideControls)
+        if (!inPip()) {
+            player?.pause()
+            handler.removeCallbacks(saveTick)
+        }
+    }
+
+    private fun inPip() = Build.VERSION.SDK_INT >= 24 && isInPictureInPictureMode
+
+    override fun onStart() {
+        super.onStart()
+        activityStarted = true
+        scheduleSave()
+        if (controls.visible) reveal()
+    }
+
+    private fun scheduleSave() {
+        handler.removeCallbacks(saveTick)
+        if ((activityStarted || inPip()) && player?.isPlaying == true)
+            handler.postDelayed(saveTick, 5000)
     }
 
     private val hideControls = Runnable {
@@ -538,6 +585,7 @@ class HardwarePlayerActivity : ComponentActivity() {
     private val controlTick =
         object : Runnable {
             override fun run() {
+                if (!activityStarted || !controls.visible || inPip()) return
                 player?.let {
                     controls.update(
                         it.currentPosition,
@@ -551,7 +599,10 @@ class HardwarePlayerActivity : ComponentActivity() {
         }
 
     private fun reveal() {
+        if (!activityStarted || inPip()) return
         controls.show()
+        handler.removeCallbacks(controlTick)
+        handler.post(controlTick)
         handler.removeCallbacks(hideControls)
         handler.postDelayed(hideControls, 5000)
     }

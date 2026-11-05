@@ -8,6 +8,21 @@ import org.junit.Test
 
 class FeedPageMergeTest {
     @Test
+    fun manyOverlappingPagesPreservePublishedSnapshotsAndRandomAccess() = runBlocking {
+        var items = emptyList<Release>()
+        val snapshots = mutableListOf<Pair<List<Release>, List<Int>>>()
+        val expected = LinkedHashMap<Int, Release>()
+        repeat(40) { page ->
+            val incoming = List(12) { Release(page * 8 + it, "Page $page") }
+            incoming.forEach { expected.putIfAbsent(it.id, it) }
+            items = mergeFeedPage(items, ReleasePage(incoming, 400, page + 1)).items
+            assertEquals(expected.values.toList(), items)
+            assertEquals(expected.values.last(), items.last())
+            snapshots += items to items.map { it.id }
+        }
+        snapshots.forEach { (snapshot, ids) -> assertEquals(ids, snapshot.map { it.id }) }
+    }
+    @Test
     fun overlappingPagesKeepOrderAndExistingCardMetadata() = runBlocking {
         val first = Release(1, "First")
         val second = Release(2, "Second")

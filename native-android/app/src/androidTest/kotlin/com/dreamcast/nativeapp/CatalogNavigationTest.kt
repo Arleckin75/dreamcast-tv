@@ -92,18 +92,25 @@ class CatalogNavigationTest {
                         .isNotEmpty()
                 }
                 compose.onNodeWithText("Год: любой").assertIsEnabled().remoteClick()
-                compose.onNodeWithText("2024").remoteClick()
+                compose.onNode(hasText("2024") and hasAnyAncestor(isDialog())).remoteClick()
                 compose.onNodeWithText("Год: 2024").assertExists()
                 compose.onNodeWithText("Жанры: все").remoteClick()
-                compose.onNodeWithText("Магия").performClick()
-                compose.onNodeWithText("Романтика").performClick()
-                compose.onNodeWithText("Применить").performClick()
-                compose.waitUntil(15000) {
-                    posts.any {
-                        it.contains("dateissue%5B%5D=2024") &&
-                            it.contains("genres%5B%5D=magic") &&
-                            it.contains("genres%5B%5D=romance")
+                compose.onNode(isToggleable() and hasAnySibling(hasText("Магия")), useUnmergedTree = true)
+                    .performClick().assertIsOn()
+                compose.onNode(isToggleable() and hasAnySibling(hasText("Романтика")), useUnmergedTree = true)
+                    .performClick().assertIsOn()
+                compose.onNodeWithText("Применить").remoteClick()
+                compose.onNodeWithText("Жанры: Магия, Романтика").assertExists()
+                try {
+                    compose.waitUntil(15000) {
+                        posts.any {
+                            it.contains("dateissue%5B%5D=2024") &&
+                                it.contains("genres%5B%5D=magic") &&
+                                it.contains("genres%5B%5D=romance")
+                        }
                     }
+                } catch (error: Throwable) {
+                    throw AssertionError("Expected both genres and year; fixture requests: $posts", error)
                 }
                 compose.onNodeWithText("Показать все").remoteClick()
                 compose.onNodeWithText("Год: любой").assertExists()

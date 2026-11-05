@@ -108,12 +108,13 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
                     val requested = pendingSections.toSet()
                     pendingSections.clear()
                     val previous = ui
+                    val progressIds = routes.mapNotNull { it.release?.id }.toSet()
                     try {
                         application.awaitStorageReady()
                         ui =
                             withContext(Dispatchers.IO) {
                                 localDataMutex.withLock {
-                                    storage.readUiSnapshot(previous, requested)
+                                    storage.readUiSnapshot(previous, requested, progressIds)
                                 }
                             }
                         uiReady = true
@@ -138,9 +139,10 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
         val appContext = context.applicationContext
         viewModelScope.launch {
             application.progressWriter.awaitPending()
-            withContext(Dispatchers.IO) {
-                localDataMutex.withLock { storage.syncVlcProgress(appContext) }
-            }
+            if (software)
+                withContext(Dispatchers.IO) {
+                    localDataMutex.withLock { storage.syncVlcProgress(appContext) }
+                }
             changed(UiSection.PROGRESS)
         }
     }
@@ -153,6 +155,8 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
 
     fun feed(key: String): FeedState = feeds.getOrCreate(key)
 
+    fun trimFeeds(key: String) = feeds.trim(key)
+
     val route
         get() = routes.last()
 
@@ -161,6 +165,7 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
 
     fun navigate(route: Route) {
         routes = routes + route
+        if (route.release != null) changed(UiSection.PROGRESS)
     }
 
     fun selectSection(name: String) {
@@ -169,6 +174,7 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
 
     fun back() {
         if (routes.size > 1) routes = routes.dropLast(1)
+        changed(UiSection.PROGRESS)
     }
 
     fun changed(section: UiSection) {

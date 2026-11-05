@@ -17,20 +17,43 @@ permissions:
 jobs:
   libvlc:
     uses: ./.github/workflows/build-libvlc-tv.yml
-  verify:
+  hardware:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          # The default includes the retired SDK package "tools".
+          packages: platform-tools
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Install compile SDK
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Test and assemble without Flutter
+        run: bash android/gradlew -p native-android :app:testHardwareAv1DebugUnitTest :app:lintHardwareAv1Debug :app:assembleHardwareAv1Debug --console=plain
+      - name: Inspect player dependencies and APK
+        run: |
+          bash android/gradlew -p native-android :app:dependencies --configuration hardwareAv1DebugRuntimeClasspath --console=plain > native-dependencies.txt
+          python3 scripts/audit_av1_apk.py --apk native-android/app/build/outputs/apk/hardwareAv1/debug/app-hardwareAv1-debug.apk --dependencies native-dependencies.txt --player hardware
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kotlin-hardware-debug
+          path: |
+            native-android/app/build/outputs/apk/hardwareAv1/debug/*.apk
+            native-android/app/build/reports/
+            native-dependencies.txt
+          if-no-files-found: warn
+  software:
     needs: libvlc
     runs-on: ubuntu-24.04
     timeout-minutes: 40
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - flavor: HardwareAv1
-            directory: hardwareAv1
-            player: hardware
-          - flavor: SoftwareAv1
-            directory: softwareAv1
-            player: software
     steps:
       - uses: actions/checkout@v4
         with:
@@ -47,22 +70,21 @@ jobs:
       - name: Install compile SDK
         run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
       - uses: actions/download-artifact@v4
-        if: matrix.player == 'software'
         with:
           name: libvlc-tv-maven
           path: .tools/libvlc-tv/maven
       - name: Test and assemble without Flutter
-        run: bash android/gradlew -p native-android :app:test${{ matrix.flavor }}DebugUnitTest :app:lint${{ matrix.flavor }}Debug :app:assemble${{ matrix.flavor }}Debug --console=plain
+        run: bash android/gradlew -p native-android :app:testSoftwareAv1DebugUnitTest :app:lintSoftwareAv1Debug :app:assembleSoftwareAv1Debug --console=plain
       - name: Inspect player dependencies and APK
         run: |
-          bash android/gradlew -p native-android :app:dependencies --configuration ${{ matrix.directory }}DebugRuntimeClasspath --console=plain > native-dependencies.txt
-          python3 scripts/audit_av1_apk.py --apk native-android/app/build/outputs/apk/${{ matrix.directory }}/debug/app-${{ matrix.directory }}-debug.apk --dependencies native-dependencies.txt --player ${{ matrix.player }}
+          bash android/gradlew -p native-android :app:dependencies --configuration softwareAv1DebugRuntimeClasspath --console=plain > native-dependencies.txt
+          python3 scripts/audit_av1_apk.py --apk native-android/app/build/outputs/apk/softwareAv1/debug/app-softwareAv1-debug.apk --dependencies native-dependencies.txt --player software
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: kotlin-${{ matrix.player }}-debug
+          name: kotlin-software-debug
           path: |
-            native-android/app/build/outputs/apk/${{ matrix.directory }}/debug/*.apk
+            native-android/app/build/outputs/apk/softwareAv1/debug/*.apk
             native-android/app/build/reports/
             native-dependencies.txt
           if-no-files-found: warn
