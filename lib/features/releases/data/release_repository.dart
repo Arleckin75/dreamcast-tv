@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:dream_cast/features/releases/domain/catalog_options.dart';
 import 'package:dream_cast/core/logging/performance_trace.dart';
 import 'package:dream_cast/core/cache/cache_repository.dart';
 import 'package:dream_cast/core/errors/app_exception.dart';
@@ -38,6 +39,64 @@ final class ReleaseRepository {
   final DreamCastApi _api;
   final CacheRepository _cache;
   final DreamCastParserService _parser;
+
+  Future<DreamData<CatalogOptions>> catalogOptions({
+    CancelToken? cancelToken,
+  }) async {
+    const key = 'dreamcast:catalog:options';
+    _checkCancellation(cancelToken);
+    final cached = await _cache.getJsonMap(
+      key,
+      maxAge: const Duration(days: 1),
+    );
+    CatalogOptions? options;
+    try {
+      if (cached != null) {
+        options = CatalogOptions.fromHtml(cached.value['html'] as String);
+      }
+    } on Object {
+      // A changed or damaged cache is replaced from the site.
+    }
+    _checkCancellation(cancelToken);
+    if (options != null && !cached!.isStale) {
+      return DreamData(value: options, isStale: false);
+    }
+    try {
+      final source = await _api.getReleaseHtml('/', cancelToken: cancelToken);
+      final result = CatalogOptions.fromHtml(source);
+      _checkCancellation(cancelToken);
+      await _cache.putJson(key, {'html': source}, ttl: const Duration(days: 1));
+      return DreamData(value: result, isStale: false);
+    } catch (_) {
+      _checkCancellation(cancelToken);
+      if (options != null) return DreamData(value: options, isStale: true);
+      rethrow;
+    }
+  }
+
+  Future<DreamData<ReleasePage<DreamRelease>>> catalogCached({
+    int? year,
+    List<String> genreIds = const [],
+    int page = 1,
+    int pageSize = 16,
+    CancelToken? cancelToken,
+  }) {
+    final sortedGenres = [...genreIds]..sort();
+    return _getReleasePage(
+      cacheKey:
+          'dreamcast:catalog:${year ?? 'all'}:${sortedGenres.join(',')}:$page:$pageSize',
+      page: page,
+      pageSize: pageSize,
+      cancelToken: cancelToken,
+      request: () => _api.getReleases(
+        year: year,
+        genreIds: sortedGenres,
+        page: page,
+        pageSize: pageSize,
+        cancelToken: cancelToken,
+      ),
+    );
+  }
 
   void _checkCancellation(CancelToken? token) {
     if (token?.isCancelled == true) throw token!.cancelError!;

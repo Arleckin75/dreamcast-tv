@@ -17,6 +17,8 @@ final class DreamCastApi {
   Future<DreamReleaseListDto> getReleases({
     String query = '',
     String status = '',
+    int? year,
+    List<String> genreIds = const [],
     int page = 1,
     int pageSize = 16,
     CancelToken? cancelToken,
@@ -29,6 +31,8 @@ final class DreamCastApi {
           'status': status,
           'pageNumber': page,
           'pageSize': pageSize,
+          if (year != null) 'dateissue[]': [year],
+          if (genreIds.isNotEmpty) 'genres[]': genreIds,
         },
         options: Options(contentType: Headers.formUrlEncodedContentType),
         cancelToken: cancelToken,

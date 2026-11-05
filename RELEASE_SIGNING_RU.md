@@ -1,7 +1,7 @@
 # Подпись и выпуск Release APK
 
-Основной workflow — `.github/workflows/build-tv-apk.yml`. Release собирается только
-из `main`, с постоянным ключом и версией из `pubspec.yaml`. Ключ не создаётся
+Релизный workflow — `.github/workflows/build-tv-release.yml`. Release собирается только
+из `main`, с постоянным ключом и версией из `native-android/app/build.gradle.kts`. Ключ не создаётся
 автоматически; debug-подпись вместо Release не подставляется.
 
 ## Ключ и GitHub Secrets
@@ -42,27 +42,27 @@ keyAlias=dreamcasttv
 keyPassword=YOUR_KEY_PASSWORD
 ```
 
-Далее используйте `dart run scripts/build_tv.dart hardware release` или
-`dart run scripts/build_tv.dart software release`. Требования к SDK и LibVLC —
+Далее используйте `./scripts/build_native.ps1 -Player hardware -Configuration release`
+или `./scripts/build_native.ps1 -Player software -Configuration release`. Требования к SDK и LibVLC —
 в [инструкции сборки](BUILD_TV.md).
 
 ## Сборка и публикация
 
-Особенности слияния веток описаны в [плане переноса v0.8.5 в main](docs/MAIN_MIGRATION_RU.md).
+Особенности слияния веток описаны в [историческом плане переноса v0.8.5 в main](docs/MAIN_MIGRATION_RU.md).
 
 1. Перенесите проверенные изменения в `main`.
-   Версия этого выпуска — `0.8.5`, Android versionCode — `805001`.
-   Описание для GitHub Releases берётся из [заметок к релизу](RELEASE_NOTES_v0.8.5.md).
+   Версия этого выпуска — `0.9.1`, Android versionCode — `901001`.
+   Описание для GitHub Releases берётся из [заметок к релизу](RELEASE_NOTES_v0.9.1.md).
 2. Запустите **Build Dream Cast TV Release APK** из `main`.
-3. Флажок **Publish v0.8.5 on GitHub Releases (main only)** включён по умолчанию.
+3. Флажок **Publish v0.9.1 on GitHub Releases (main only)** включён по умолчанию.
    Для получения APK без публикации снимите его (`publish: false`).
-4. Получите артефакты `dreamcast-tv-v0.8.5-software_AV1-signed-release` и
-   `dreamcast-tv-v0.8.5-hardware_AV1-signed-release`, проверьте отчёты и устройства.
+4. Получите артефакты `dreamcast-tv-v0.9.1-software_AV1-signed-release` и
+   `dreamcast-tv-v0.9.1-hardware_AV1-signed-release`, проверьте отчёты и устройства.
 5. При включённом флажке (`publish: true`) после успешных проверок автоматически
-   создаётся GitHub Release v0.8.5. Для предварительной проверки APK сначала
+   создаётся GitHub Release v0.9.1. Для предварительной проверки APK сначала
    выполните запуск без публикации.
 
-Release workflow передаёт секреты через `secrets: inherit`. Задания подписи
+Задания подписи находятся непосредственно в релизном workflow и
 используют прежнее окружение `release-signing`; переносить или создавать
 секреты заново не требуется.
 

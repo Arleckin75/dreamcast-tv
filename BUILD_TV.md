@@ -5,17 +5,17 @@
 1. Откройте **Actions → Build Dream Cast TV APK → Run workflow**.
 2. Для тестовой сборки выберите `develop`. Этот workflow вручную собирает только Debug из develop.
 3. После успешного запуска скачайте нужный ZIP из **Artifacts**:
-   `dreamcast-tv-v0.8.5-software_AV1-debug` или
-   `dreamcast-tv-v0.8.5-hardware_AV1-debug`.
+   `dreamcast-tv-software-debug` или `dreamcast-tv-hardware-debug`.
 4. Распакуйте APK и `.sha256`, проверьте контрольную сумму и установите на TV.
 
 Основной workflow находится в `.github/workflows/build-tv-apk.yml`. Он собирает
-оба flavor из выбранной ревизии, запускает проверки и проверяет состав APK.
+оба нативных flavor из выбранной ревизии, запускает unit-тесты, lint и аудит APK.
+Отчёты доступны в отдельных артефактах с суффиксом `-reports`.
 Перед software-сборкой вызывается reusable workflow `build-libvlc-tv.yml`, который
 собирает либо восстанавливает проверенный сокращённый LibVLC.
 
 Для выпуска откройте **Build Dream Cast TV Release APK** и выберите `main`.
-Параметр **Publish v0.8.5 on GitHub Releases (main only)** включён по умолчанию:
+Параметр **Publish v0.9.1 on GitHub Releases (main only)** включён по умолчанию:
 после сборки и проверок будет опубликован релиз. Снимите флажок, если нужны
 только подписанные APK без публикации. Используются прежние секреты подписи
 и окружение `release-signing`.
@@ -23,16 +23,16 @@
 Ручных точек запуска две: **Build Dream Cast TV APK** для develop и
 **Build Dream Cast TV Release APK** для main. **Build reduced TV LibVLC** —
 внутренняя зависимость software-сборки, отдельно не запускается.
-**Verify** автоматически проверяет код при push и Pull Request.
+Проверки входят в сборочные workflow; отдельных `Verify` и
+`Verify native Kotlin TV` больше нет. Автоматические сборки при push отключены.
 
 ## Локально
 
-Нужны Flutter **3.41.5**, JDK **17**, Android SDK и NDK из
-`.android-ndk-version`. Используйте Dart из закреплённого Flutter SDK.
+Для нативной версии в `develop` нужны JDK **17**, Android SDK Platform **36**
+и Build Tools **36.0.0**. Настройте `JAVA_HOME` и `ANDROID_HOME`.
 
 ```sh
-flutter pub get --enforce-lockfile
-dart run scripts/build_tv.dart hardware debug --check
+bash android/gradlew -p native-android :app:testHardwareAv1DebugUnitTest :app:assembleHardwareAv1Debug
 ```
 
 Для software сначала скачайте артефакт **libvlc-tv-maven** из успешного запуска
@@ -40,18 +40,14 @@ dart run scripts/build_tv.dart hardware debug --check
 Maven-репозиторий находился в `.tools/libvlc-tv/maven`:
 
 ```sh
-dart run scripts/build_tv.dart software debug --check
+bash android/gradlew -p native-android :app:testSoftwareAv1DebugUnitTest :app:assembleSoftwareAv1Debug
 ```
 
-Helper выбирает видеоплагин и Android flavor, запускает проверки с `--check`,
-собирает ARM APK и восстанавливает overrides/lock-файл. Собирайте по одному flavor.
-Для Release замените `debug` на `release` и настройте
-[подпись](RELEASE_SIGNING_RU.md). Без ключа Release-сборка завершается ошибкой.
-
-Готовые APK находятся в `build/app/outputs/flutter-apk/`:
-
-- `app-softwareav1-debug.apk`;
-- `app-hardwareav1-debug.apk`.
+Flutter SDK не требуется. Готовые APK находятся в
+`native-android/app/build/outputs/apk/{hardwareAv1,softwareAv1}/debug/`.
+Команды PowerShell и сведения о тестах — в [нативном проекте](native-android/README.md).
+Нативный релиз v0.9.1 собирается отдельно из `main`; порядок выпуска и настройки
+ключа описаны в [инструкции подписи](RELEASE_SIGNING_RU.md).
 
 ## Установка и проверка
 
@@ -62,7 +58,7 @@ adb install -r path/to/application.apk
 Обновление требует совместимой подписи. Debug APK разных запусков или вариантов
 могут иметь разные сертификаты. Проверить их можно через
 `apksigner verify --print-certs path/to/application.apk`.
-Debug использует `com.dreamcast.app.diagnostic`, Release — `com.dreamcast.app`.
+Нативный Debug использует `com.dreamcast.app.kotlin`, Release — `com.dreamcast.app`.
 
 После установки проверьте поиск с системной клавиатурой, навигацию пультом,
 воспроизведение, перемотку, сохранение позиции и переход между сериями. Отдельно

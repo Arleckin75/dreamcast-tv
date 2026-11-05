@@ -64,6 +64,11 @@ android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
 *.aab
 /dist/
 /android/.kotlin/
+/native-android/.gradle/
+/native-android/.kotlin/
+/native-android/local.properties
+/native-android/app/build/
+/native-android/build/
 /android/app/.cxx/
 /av1-runtime-dependencies.txt
 /release-notes.md
