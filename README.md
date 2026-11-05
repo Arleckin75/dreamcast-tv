@@ -9,26 +9,6 @@
 Jetpack Compose / TV Material. Приложение и его сборка работают без Flutter.
 Минимальная версия Android — **6.0 (API 23)**.
 
-## Чем отличается от main
-
-В `main` находится Flutter-версия 0.8.5. В `Kotlin` заново реализованы интерфейс,
-навигация, работа с данными и аппаратный плеер; программный плеер использует
-адаптированную реализацию LibVLC из исходного Android-модуля.
-
-| Область | `main` | `Kotlin` |
-| --- | --- | --- |
-| Приложение | Flutter / Dart, проект в корне | Kotlin / Compose, проект `native-android/` |
-| Главная | Интерфейс Flutter | Баннер последних обновлений и ряд «Продолжить просмотр» |
-| Оформление | Темы и акцентный цвет | Темы, акцент, плавный градиент по цветам выбранной обложки |
-| Выбор серий | Экран исходной версии | Всплывающее окно поверх текущего экрана |
-| Плееры | Отдельные software/hardware-варианты | LibVLC или Media3 с общей панелью управления и настройками справа |
-| Данные | Drift / SharedPreferences | SQLite с чтением прежней схемы и настроек |
-| Сборка | Flutter SDK и Android SDK | JDK 17, Android SDK и Gradle Wrapper |
-| Тестовые APK в Actions | `software_AV1-debug`, `hardware_AV1-debug` | `kotlin-software-debug`, `kotlin-hardware-debug` |
-
-Исходники Flutter сохранены для сравнения и проверки переноса данных.
-Подробный статус функций и проверок — в [документе о переносе](docs/KOTLIN_MIGRATION.md).
-
 ## Возможности
 
 - Каталог с пагинацией, фильтрами по году и нескольким жанрам; поиск и история запросов.
@@ -168,56 +148,6 @@ Flutter-версии требует подписи тем же ключом. Р�
 - **OK** — выбор и активация выделенной кнопки.
 - **Back** — закрытие диалога или возврат; в плеере сначала скрывает панель,
   затем закрывает плеер. В окне автоперехода отменяет переход.
-
-## Сборка из исходников
-
-Требуются **JDK 17**, **Android SDK Platform 36**, Build Tools 36.0.0 и настроенные
-`JAVA_HOME` / `ANDROID_HOME`. Команды выполняются из корня репозитория.
-
-Windows PowerShell:
-
-```powershell
-./scripts/build_native.ps1 -Player hardware
-./scripts/build_native.ps1 -Player software
-./scripts/build_native.ps1 -Player hardware -Test
-./scripts/build_native.ps1 -Player software -Test
-```
-
-Для software сначала подготовьте проверенный Maven-артефакт `libvlc-tv-maven`
-в `.tools/libvlc-tv/maven` по [инструкции LibVLC](third_party/libvlc_tv/README.md).
-Hardware собирается независимо от LibVLC.
-
-Linux / macOS:
-
-```sh
-bash android/gradlew -p native-android :app:assembleHardwareAv1Debug
-bash android/gradlew -p native-android :app:assembleSoftwareAv1Debug
-```
-
-APK находятся в
-`native-android/app/build/outputs/apk/{hardwareAv1,softwareAv1}/debug/`.
-Для release передайте скрипту `-Configuration release`; подпись настраивается
-через `android/key.properties`. Без ключа получается unsigned APK.
-
-Архитектура, команды проверок и настройка тестового окружения описаны в
-[native-android/README.md](native-android/README.md).
-
-## Статус проверок
-
-Нативная версия находится в разработке. Оба варианта собираются; аудит APK
-проверяет отсутствие Flutter runtime и разделение Media3 / LibVLC.
-Unit-тесты покрывают парсеры, кэш, запросы, библиотеку, историю, прогресс и
-совместимость с прежней схемой базы данных.
-
-На Cosmos проверены каталог и управление пультом, программное воспроизведение
-AV1 720p, сохранение позиции, следующая серия, первый запуск и восстановление
-видеовывода после сворачивания. На Google TV Streamer проверены аппаратный
-AV1, HLS/DASH, качество, скорость и вход в PiP.
-
-Остаются проверки возврата из PiP, фоновых уведомлений в Doze, подписанного
-обновления с реальными данными и полной матрицы воспроизведения на устройствах.
-Перечень подтверждённых сценариев и ограничений — в
-[статусе переноса](docs/KOTLIN_MIGRATION.md).
 
 ## Происхождение, авторство и лицензия
 
