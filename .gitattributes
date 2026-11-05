@@ -1,3 +1,12 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 *.sh text eol=lf
+
+# Archived Flutter app and its tests, unused by the native build/workflows.
+# Shared test fixtures, build tools and third-party sources remain detectable.
+/lib/**/*.dart linguist-detectable=false
+/test/*.dart linguist-detectable=false
+/test/features/player/*.dart linguist-detectable=false
+/test/features/releases/*.dart linguist-detectable=false
+/integration_test/**/*.dart linguist-detectable=false
+/test_driver/**/*.dart linguist-detectable=false
