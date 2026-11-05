@@ -30,8 +30,8 @@ android {
         applicationId = "com.dreamcast.app"
         minSdk = 23
         targetSdk = 36
-        versionCode = 805002
-        versionName = "0.8.6-kotlin"
+        versionCode = 901001
+        versionName = "0.9.1"
         buildConfigField("String", "SOURCE_REVISION", "\"$sourceRevision\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
