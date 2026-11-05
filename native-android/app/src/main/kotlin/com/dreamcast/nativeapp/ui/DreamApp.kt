@@ -186,6 +186,10 @@ private fun DreamAppContent(model: AppViewModel, activity: MainActivity) {
         ) {
             Surface(modifier = Modifier.fillMaxSize(), color = colors.background) {
                 val route = model.route
+                val contentRoute =
+                    if (route.name == "episodes")
+                        model.routes.dropLast(1).lastOrNull() ?: Route("detail", route.release)
+                    else route
                 val saved = rememberSaveableStateHolder()
                 val retainedRoutes =
                     model.routes.map { it.key }.toSet() +
@@ -208,20 +212,23 @@ private fun DreamAppContent(model: AppViewModel, activity: MainActivity) {
                 Column(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 20.dp)) {
                     TopNavigation(model)
                     Spacer(Modifier.height(22.dp))
-                    if (route.name !in listOf("home", "catalog", "search", "library", "schedule")) {
+                    if (
+                        contentRoute.name !in
+                            listOf("home", "catalog", "search", "library", "schedule")
+                    ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(18.dp),
                         ) {
                             Text(
-                                when (route.name) {
+                                when (contentRoute.name) {
                                     "settings" -> "Настройки"
                                     "profile" -> "Профиль"
                                     "cache" -> "Кэш"
                                     "about" -> "О приложении"
                                     "notifications" -> "Уведомления"
                                     "episodes" -> "Серии"
-                                    else -> route.release?.title.orEmpty()
+                                    else -> contentRoute.release?.title.orEmpty()
                                 },
                                 style = MaterialTheme.typography.headlineSmall,
                                 maxLines = 1,
@@ -230,15 +237,14 @@ private fun DreamAppContent(model: AppViewModel, activity: MainActivity) {
                         }
                         Spacer(Modifier.height(18.dp))
                     }
-                    saved.SaveableStateProvider(route.key) {
-                        when (route.name) {
+                    saved.SaveableStateProvider(contentRoute.key) {
+                        when (contentRoute.name) {
                             "home" -> Home(model)
                             "catalog" -> Catalog(model)
                             "search" -> Search(model)
                             "library" -> Library(model)
                             "schedule" -> Schedule(model)
-                            "detail" -> ReleaseDetail(model, route.release!!)
-                            "episodes" -> Episodes(model, activity, route.release!!)
+                            "detail" -> ReleaseDetail(model, contentRoute.release!!)
                             "settings" -> Settings(model)
                             "profile" -> Profile(model)
                             "cache" -> Cache(model)
@@ -246,6 +252,23 @@ private fun DreamAppContent(model: AppViewModel, activity: MainActivity) {
                             "notifications" -> Notifications(model)
                         }
                     }
+                }
+                if (route.name == "episodes") {
+                    AlertDialog(
+                        onDismissRequest = { model.back() },
+                        title = { Text("Серии") },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text(
+                                    route.release!!.title,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Episodes(model, activity, route.release)
+                            }
+                        },
+                        confirmButton = { Action("Закрыть") { model.back() } },
+                    )
                 }
                 if (model.preparing)
                     Box(
@@ -743,36 +766,46 @@ private fun Catalog(model: AppViewModel) {
                 onDismissRequest = { genreDialog = false },
                 title = { Text("Жанры") },
                 text = {
-                    LazyColumn(Modifier.heightIn(max = 320.dp)) {
-                        items(data.genres, key = { it.id }) { genre ->
-                            Row(
-                                Modifier.fillMaxWidth()
-                                    .clickable {
-                                        draft =
-                                            if (genre.id in draft) draft - genre.id
-                                            else draft + genre.id
-                                    }
-                                    .padding(8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Checkbox(
-                                    checked = genre.id in draft,
-                                    onCheckedChange = { checked ->
-                                        draft = if (checked) draft + genre.id else draft - genre.id
-                                    },
-                                )
-                                Text(genre.name)
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        LazyColumn(Modifier.weight(1f).heightIn(max = 320.dp)) {
+                            items(data.genres, key = { it.id }) { genre ->
+                                Row(
+                                    Modifier.fillMaxWidth()
+                                        .clickable {
+                                            draft =
+                                                if (genre.id in draft) draft - genre.id
+                                                else draft + genre.id
+                                        }
+                                        .padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Checkbox(
+                                        checked = genre.id in draft,
+                                        onCheckedChange = { checked ->
+                                            draft =
+                                                if (checked) draft + genre.id else draft - genre.id
+                                        },
+                                    )
+                                    Text(genre.name)
+                                }
                             }
+                        }
+                        Column(
+                            Modifier.width(132.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Action("Применить", Modifier.fillMaxWidth()) {
+                                genres = draft.sorted().joinToString(",")
+                                genreDialog = false
+                            }
+                            Action("Сбросить", Modifier.fillMaxWidth()) { draft = emptySet() }
                         }
                     }
                 },
-                confirmButton = {
-                    Action("Применить") {
-                        genres = draft.sorted().joinToString(",")
-                        genreDialog = false
-                    }
-                },
-                dismissButton = { Action("Сбросить") { draft = emptySet() } },
+                confirmButton = {},
             )
         }
 }
@@ -1102,11 +1135,14 @@ private fun EpisodeAction(
     text: String,
     modifier: Modifier,
     primary: Boolean = false,
+    autofocus: Boolean = false,
     onClick: () -> Unit,
 ) {
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { if (autofocus) focus.requestFocus() }
     GuiButton(
         onClick = onClick,
-        modifier = modifier.height(44.dp * 1.05f),
+        modifier = modifier.focusRequester(focus).height(44.dp * 1.05f),
         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
     ) {
         androidx.tv.material3.Text(
@@ -1143,44 +1179,39 @@ private fun Episodes(model: AppViewModel, activity: MainActivity, release: Relea
     if (data.loading) Loading()
     data.error?.let { ErrorState(it) { retry++ } }
     if (data.value?.stale == true) Stale()
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        // Preserve the previous 2:1 button proportions, enlarging each width by 20%.
-        val previousUnit = ((maxWidth / 3f - 20.dp) / 4f).coerceAtLeast(1.dp)
-        val seriesWidth = previousUnit * 2f * 1.2f
-        val restartWidth = previousUnit * 1.2f
-        LazyColumn(
-            modifier = Modifier.width(seriesWidth + restartWidth + 14.dp),
-            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            items(data.value?.value ?: emptyList(), key = { it.id }) { episode ->
-                val watched = progress[episode.id]
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+    LazyColumn(
+        modifier = Modifier.fillMaxWidth().heightIn(max = 330.dp),
+        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        items(data.value?.value ?: emptyList(), key = { it.id }) { episode ->
+            val watched = progress[episode.id]
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                EpisodeAction(
+                    (if (watched?.watched == true) "✓ " else "") +
+                        episode.title +
+                        if (watched != null && !watched.watched)
+                            " • ${watched.positionMs/60000} мин."
+                        else "",
+                    Modifier.weight(1f),
+                    primary = true,
+                    autofocus = episode.id == data.value?.value?.firstOrNull()?.id,
                 ) {
-                    EpisodeAction(
-                        (if (watched?.watched == true) "✓ " else "") +
-                            episode.title +
-                            if (watched != null && !watched.watched)
-                                " • ${watched.positionMs/60000} мин."
-                            else "",
-                        Modifier.width(seriesWidth),
-                        primary = true,
-                    ) {
-                        model.prepare(activity, release, episode.id)
-                    }
-                    if (watched != null && watched.positionMs > 0)
-                        EpisodeAction("С начала", Modifier.width(restartWidth)) {
-                            model.mutateLocal(
-                                UiSection.PROGRESS,
-                                after = { model.prepare(activity, release, episode.id) },
-                            ) {
-                                saveProgress(release, episode, 0, watched.durationMs)
-                            }
-                        }
+                    model.prepare(activity, release, episode.id)
                 }
+                if (watched != null && watched.positionMs > 0)
+                    EpisodeAction("С начала", Modifier.width(100.dp)) {
+                        model.mutateLocal(
+                            UiSection.PROGRESS,
+                            after = { model.prepare(activity, release, episode.id) },
+                        ) {
+                            saveProgress(release, episode, 0, watched.durationMs)
+                        }
+                    }
             }
         }
     }

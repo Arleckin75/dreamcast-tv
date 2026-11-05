@@ -42,6 +42,13 @@ class CatalogNavigationTest {
                 .uiAutomation
                 .grantRuntimePermission(app.packageName, Manifest.permission.POST_NOTIFICATIONS)
         val server = MockWebServer()
+        val playlist =
+            "#2" +
+                java.util.Base64.getEncoder()
+                    .encodeToString(
+                        """{"file":[{"title":"Серия 1","file":"https://example.com/1.mp4"},{"title":"Серия 2","file":"https://example.com/2.mp4"},{"title":"Серия 3","file":"https://example.com/3.mp4"}]}"""
+                            .toByteArray()
+                    )
         val posts = CopyOnWriteArrayList<String>()
         server.dispatcher =
             object : Dispatcher() {
@@ -56,7 +63,7 @@ class CatalogNavigationTest {
                     if (request.path?.contains("/home/release/") == true)
                         return MockResponse()
                             .setBody(
-                                """<h3>Тестовый релиз</h3><div class="postDesc">Описание</div><script src="/js/playerjs.js"></script><script>new Playerjs('#2placeholder')</script>"""
+                                """<h3>Тестовый релиз</h3><div class="postDesc">Описание</div><script src="/js/playerjs.js"></script><script>new Playerjs('$playlist')</script>"""
                             )
                     return MockResponse()
                         .setBody(
@@ -95,10 +102,20 @@ class CatalogNavigationTest {
                 compose.onNode(hasText("2024") and hasAnyAncestor(isDialog())).remoteClick()
                 compose.onNodeWithText("Год: 2024").assertExists()
                 compose.onNodeWithText("Жанры: все").remoteClick()
-                compose.onNode(isToggleable() and hasAnySibling(hasText("Магия")), useUnmergedTree = true)
-                    .performClick().assertIsOn()
-                compose.onNode(isToggleable() and hasAnySibling(hasText("Романтика")), useUnmergedTree = true)
-                    .performClick().assertIsOn()
+                compose
+                    .onNode(
+                        isToggleable() and hasAnySibling(hasText("Магия")),
+                        useUnmergedTree = true,
+                    )
+                    .performClick()
+                    .assertIsOn()
+                compose
+                    .onNode(
+                        isToggleable() and hasAnySibling(hasText("Романтика")),
+                        useUnmergedTree = true,
+                    )
+                    .performClick()
+                    .assertIsOn()
                 compose.onNodeWithText("Применить").remoteClick()
                 compose.onNodeWithText("Жанры: Магия, Романтика").assertExists()
                 try {
@@ -110,7 +127,10 @@ class CatalogNavigationTest {
                         }
                     }
                 } catch (error: Throwable) {
-                    throw AssertionError("Expected both genres and year; fixture requests: $posts", error)
+                    throw AssertionError(
+                        "Expected both genres and year; fixture requests: $posts",
+                        error,
+                    )
                 }
                 compose.onNodeWithText("Показать все").remoteClick()
                 compose.onNodeWithText("Год: любой").assertExists()
@@ -122,6 +142,24 @@ class CatalogNavigationTest {
                 compose.waitUntil(15000) {
                     compose.onAllNodesWithText("В библиотеку").fetchSemanticsNodes().isNotEmpty()
                 }
+                compose.onNodeWithText("Серии").remoteClick()
+                compose.waitUntil(15000) {
+                    compose.onAllNodesWithText("Серия 1").fetchSemanticsNodes().isNotEmpty()
+                }
+                compose.onNode(hasText("Серии") and hasAnyAncestor(isDialog())).assertExists()
+                compose.onNodeWithText("Серия 1").assertIsFocused()
+                compose.onNodeWithText("Серия 1").performKeyInput { pressKey(Key.DirectionDown) }
+                compose.onNodeWithText("Серия 2").assertIsFocused()
+                InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()?.let {
+                    bitmap ->
+                    java.io.File(app.cacheDir, "episodes-dialog.png").outputStream().use {
+                        bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                    }
+                    bitmap.recycle()
+                }
+                InstrumentationRegistry.getInstrumentation()
+                    .sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
+                compose.onNode(hasText("Серии") and hasAnyAncestor(isDialog())).assertDoesNotExist()
                 compose.onNodeWithText("В библиотеку").remoteClick()
                 compose.onNodeWithText("В планах").remoteClick()
                 compose.waitUntil(5000) {
