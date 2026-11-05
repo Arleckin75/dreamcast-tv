@@ -1,6 +1,6 @@
 # Подпись и выпуск Release APK
 
-Основной workflow — `.github/workflows/build-tv-apk.yml`. Release собирается только
+Релизный workflow — `.github/workflows/build-tv-release.yml`. Release собирается только
 из `main`, с постоянным ключом и версией из `pubspec.yaml`. Ключ не создаётся
 автоматически; debug-подпись вместо Release не подставляется.
 
@@ -62,7 +62,7 @@ keyPassword=YOUR_KEY_PASSWORD
    создаётся GitHub Release v0.8.5. Для предварительной проверки APK сначала
    выполните запуск без публикации.
 
-Release workflow передаёт секреты через `secrets: inherit`. Задания подписи
+Задания подписи находятся непосредственно в релизном workflow и
 используют прежнее окружение `release-signing`; переносить или создавать
 секреты заново не требуется.
 

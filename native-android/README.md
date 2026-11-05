@@ -31,11 +31,12 @@ Debug имеет отдельный applicationId `com.dreamcast.app.kotlin` и 
 из `android/key.properties`; подпись тем же ключом необходима для обновления.
 Не подписанная сборка не является готовым обновлением.
 
-В GitHub Actions выберите `Verify native Kotlin TV` и ветку `Kotlin`.
-Ручной запуск `Build Dream Cast TV APK` в этой ветке также вызывает нативную
-debug-сборку обоих вариантов; Flutter debug остаётся привязан к `develop`,
-а Flutter release — к `main`. Готовые APK находятся в артефактах
-`kotlin-hardware-debug` и `kotlin-software-debug`.
+В GitHub Actions выберите `Build Dream Cast TV APK` и ветку `develop`.
+Workflow собирает оба нативных debug-варианта с unit-тестами, lint и аудитом APK.
+Готовые APK и SHA256 находятся в артефактах `dreamcast-tv-hardware-debug`
+и `dreamcast-tv-software-debug`; отчёты загружаются отдельно с суффиксом `-reports`.
+`Build Dream Cast TV Release APK` собирает и публикует существующий выпуск
+из `main`. `build-libvlc-tv.yml` — внутренняя зависимость, без отдельного запуска.
 
 ## Проверки
 
