@@ -47,10 +47,13 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.onPreInterceptKeyBeforeSoftKeyboard
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -822,8 +825,21 @@ private fun Catalog(model: AppViewModel) {
 }
 
 @Composable
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 private fun Search(model: AppViewModel) {
     val inputFocus = remember { FocusRequester() }
+    val resultsFocus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val view = LocalView.current
+    val moveToResults: (androidx.compose.ui.input.key.KeyEvent) -> Boolean = { event ->
+        if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionDown) {
+            // Read current window insets: Compose's observed visibility may lag after IME dismissal.
+            val keyboardVisible = androidx.core.view.ViewCompat.getRootWindowInsets(view)
+                ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true
+            if (keyboardVisible) false
+            else resultsFocus.requestFocus().also { moved -> if (moved) keyboard?.hide() }
+        } else false
+    }
     LaunchedEffect(Unit) {
         withFrameNanos {}
         inputFocus.requestFocus()
@@ -835,6 +851,9 @@ private fun Search(model: AppViewModel) {
         submitted = query.trim().takeIf { it.length >= 2 }.orEmpty()
     }
     Row(
+        // IMEs can consume D-pad keys even while the keyboard is hidden.
+        modifier = Modifier.onPreInterceptKeyBeforeSoftKeyboard(moveToResults)
+            .onPreviewKeyEvent(moveToResults),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -862,21 +881,23 @@ private fun Search(model: AppViewModel) {
         }
     }
     Spacer(Modifier.height(12.dp))
-    if (submitted.isBlank()) {
-        val history = model.ui.searchHistory
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            item { Text("История поиска", style = MaterialTheme.typography.titleLarge) }
-            items(history, key = { it }) { item ->
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Action(item, Modifier.weight(1f)) {
-                        query = item
-                        submitted = item
+    Column(Modifier.fillMaxSize().focusRequester(resultsFocus).focusGroup()) {
+        if (submitted.isBlank()) {
+            val history = model.ui.searchHistory
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                item { Text("История поиска", style = MaterialTheme.typography.titleLarge) }
+                items(history, key = { it }) { item ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Action(item, Modifier.weight(1f)) {
+                            query = item
+                            submitted = item
+                        }
+                        Action("Удалить") { model.mutateLocal(UiSection.SEARCH) { removeSearch(item) } }
                     }
-                    Action("Удалить") { model.mutateLocal(UiSection.SEARCH) { removeSearch(item) } }
                 }
             }
-        }
-    } else ReleaseFeed(model, CatalogFilter(), submitted)
+        } else ReleaseFeed(model, CatalogFilter(), submitted)
+    }
 }
 
 @Composable
