@@ -6,7 +6,7 @@ import android.view.View
 import android.widget.FrameLayout
 import android.widget.SeekBar
 import android.widget.TextView
-import com.dreamcast.app.SoftwarePlayerControls
+import com.dreamcast.app.PlayerControls
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -25,7 +25,7 @@ class PlayerControlsRefreshTest {
         val context = RuntimeEnvironment.getApplication()
         val root = FrameLayout(context)
         val controls =
-            SoftwarePlayerControls(
+            PlayerControls(
                 context,
                 root,
                 Color.WHITE,

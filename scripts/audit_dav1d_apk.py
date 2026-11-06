@@ -1,4 +1,4 @@
-"""Verify the software APK contains dav1d for both ARM ABIs and no VLC."""
+"""Verify the unified APK contains dav1d for both ARM ABIs and no VLC."""
 import argparse
 from pathlib import Path
 import struct

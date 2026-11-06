@@ -1,6 +1,6 @@
 # Перенос на Kotlin
 
-> Исторический отчёт. С 06.11.2026 software использует Media3 + dav1d; исходники LibVLC и Dart/Flutter удалены. Актуальные команды: [сборка](../BUILD_TV.md), [software-плеер](MEDIA3_DAV1D_RU.md).
+> Исторический документ об удалённой отдельной software-сборке. Сейчас используется единый APK на Media3 + dav1d. Актуальные инструкции: [сборка](../BUILD_TV.md), [декодирование](MEDIA3_DAV1D_RU.md).
 
 Нативный проект: `native-android/`. Ветка: `Kotlin`.
 Сборка не использует Flutter SDK, Dart или Flutter Gradle Plugin.

@@ -23,7 +23,7 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
-import com.dreamcast.app.SoftwarePlayerControls
+import com.dreamcast.app.PlayerControls
 import com.dreamcast.app.showPlayerMenu
 import com.dreamcast.nativeapp.data.*
 import kotlinx.coroutines.CancellationException
@@ -59,7 +59,7 @@ class PlayerActivity : ComponentActivity() {
     private var playbackSerial = 0
     private var hardwareFailed = false
     private var resumeOnStart = false
-    private lateinit var controls: SoftwarePlayerControls
+    private lateinit var controls: PlayerControls
     private var loadJob: Job? = null
     private var resumePosition = 0L
     private var ready = false
@@ -104,7 +104,7 @@ class PlayerActivity : ComponentActivity() {
         root.addView(video, FrameLayout.LayoutParams(-1, -1))
         video.useController = false
         controls =
-            SoftwarePlayerControls(
+            PlayerControls(
                 this,
                 root,
                 android.graphics.Color.WHITE,
@@ -280,7 +280,7 @@ class PlayerActivity : ComponentActivity() {
         video.onPause()
         root.removeView(video)
         video = if (output == VideoOutput.DAV1D)
-            layoutInflater.inflate(R.layout.software_dav1d_player, root, false) as PlayerView
+            layoutInflater.inflate(R.layout.dav1d_player, root, false) as PlayerView
         else PlayerView(this).apply { useController = false }
         root.addView(video, 0, FrameLayout.LayoutParams(-1, -1))
         video.setOnClickListener { reveal(); controls.show(true) }

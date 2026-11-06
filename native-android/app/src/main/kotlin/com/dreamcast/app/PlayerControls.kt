@@ -10,8 +10,8 @@ import android.text.TextUtils
 import android.view.*
 import android.widget.*
 
-/** One remote-first watch overlay shared by the hardware and software Media3 players. */
-internal class SoftwarePlayerControls(
+/** Remote-first watch overlay for the unified Media3 player. */
+internal class PlayerControls(
     private val context: Context,
     private val root: FrameLayout,
     accent: Int,

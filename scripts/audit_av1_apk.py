@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audit Media3 runtime dependencies and packaged hardware/software AV1 APKs."""
+"""Audit Media3 runtime dependencies and the packaged unified AV1 APK."""
 import argparse
 from pathlib import Path
 import re
