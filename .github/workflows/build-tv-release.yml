@@ -1,4 +1,4 @@
-name: Build Dream Cast TV Release APK
+name: Build unified Release APK (main)
 on:
   workflow_dispatch:
     inputs:
@@ -28,7 +28,7 @@ jobs:
           bash scripts/tests/install_android_ndk_test.sh
   release_v091:
     needs: verify
-    name: Release v0.9.1 (unified)
+    name: Build signed Media3 + dav1d Release APK
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 75

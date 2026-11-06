@@ -1,4 +1,4 @@
-name: Build Dream Cast TV APK
+name: Build unified Debug APK (develop)
 on:
   workflow_dispatch:
 permissions:
@@ -22,6 +22,7 @@ jobs:
           python3 -m unittest discover -s scripts/tests -p 'test_media3_apk.py' -v
           bash scripts/tests/install_android_ndk_test.sh
   app:
+    name: Build Media3 + dav1d Debug APK
     needs: verify
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -47,7 +48,7 @@ jobs:
           sdkmanager 'cmake;3.22.1'
           python3 -m pip install meson ninja
           python3 scripts/prepare_media3_dav1d.py --ndk "$ANDROID_HOME/ndk/$(cat .android-ndk-version)"
-      - name: Test and assemble without Flutter
+      - name: Test and assemble unified Debug APK
         run: bash native-android/gradlew -p native-android :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --console=plain
       - name: Inspect player dependencies and APK
         run: |

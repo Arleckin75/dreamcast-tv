@@ -52,7 +52,7 @@ keyPassword=YOUR_KEY_PASSWORD
 1. Перенесите проверенные изменения в `main`.
    Версия этого выпуска — `0.9.1`, Android versionCode — `901001`.
    Описание для GitHub Releases берётся из [заметок к релизу](RELEASE_NOTES_v0.9.1.md).
-2. Запустите **Build Dream Cast TV Release APK** из `main`.
+2. Запустите **Build unified Release APK (main)** из `main`.
 3. Флажок **Publish v0.9.1 on GitHub Releases (main only)** включён по умолчанию.
    Для получения APK без публикации снимите его (`publish: false`).
 4. Получите артефакт `dreamcast-tv-v0.9.1-unified-signed-release`, проверьте отчёты и устройства.
