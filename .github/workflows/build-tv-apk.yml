@@ -1,4 +1,4 @@
-name: Build Dream Cast TV APK
+name: Build unified Debug APK (develop)
 on:
   workflow_dispatch:
 permissions:
@@ -18,13 +18,11 @@ jobs:
           persist-credentials: false
       - name: Check packaging scripts
         run: |
-          python3 -m py_compile scripts/prepare_software_av1.py scripts/audit_av1_apk.py scripts/package_libvlc_tv.py
-          python3 -m unittest discover -s scripts/tests -p 'test_libvlc_tv.py' -v
+          python3 -m py_compile scripts/prepare_media3_dav1d.py scripts/decoder_license_notices.py scripts/audit_dav1d_apk.py scripts/audit_av1_apk.py
+          python3 -m unittest discover -s scripts/tests -p 'test_media3_apk.py' -v
           bash scripts/tests/install_android_ndk_test.sh
-  libvlc:
-    needs: verify
-    uses: ./.github/workflows/build-libvlc-tv.yml
-  hardware:
+  app:
+    name: Build Media3 + dav1d Debug APK
     needs: verify
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -43,80 +41,37 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Install compile SDK
         run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
-      - name: Test and assemble without Flutter
-        run: bash android/gradlew -p native-android :app:testHardwareAv1DebugUnitTest :app:lintHardwareAv1Debug :app:assembleHardwareAv1Debug --console=plain
+      - name: Install pinned Android NDK
+        run: bash scripts/install_android_ndk.sh
+      - name: Prepare dav1d ARM decoder
+        run: |
+          sdkmanager 'cmake;3.22.1'
+          python3 -m pip install meson ninja
+          python3 scripts/prepare_media3_dav1d.py --ndk "$ANDROID_HOME/ndk/$(cat .android-ndk-version)"
+      - name: Test and assemble unified Debug APK
+        run: bash native-android/gradlew -p native-android :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --console=plain
       - name: Inspect player dependencies and APK
         run: |
-          bash android/gradlew -p native-android :app:dependencies --configuration hardwareAv1DebugRuntimeClasspath --console=plain > native-dependencies.txt
-          python3 scripts/audit_av1_apk.py --apk native-android/app/build/outputs/apk/hardwareAv1/debug/app-hardwareAv1-debug.apk --dependencies native-dependencies.txt --player hardware
+          bash native-android/gradlew -p native-android :app:dependencies --configuration debugRuntimeClasspath --console=plain > native-dependencies.txt
+          python3 scripts/audit_av1_apk.py --apk native-android/app/build/outputs/apk/debug/app-debug.apk --dependencies native-dependencies.txt --player unified
       - name: Record APK checksum
-        working-directory: native-android/app/build/outputs/apk/hardwareAv1/debug
-        run: sha256sum app-hardwareAv1-debug.apk > app-hardwareAv1-debug.apk.sha256
+        working-directory: native-android/app/build/outputs/apk/debug
+        run: sha256sum app-debug.apk > app-debug.apk.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: dreamcast-tv-hardware-debug
+          name: dreamcast-tv-unified-debug
           path: |
-            native-android/app/build/outputs/apk/hardwareAv1/debug/*.apk
-            native-android/app/build/outputs/apk/hardwareAv1/debug/*.sha256
+            native-android/app/build/outputs/apk/debug/*.apk
+            native-android/app/build/outputs/apk/debug/*.sha256
           if-no-files-found: error
           retention-days: 14
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: dreamcast-tv-hardware-debug-reports
+          name: dreamcast-tv-unified-debug-reports
           path: |
             native-android/app/build/reports/
             native-dependencies.txt
-            dist/av1-audit-hardware.txt
-          if-no-files-found: ignore
-          retention-days: 14
-  software:
-    needs: [verify, libvlc]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 40
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: android-actions/setup-android@v3
-        with:
-          # The default includes the retired SDK package "tools".
-          packages: platform-tools
-      - uses: gradle/actions/setup-gradle@v4
-      - name: Install compile SDK
-        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
-      - uses: actions/download-artifact@v4
-        with:
-          name: libvlc-tv-maven
-          path: .tools/libvlc-tv/maven
-      - name: Test and assemble without Flutter
-        run: bash android/gradlew -p native-android :app:testSoftwareAv1DebugUnitTest :app:lintSoftwareAv1Debug :app:assembleSoftwareAv1Debug --console=plain
-      - name: Inspect player dependencies and APK
-        run: |
-          bash android/gradlew -p native-android :app:dependencies --configuration softwareAv1DebugRuntimeClasspath --console=plain > native-dependencies.txt
-          python3 scripts/audit_av1_apk.py --apk native-android/app/build/outputs/apk/softwareAv1/debug/app-softwareAv1-debug.apk --dependencies native-dependencies.txt --player software
-      - name: Record APK checksum
-        working-directory: native-android/app/build/outputs/apk/softwareAv1/debug
-        run: sha256sum app-softwareAv1-debug.apk > app-softwareAv1-debug.apk.sha256
-      - uses: actions/upload-artifact@v4
-        with:
-          name: dreamcast-tv-software-debug
-          path: |
-            native-android/app/build/outputs/apk/softwareAv1/debug/*.apk
-            native-android/app/build/outputs/apk/softwareAv1/debug/*.sha256
-          if-no-files-found: error
-          retention-days: 14
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: dreamcast-tv-software-debug-reports
-          path: |
-            native-android/app/build/reports/
-            native-dependencies.txt
-            dist/av1-audit-software.txt
+            dist/av1-audit-unified.txt
           if-no-files-found: ignore
           retention-days: 14

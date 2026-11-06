@@ -1,68 +1,42 @@
-# Сборка Dream Cast TV
+# Сборка единого Dream Cast TV APK
 
-## GitHub Actions
-
-1. Откройте **Actions → Build Dream Cast TV APK → Run workflow**.
-2. Для тестовой сборки выберите `develop`. Этот workflow вручную собирает только Debug из develop.
-3. После успешного запуска скачайте нужный ZIP из **Artifacts**:
-   `dreamcast-tv-software-debug` или `dreamcast-tv-hardware-debug`.
-4. Распакуйте APK и `.sha256`, проверьте контрольную сумму и установите на TV.
-
-Основной workflow находится в `.github/workflows/build-tv-apk.yml`. Он собирает
-оба нативных flavor из выбранной ревизии, запускает unit-тесты, lint и аудит APK.
-Отчёты доступны в отдельных артефактах с суффиксом `-reports`.
-Перед software-сборкой вызывается reusable workflow `build-libvlc-tv.yml`, который
-собирает либо восстанавливает проверенный сокращённый LibVLC.
-
-Для выпуска откройте **Build Dream Cast TV Release APK** и выберите `main`.
-Параметр **Publish v0.9.1 on GitHub Releases (main only)** включён по умолчанию:
-после сборки и проверок будет опубликован релиз. Снимите флажок, если нужны
-только подписанные APK без публикации. Используются прежние секреты подписи
-и окружение `release-signing`.
-
-Ручных точек запуска две: **Build Dream Cast TV APK** для develop и
-**Build Dream Cast TV Release APK** для main. **Build reduced TV LibVLC** —
-внутренняя зависимость software-сборки, отдельно не запускается.
-Проверки входят в сборочные workflow; отдельных `Verify` и
-`Verify native Kotlin TV` больше нет. Автоматические сборки при push отключены.
+Один APK содержит Media3/ExoPlayer, системные декодеры Android и dav1d.
+Выбор «Авто / Аппаратное / Программное AV1 — dav1d» выполняется в плеере.
+Отдельных hardware/software flavor больше нет.
 
 ## Локально
 
-Для нативной версии в `develop` нужны JDK **17**, Android SDK Platform **36**
-и Build Tools **36.0.0**. Настройте `JAVA_HOME` и `ANDROID_HOME`.
+Нужны JDK 17, Android SDK Platform 36, Build Tools 36.0.0, NDK 28.2.13676358,
+CMake 3.22.1, Python 3 и Git. Настройте `JAVA_HOME` и `ANDROID_HOME`.
 
-```sh
-bash android/gradlew -p native-android :app:testHardwareAv1DebugUnitTest :app:assembleHardwareAv1Debug
+```powershell
+python -m pip install meson ninja
+python scripts/prepare_media3_dav1d.py --ndk "$env:ANDROID_HOME/ndk/28.2.13676358"
+native-android/gradlew.bat -p native-android :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
 ```
 
-Для software сначала скачайте артефакт **libvlc-tv-maven** из успешного запуска
-сборки APK. Распакуйте так, чтобы
-Maven-репозиторий находился в `.tools/libvlc-tv/maven`:
+На Linux/macOS используйте `bash native-android/gradlew -p native-android`.
+PowerShell-обёртка: `scripts/build_native.ps1`, тесты — `-Test`, Release —
+`-Configuration release`. Параметр `-Player` больше не используется.
 
-```sh
-bash android/gradlew -p native-android :app:testSoftwareAv1DebugUnitTest :app:assembleSoftwareAv1Debug
-```
+APK: `native-android/app/build/outputs/apk/debug/app-debug.apk`.
+Release: `native-android/app/build/outputs/apk/release/app-release.apk`
+(без настроенной подписи — `app-release-unsigned.apk`).
+Debug package — `com.dreamcast.app.kotlin`, Release — `com.dreamcast.app`.
+Для независимой тестовой установки: `"-PnativeDebugSuffix=.unified"`.
 
-Flutter SDK не требуется. Готовые APK находятся в
-`native-android/app/build/outputs/apk/{hardwareAv1,softwareAv1}/debug/`.
-Команды PowerShell и сведения о тестах — в [нативном проекте](native-android/README.md).
-Нативный релиз v0.9.1 собирается отдельно из `main`; порядок выпуска и настройки
-ключа описаны в [инструкции подписи](RELEASE_SIGNING_RU.md).
+## GitHub Actions
 
-## Установка и проверка
+**Build unified Debug APK (develop)** вручную собирает один Debug из `develop`,
+запускает unit-тесты, lint и аудит APK. Артефакт — `dreamcast-tv-unified-debug`;
+отчёты — `dreamcast-tv-unified-debug-reports`. Workflow устанавливает фиксированные
+NDK/CMake и собирает закреплённый dav1d под ARMv7 и ARM64.
 
-```sh
-adb install -r path/to/application.apk
-```
+**Build Dream Cast TV Release APK** запускается из `main` и собирает один
+подписанный APK. Публикацию можно отключить параметром workflow. Проверки
+сертификата относительно v0.7.0 и versionCode сохранены; автоматические
+сборки по push отключены. См. [подпись](RELEASE_SIGNING_RU.md).
 
-Обновление требует совместимой подписи. Debug APK разных запусков или вариантов
-могут иметь разные сертификаты. Проверить их можно через
-`apksigner verify --print-certs path/to/application.apk`.
-Нативный Debug использует `com.dreamcast.app.kotlin`, Release — `com.dreamcast.app`.
-
-После установки проверьте поиск с системной клавиатурой, навигацию пультом,
-воспроизведение, перемотку, сохранение позиции и переход между сериями. Отдельно
-проверьте паузу, заставку TV и выход Back. Для old ATV используйте 720p;
-проверка 1080p на этом устройстве исключена из текущего плана.
-
-Подробнее о движке: [профиль LibVLC](third_party/libvlc_tv/README.md).
+Перед выпуском проверяйте реальные HLS/DASH-потоки, аппаратное AV1 и dav1d,
+отключённый пункт аппаратного режима, смену режима в паузе, перемотку,
+скорость, прогресс, следующую серию, фон и PiP.

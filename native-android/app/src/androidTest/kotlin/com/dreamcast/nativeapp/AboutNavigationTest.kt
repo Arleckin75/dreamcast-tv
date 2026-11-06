@@ -63,12 +63,8 @@ class AboutNavigationTest {
                 compose.onAllNodes(header).fetchSemanticsNodes().isNotEmpty()
             }
             compose.onNode(header).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-            repeat(3) {
-                InstrumentationRegistry.getInstrumentation()
-                    .sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_DPAD_DOWN)
-                compose.waitForIdle()
-            }
-            compose.onNode(hasText("Спасибо", substring = true) and isFocusable()).assertIsFocused()
+            val thanks = hasText("Спасибо", substring = true) and isFocusable()
+            moveUntilFocused(android.view.KeyEvent.KEYCODE_DPAD_DOWN, thanks)
             val scroll = compose.onNode(hasScrollAction())
             assertTrue(
                 "The scenario must actually scroll down",
@@ -79,12 +75,7 @@ class AboutNavigationTest {
                         .value() > 0
                 },
             )
-            repeat(3) {
-                InstrumentationRegistry.getInstrumentation()
-                    .sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_DPAD_UP)
-                compose.waitForIdle()
-            }
-            compose.onNode(header).assertIsFocused()
+            moveUntilFocused(android.view.KeyEvent.KEYCODE_DPAD_UP, header)
             // Clipped semantic bounds could pass even when half the header is outside the list.
             val viewport = scroll.getUnclippedBoundsInRoot()
             val bounds = compose.onNode(header).getUnclippedBoundsInRoot()
@@ -100,5 +91,14 @@ class AboutNavigationTest {
                 after.top >= viewport.top,
             )
         }
+    }
+
+    private fun moveUntilFocused(key: Int, target: SemanticsMatcher) {
+        repeat(24) {
+            if (compose.onAllNodes(target and isFocused()).fetchSemanticsNodes().isNotEmpty()) return
+            InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(key)
+            compose.waitForIdle()
+        }
+        compose.onNode(target).assertIsFocused()
     }
 }

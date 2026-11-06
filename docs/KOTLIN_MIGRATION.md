@@ -1,8 +1,11 @@
 # Перенос на Kotlin
 
+> Исторический документ об удалённой отдельной software-сборке. Сейчас используется единый APK на Media3 + dav1d. Актуальные инструкции: [сборка](../BUILD_TV.md), [декодирование](MEDIA3_DAV1D_RU.md).
+
 Нативный проект: `native-android/`. Ветка: `Kotlin`.
 Сборка не использует Flutter SDK, Dart или Flutter Gradle Plugin.
-Исходная Flutter-версия временно сохранена для сравнения поведения.
+Старые Dart/Flutter-исходники удалены; совместимость с их сохранёнными данными
+проверяется Kotlin-тестами. Gradle Wrapper, ресурсы и плееры находятся в `native-android`.
 
 05.11.2026: из меню настроек Media3 скрыты «Звук и субтитры» и ручной вход
 в «Картинку в картинке». Автоматический PiP при уходе из плеера сохранён.
@@ -62,7 +65,7 @@ MT8696, Android сообщает ABI armeabi-v7a). Media3 1.9.2 открыл HLS
 после пересоздания Activity реализовано, но отдельно на устройстве ещё не проверено.
 
 `scripts/build_native.ps1` собирает оба варианта и запускает JUnit/Robolectric.
-UI-тесты: `:app:connectedHardwareAv1DebugAndroidTest` на эмуляторе Android API 37.
+UI-тесты: `:app:connectedDebugAndroidTest` на эмуляторе Android API 37.
 Проверка плеера использует локальный детерминированный **PCM WAV**, поэтому её
 успех не подтверждает декодирование AV1, HLS или DASH на реальном телевизоре.
 Команды и пути APK: [native-android/README.md](../native-android/README.md).

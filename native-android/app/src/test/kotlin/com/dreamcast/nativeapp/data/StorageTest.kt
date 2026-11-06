@@ -133,7 +133,7 @@ class StorageTest {
             .putLong("1:one:updatedAt", System.currentTimeMillis() - 10)
             .commit()
         storage.saveProgress(release, episode, 0, 100000)
-        storage.syncVlcProgress(context)
+        storage.syncSoftwareProgress(context)
         assertEquals(0L, storage.progress(1, "one")!!.positionMs)
     }
 

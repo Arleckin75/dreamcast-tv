@@ -1,120 +1,60 @@
 #!/usr/bin/env python3
-"""Audit packaged AV1 engines in Debug APK and Gradle runtime deps.
-
-Fails closed when forbidden engine classes or dependencies are present.
-"""
+"""Audit Media3 runtime dependencies and the packaged unified AV1 APK."""
 import argparse
-import json
-import pathlib
+from pathlib import Path
 import re
 import sys
 import zipfile
 
-# JNI_OnLoad resolves these types by name, including types unused by Dart/Java.
-VLC_JNI_CLASSES = (
-    'VLCObject', 'Media', 'interfaces/IMedia$Track', 'interfaces/IMedia$Slave',
-    'MediaPlayer', 'MediaPlayer$Title', 'MediaPlayer$Chapter',
-    'MediaPlayer$TrackDescription', 'MediaPlayer$Equalizer',
-    'MediaDiscoverer', 'MediaDiscoverer$Description',
-    'RendererDiscoverer', 'RendererDiscoverer$Description', 'Dialog',
-)
+from audit_dav1d_apk import audit as audit_dav1d
 
 
 def run():
-    ap = argparse.ArgumentParser()
-    ap.add_argument('--apk', type=pathlib.Path, required=True)
-    ap.add_argument('--dependencies', type=pathlib.Path, required=True)
-    ap.add_argument('--player', choices=['software', 'hardware'], required=True)
-    args = ap.parse_args()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--apk', type=Path, required=True)
+    parser.add_argument('--dependencies', type=Path, required=True)
+    parser.add_argument('--player', choices=['unified'], default='unified')
+    args = parser.parse_args()
+    dependencies = args.dependencies.read_text(encoding='utf-8', errors='replace')
     issues = []
-    if not args.apk.is_file():
-        sys.exit('ERROR: APK not found: ' + str(args.apk))
-    if not args.dependencies.is_file():
-        sys.exit('ERROR: Gradle dependency report missing')
-    dep = args.dependencies.read_text(encoding='utf-8', errors='replace')
-    # Check real resolved module coordinates; not generic mention of video_player.
-    vlc_deps = re.findall(r'(?im)^\s*[+\|\\ -]*[+\\-]---\s+org\.videolan:[^\s]+', dep)
-    exo_deps = re.findall(r'(?im)^\s*[+\|\\ -]*[+\\-]---\s+(?:androidx\.media3:media3-exoplayer[^\s]*|com\.google\.android\.exoplayer:exoplayer[^\s]*)', dep)
-    # Simpler fallback detects if Gradle output formatting changes.
-    if not vlc_deps:
-        vlc_deps = re.findall(r'(?im)org\.videolan(?:\.android)?:libvlc[^\s]*', dep)
-    if not vlc_deps:
-        vlc_deps = re.findall(r"(?im)org\.videolan(?:\.android)?:[^\s]+libvlc[^\s]*", dep)
-    if not vlc_deps:
-        vlc_deps = re.findall(r'(?im)tv\.dreamcast\.libvlc:libvlc-tv:[^\s]+', dep)
-    if not exo_deps:
-        exo_deps = re.findall(r'(?im)(?:androidx\.media3:media3-exoplayer[^\s]*|com\.google\.android\.exoplayer:exoplayer[^\s]*)', dep)
-    with zipfile.ZipFile(args.apk) as z:
-        names = z.namelist()
-        vlc_native = [n for n in names if re.search(r'/libvlc(?:jni)?\.so$', n, re.I)]
-        if args.player == 'software':
-            try:
-                profile = json.loads(z.read('assets/dreamcast-libvlc-tv.json'))
-                expected_abis = {'armeabi-v7a', 'arm64-v8a'}
-                recorded_abis = {entry['abi'] for entry in profile['armComparison']}
-                if recorded_abis != expected_abis:
-                    raise ValueError('Incomplete ARM comparison')
-                for abi in profile['armComparison']:
-                    core = next(item for item in abi['libraries'] if item['library'] == 'libvlc.so')
-                    packaged = z.getinfo(f"lib/{abi['abi']}/libvlc.so").file_size
-                    if not packaged < core['originalBytes']:
-                        issues.append(f"software_AV1: packaged LibVLC did not get smaller for {abi['abi']}")
-            except (KeyError, ValueError, TypeError, StopIteration):
-                issues.append('software_AV1: verified reduced LibVLC profile is missing or invalid')
-        dex_names = [n for n in names if re.fullmatch(r'classes(?:\d+)?\.dex', n)]
-        if not dex_names:
-            issues.append('No classes.dex found in APK')
-        exo_dex_hits = []
-        vlc_dex_hits = []
-        missing_jni = set(VLC_JNI_CLASSES)
-        for n in dex_names:
-            payload = z.read(n)
-            missing_jni = {name for name in missing_jni
-                           if f'Lorg/videolan/libvlc/{name};'.encode() not in payload}
-            if any(x in payload for x in (b'Landroidx/media3/exoplayer/', b'Lcom/google/android/exoplayer2/')):
-                exo_dex_hits.append(n)
-            if b'Lorg/videolan/libvlc/' in payload:
-                vlc_dex_hits.append(n)
-    if args.player == 'software':
-        if missing_jni:
-            issues.append('software_AV1: missing JNI classes: ' + ', '.join(sorted(missing_jni)))
-        if not vlc_native:
-            issues.append('software_AV1: libvlc.so is MISSING')
-        if not vlc_deps:
-            issues.append('software_AV1: LibVLC runtime dependency is MISSING')
-        if exo_deps:
-            issues.append('software_AV1: forbidden ExoPlayer runtime dependency PRESENT')
-        if exo_dex_hits:
-            issues.append('software_AV1: forbidden ExoPlayer class descriptors PRESENT in DEX')
-    else:
-        if vlc_native:
-            issues.append('hardware_AV1: forbidden LibVLC native libraries PRESENT')
-        if vlc_deps:
-            issues.append('hardware_AV1: forbidden LibVLC runtime dependency PRESENT')
-        if vlc_dex_hits:
-            issues.append('hardware_AV1: forbidden LibVLC class descriptors PRESENT in DEX')
-        if not exo_deps:
-            issues.append('hardware_AV1: ExoPlayer runtime dependency MISSING')
-        if not exo_dex_hits:
-            issues.append('hardware_AV1: ExoPlayer class descriptors MISSING in DEX')
+    if re.search(r'(?:org\.videolan(?:\.android)?|tv\.dreamcast\.libvlc):', dependencies):
+        issues.append('LibVLC dependency present')
+    if 'androidx.media3:media3-exoplayer:' not in dependencies:
+        issues.append('Media3 ExoPlayer dependency missing')
+    with zipfile.ZipFile(args.apk) as apk:
+        names = apk.namelist()
+        dex = b''.join(apk.read(n) for n in names if re.fullmatch(r'classes(?:\d+)?\.dex', n))
+        if not dex:
+            issues.append('No classes.dex')
+        if b'Landroidx/media3/exoplayer/' not in dex:
+            issues.append('Media3 ExoPlayer classes missing')
+        if any('libvlc' in n.lower() for n in names) or b'Lorg/videolan/libvlc/' in dex:
+            issues.append('LibVLC packaged')
+        if any(n.endswith(('/libflutter.so', '/libapp.so')) or n.startswith('assets/flutter_assets/') for n in names):
+            issues.append('Flutter runtime or Dart assets packaged')
+        if b'Lio/flutter/' in dex:
+            issues.append('Flutter classes packaged')
+        for notice in ('media3-APACHE-2.0.txt', 'media3-NOTICES.txt'):
+            path = f'assets/licenses/{notice}'
+            if path not in names or not apk.read(path).strip():
+                issues.append('Missing/empty license: ' + notice)
+        try:
+            audit_dav1d(args.apk)
+        except (AssertionError, KeyError, ValueError) as error:
+            issues.append(str(error))
     report = [
         'Dream Cast TV - packaged AV1 engine audit',
-        f'Variant: {args.player}',
-        f'APK: {args.apk}',
-        f'LibVLC .so: {len(vlc_native)} ({", ".join(vlc_native) if vlc_native else "none"})',
-        f'LibVLC Gradle dependency matches: {len(vlc_deps)}',
-        f'ExoPlayer Gradle dependency matches: {len(exo_deps)}',
-        f'ExoPlayer DEX descriptors in: {", ".join(exo_dex_hits) if exo_dex_hits else "none"}',
-        f'LibVLC DEX descriptors in: {", ".join(vlc_dex_hits) if vlc_dex_hits else "none"}',
+        f'Variant: {args.player}', f'APK: {args.apk}',
         'RESULT: ' + ('FAIL' if issues else 'PASS'),
+        *('ERROR: ' + issue for issue in issues),
     ]
-    report.extend('ERROR: ' + x for x in issues)
-    report_path = pathlib.Path('dist') / f'av1-audit-{args.player}.txt'
-    report_path.parent.mkdir(exist_ok=True)
-    report_path.write_text('\n'.join(report)+'\n', encoding='utf-8')
+    output = Path('dist') / f'av1-audit-{args.player}.txt'
+    output.parent.mkdir(exist_ok=True)
+    output.write_text('\n'.join(report) + '\n', encoding='utf-8')
     print('\n'.join(report))
     if issues:
         sys.exit(1)
+
 
 if __name__ == '__main__':
     run()

@@ -10,7 +10,7 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import com.dreamcast.app.showPlayerMenu
 
-/** Shared five-second completion flow for Media3 and the LibVLC result contract. */
+/** Shared five-second completion flow for hardware and software Media3 players. */
 internal class EpisodeCompletionCountdown(
     private val activity: ComponentActivity,
     private val nextTitle: String,
