@@ -1,9 +1,9 @@
-name: Build unified Release APK (main)
+name: Build Dream Cast TV Release APK
 on:
   workflow_dispatch:
     inputs:
       publish:
-        description: 'Publish v0.9.1 on GitHub Releases (main only)'
+        description: 'Publish v0.9.3 on GitHub Releases (main only)'
         type: boolean
         default: true
 permissions:
@@ -26,9 +26,9 @@ jobs:
           python3 -m py_compile scripts/prepare_media3_dav1d.py scripts/decoder_license_notices.py scripts/audit_dav1d_apk.py scripts/audit_av1_apk.py
           python3 -m unittest discover -s scripts/tests -p 'test_media3_apk.py' -v
           bash scripts/tests/install_android_ndk_test.sh
-  release_v091:
+  release:
     needs: verify
-    name: Build signed Media3 + dav1d Release APK
+    name: Build signed v0.9.3 APK (Media3 + dav1d)
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 75
@@ -62,7 +62,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test -f native-android/app/build.gradle.kts
           test -f native-android/app/src/main/AndroidManifest.xml
-          test -f RELEASE_NOTES_v0.9.1.md
+          test -f RELEASE_NOTES_v0.9.3.md
       - name: Prepare official release keystore
         shell: bash
         env:
@@ -108,11 +108,11 @@ jobs:
           mkdir -p dist
           APK="native-android/app/build/outputs/apk/release/app-release.apk"
           if [[ ! -s "$APK" ]]; then
-            echo "::error::Missing flavor Release APK: $APK"
+            echo "::error::Missing signed Release APK: $APK"
             ls -lah native-android/app/build/outputs/apk/release || true
             exit 1
           fi
-          DEST='dist/DreamCast-TV-v0.9.1-unified-release.apk'
+          DEST='dist/DreamCast-TV-v0.9.3-unified-release.apk'
           cp "$APK" "$DEST"
           (cd dist && sha256sum "$(basename "$DEST")" > "$(basename "$DEST").sha256")
           du -h "$DEST"
@@ -120,7 +120,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APK='dist/DreamCast-TV-v0.9.1-unified-release.apk'
+          APK='dist/DreamCast-TV-v0.9.3-unified-release.apk'
           SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/opt/android-sdk}}"
           APKSIGNER="$(find "$SDK/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -1)"
           AAPT="$(find "$SDK/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -1)"
@@ -134,8 +134,8 @@ jobs:
           m = re.search(r"package: name='([^']+)' versionCode='(\d+)' versionName='([^']+)'", out)
           assert m, 'Missing package metadata'
           assert m.group(1) == 'com.dreamcast.app', f'Unexpected package: {m.group(1)}'
-          assert int(m.group(2)) == 901001, f'Unexpected version code: {m.group(2)}'
-          assert m.group(3) == '0.9.1', f'Unexpected version name: {m.group(3)}'
+          assert int(m.group(2)) == 903001, f'Unexpected version code: {m.group(2)}'
+          assert m.group(3) == '0.9.3', f'Unexpected version name: {m.group(3)}'
           with zipfile.ZipFile(apk) as z:
               libs = [n for n in z.namelist() if n.startswith('lib/') and n.endswith('.so')]
               abis = {n.split('/')[1] for n in libs}
@@ -149,14 +149,14 @@ jobs:
           chmod +x native-android/gradlew
           bash native-android/gradlew -p native-android :app:dependencies --configuration 'releaseRuntimeClasspath' --console=plain > av1-runtime-dependencies.txt
           python3 scripts/audit_av1_apk.py \
-            --apk 'dist/DreamCast-TV-v0.9.1-unified-release.apk' \
+            --apk 'dist/DreamCast-TV-v0.9.3-unified-release.apk' \
             --dependencies av1-runtime-dependencies.txt \
             --player 'unified'
       - name: Upload Release audit report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: dreamcast-tv-v0.9.1-unified-release-audit
+          name: dreamcast-tv-v0.9.3-unified-release-audit
           path: |
             dist/av1-audit-*.txt
             dist/signature-*.txt
@@ -168,10 +168,10 @@ jobs:
       - name: Upload signed Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: dreamcast-tv-v0.9.1-unified-signed-release
+          name: dreamcast-tv-v0.9.3-unified-signed-release
           path: |
-            dist/DreamCast-TV-v0.9.1-unified-release.apk
-            dist/DreamCast-TV-v0.9.1-unified-release.apk.sha256
+            dist/DreamCast-TV-v0.9.3-unified-release.apk
+            dist/DreamCast-TV-v0.9.3-unified-release.apk.sha256
           if-no-files-found: error
           retention-days: 30
       - name: Remove signing files
@@ -180,9 +180,9 @@ jobs:
         run: |
           rm -f native-android/key.properties native-android/app/upload-keystore.jks
 
-  publish_v091:
-    name: Publish v0.9.1 on GitHub Releases
-    needs: [release_v091]
+  publish:
+    name: Publish v0.9.3 on GitHub Releases
+    needs: [release]
     if: inputs.publish && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:
@@ -196,20 +196,17 @@ jobs:
       - name: Download verified signed Release APK
         uses: actions/download-artifact@v4
         with:
-          pattern: dreamcast-tv-v0.9.1-*-signed-release
+          name: dreamcast-tv-v0.9.3-unified-signed-release
           path: dist
-          merge-multiple: true
       - name: Validate release assets and checksums
         shell: bash
         run: |
           set -euo pipefail
           test "${GITHUB_REF}" = 'refs/heads/main' || { echo '::error::Public release requires main'; exit 1; }
           cd dist
-          for variant in unified; do
-            test -s "DreamCast-TV-v0.9.1-${variant}-release.apk"
-            test -s "DreamCast-TV-v0.9.1-${variant}-release.apk.sha256"
-            sha256sum -c "DreamCast-TV-v0.9.1-${variant}-release.apk.sha256"
-          done
+          test -s DreamCast-TV-v0.9.3-unified-release.apk
+          test -s DreamCast-TV-v0.9.3-unified-release.apk.sha256
+          sha256sum -c DreamCast-TV-v0.9.3-unified-release.apk.sha256
       - name: Verify certificate continuity against v0.7.0 and monotonic versionCode
         shell: bash
         env:
@@ -246,19 +243,17 @@ jobs:
           baseline_pkg="$("$AAPT" dump badging "$baseline_apk" | sed -n "s/.*package: name='\([^']*\)'.*/\1/p" | head -1)"
           test -n "$baseline_cert" && test -n "$baseline_code"
           test "$baseline_pkg" = 'com.dreamcast.app'
-          if (( 10#$baseline_code >= 901001 )); then
-            echo "::error::v0.7.0 versionCode $baseline_code is not lower than 901001"
+          if (( 10#$baseline_code >= 903001 )); then
+            echo "::error::v0.7.0 versionCode $baseline_code is not lower than 903001"
             exit 1
           fi
-          for variant in unified; do
-            apk="dist/DreamCast-TV-v0.9.1-${variant}-release.apk"
-            "$APKSIGNER" verify "$apk"
-            cert="$(certificate_sha256 "$apk")"
-            if [[ -z "$cert" || "$cert" != "$baseline_cert" ]]; then
-              echo "::error::Release signing certificate mismatch: $variant versus v0.7.0"
-              exit 1
-            fi
-          done
+          apk='dist/DreamCast-TV-v0.9.3-unified-release.apk'
+          "$APKSIGNER" verify "$apk"
+          cert="$(certificate_sha256 "$apk")"
+          if [[ -z "$cert" || "$cert" != "$baseline_cert" ]]; then
+            echo '::error::Release signing certificate mismatch: unified APK versus v0.7.0'
+            exit 1
+          fi
           echo 'Signing certificate and upgrade versionCode validated for unified APK.'
       - name: Publish stable GitHub Release from approved main
         shell: bash
@@ -267,12 +262,12 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          if gh release view v0.9.1 --repo "$GH_REPO" >/dev/null 2>&1; then
-            echo '::error::GitHub Release v0.9.1 already exists: refusing to overwrite it.'
+          if gh release view v0.9.3 --repo "$GH_REPO" >/dev/null 2>&1; then
+            echo '::error::GitHub Release v0.9.3 already exists: refusing to overwrite it.'
             exit 1
           fi
-          gh release create v0.9.1 \
-            dist/DreamCast-TV-v0.9.1-unified-release.apk \
-            dist/DreamCast-TV-v0.9.1-unified-release.apk.sha256 \
+          gh release create v0.9.3 \
+            dist/DreamCast-TV-v0.9.3-unified-release.apk \
+            dist/DreamCast-TV-v0.9.3-unified-release.apk.sha256 \
             --repo "$GH_REPO" --target "$GITHUB_SHA" \
-            --title 'Dream Cast TV v0.9.1' --notes-file RELEASE_NOTES_v0.9.1.md --latest
+            --title 'Dream Cast TV v0.9.3' --notes-file RELEASE_NOTES_v0.9.3.md --latest

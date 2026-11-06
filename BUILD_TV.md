@@ -32,7 +32,7 @@ Debug package — `com.dreamcast.app.kotlin`, Release — `com.dreamcast.app`.
 отчёты — `dreamcast-tv-unified-debug-reports`. Workflow устанавливает фиксированные
 NDK/CMake и собирает закреплённый dav1d под ARMv7 и ARM64.
 
-**Build unified Release APK (main)** запускается из `main` и собирает один
+**Build Dream Cast TV Release APK** запускается из `main` и собирает один
 подписанный APK. Публикацию можно отключить параметром workflow. Проверки
 сертификата относительно v0.7.0 и versionCode сохранены; автоматические
 сборки по push отключены. См. [подпись](RELEASE_SIGNING_RU.md).
