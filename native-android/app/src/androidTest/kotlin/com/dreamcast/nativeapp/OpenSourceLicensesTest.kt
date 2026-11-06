@@ -25,15 +25,12 @@ class OpenSourceLicensesTest {
             val text = app.assets.open(asset).bufferedReader(Charsets.UTF_8).use { it.readText() }
             assertTrue("Missing full text for ${notice.title}: $asset", text.length > 500)
         }
-        val software = true
-        assertEquals(software, licenses.any { it.title == "dav1d 1.5.1" })
-        if (software) {
-            val bsd = app.assets.open("licenses/dav1d-BSD-2-Clause.txt")
-                .bufferedReader(Charsets.UTF_8).use { it.readText() }
-            assertTrue(bsd.contains("Copyright © 2018-2019, VideoLAN and dav1d authors"))
-            assertTrue(bsd.contains("Redistribution and use"))
-            assertTrue(bsd.contains("THIS SOFTWARE IS PROVIDED"))
-        }
+        assertTrue(licenses.any { it.title == "dav1d 1.5.1" })
+        val bsd = app.assets.open("licenses/dav1d-BSD-2-Clause.txt")
+            .bufferedReader(Charsets.UTF_8).use { it.readText() }
+        assertTrue(bsd.contains("Copyright © 2018-2019, VideoLAN and dav1d authors"))
+        assertTrue(bsd.contains("Redistribution and use"))
+        assertTrue(bsd.contains("THIS SOFTWARE IS PROVIDED"))
     }
 
     @Test
@@ -42,7 +39,10 @@ class OpenSourceLicensesTest {
         val app = instrumentation.targetContext
         ActivityScenario.launch<MainActivity>(Intent(app, MainActivity::class.java)).use { scenario ->
             scenario.onActivity { it.model.navigate(Route("about")) }
-            compose.waitUntil(15000) { compose.onAllNodesWithText("Dream Cast TV").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(15000) {
+                compose.onAllNodesWithText("Dream Cast TV")
+                    .fetchSemanticsNodes(atLeastOneRootRequired = false).isNotEmpty()
+            }
             val title = "dav1d 1.5.1"
             compose.onNode(hasScrollAction()).performScrollToNode(hasText(title))
             compose.onNodeWithText(title).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
