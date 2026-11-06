@@ -29,11 +29,11 @@ variables → Actions** настройте имена, которые испол
 [Convert]::ToBase64String([IO.File]::ReadAllBytes('C:\path\to\dreamcast-tv-upload.jks')) | Set-Clipboard
 ```
 
-Не добавляйте ключи, пароли или `android/key.properties` в Git и артефакты.
+Не добавляйте ключи, пароли или `native-android/key.properties` в Git и артефакты.
 
 ## Локальная подпись
 
-Создайте `android/key.properties` с реальными значениями:
+Создайте `native-android/key.properties` с реальными значениями:
 
 ```properties
 storeFile=C:/path/to/dreamcast-tv-upload.jks
@@ -42,8 +42,7 @@ keyAlias=dreamcasttv
 keyPassword=YOUR_KEY_PASSWORD
 ```
 
-Далее используйте `./scripts/build_native.ps1 -Player hardware -Configuration release`
-или `./scripts/build_native.ps1 -Player software -Configuration release`. Требования к SDK и LibVLC —
+Далее используйте `./scripts/build_native.ps1 -Configuration release`. Требования к SDK и dav1d —
 в [инструкции сборки](BUILD_TV.md).
 
 ## Сборка и публикация
@@ -56,8 +55,7 @@ keyPassword=YOUR_KEY_PASSWORD
 2. Запустите **Build Dream Cast TV Release APK** из `main`.
 3. Флажок **Publish v0.9.1 on GitHub Releases (main only)** включён по умолчанию.
    Для получения APK без публикации снимите его (`publish: false`).
-4. Получите артефакты `dreamcast-tv-v0.9.1-software_AV1-signed-release` и
-   `dreamcast-tv-v0.9.1-hardware_AV1-signed-release`, проверьте отчёты и устройства.
+4. Получите артефакт `dreamcast-tv-v0.9.1-unified-signed-release`, проверьте отчёты и устройства.
 5. При включённом флажке (`publish: true`) после успешных проверок автоматически
    создаётся GitHub Release v0.9.1. Для предварительной проверки APK сначала
    выполните запуск без публикации.
@@ -67,14 +65,14 @@ keyPassword=YOUR_KEY_PASSWORD
 секреты заново не требуется.
 
 Перед публикацией проверьте поиск с системной клавиатурой на old ATV и Google TV,
-воспроизведение, сохранение позиции и переходы между сериями в обеих сборках.
+воспроизведение, сохранение позиции и переходы между сериями в обоих режимах декодирования.
 Неподтверждённые проверки перечислены в заметках к релизу.
 
 Workflow сохраняет проверку подписи относительно опубликованного v0.7.0:
 сертификаты должны совпадать, а новый versionCode — быть больше прежнего.
 
-Обе Release-сборки используют `com.dreamcast.app`; Debug устанавливается отдельно
-как `com.dreamcast.app.diagnostic`. Для обновления Release должны совпадать package
+Единый Release использует `com.dreamcast.app`; Debug устанавливается отдельно
+как `com.dreamcast.app.kotlin`. Для обновления Release должны совпадать package
 ID и допустимая подпись, а versionCode должен соответствовать правилам обновления.
 
 Сравните сертификаты до установки:

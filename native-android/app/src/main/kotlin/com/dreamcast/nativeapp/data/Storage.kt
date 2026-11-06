@@ -423,9 +423,9 @@ class Storage(
             }
     }
 
-    fun syncVlcProgress(context: Context) {
-        val vlc = context.getSharedPreferences("dream_cast_vlc_progress", Context.MODE_PRIVATE)
-        val values = vlc.all
+    fun syncSoftwareProgress(context: Context) {
+        val softwareProgress = context.getSharedPreferences("dream_cast_vlc_progress", Context.MODE_PRIVATE)
+        val values = softwareProgress.all
         for ((timestampKey, value) in values) {
             if (!timestampKey.endsWith(":updatedAt") || value !is Long) continue
             val key = timestampKey.removeSuffix(":updatedAt")

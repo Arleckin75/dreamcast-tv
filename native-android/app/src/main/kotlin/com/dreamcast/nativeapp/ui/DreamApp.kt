@@ -1662,7 +1662,7 @@ private fun AboutDocument(text: String) {
 private fun About() {
     val context = LocalContext.current
     var address by remember { mutableStateOf<String?>(null) }
-    var showLicense by remember { mutableStateOf(false) }
+    var licenseDocument by remember { mutableStateOf<OpenSourceLicense?>(null) }
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(18.dp),
         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
@@ -1691,7 +1691,7 @@ private fun About() {
                             style = MaterialTheme.typography.bodyLarge,
                         )
                         Text(
-                            "Версия ${BuildConfig.VERSION_NAME} • сборка ${BuildConfig.VERSION_CODE} • ${if (BuildConfig.FLAVOR == "hardwareAv1") "Аппаратный AV1" else "Программный AV1"}",
+                            "Версия ${BuildConfig.VERSION_NAME} • сборка ${BuildConfig.VERSION_CODE} • Media3 + dav1d",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -1715,13 +1715,28 @@ private fun About() {
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     AboutAction("Текст лицензии GPLv3", R.drawable.ic_about_document) {
-                        showLicense = true
+                        licenseDocument = applicationLicense
                     }
                     AboutAction("Оригинальные исходники", R.drawable.ic_about_code) {
                         address = "https://github.com/rurin1x/dreamcast-app"
                     }
                     AboutAction("Исходники Android TV", R.drawable.ic_about_tv) {
                         address = "https://github.com/Arleckin75/dreamcast-tv"
+                    }
+                }
+            }
+        }
+        item {
+            AboutPanel("Лицензии компонентов плеера") {
+                Text("Сторонние компоненты сохраняют собственные лицензии. Полные тексты и уведомления доступны без интернета.")
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    playerLicenses().forEach { notice ->
+                        AboutAction(notice.title, R.drawable.ic_about_document) {
+                            licenseDocument = notice
+                        }
                     }
                 }
             }
@@ -1779,19 +1794,24 @@ private fun About() {
             confirmButton = {},
         )
     }
-    if (showLicense) {
+    licenseDocument?.let { document ->
         val license =
-            resource(Unit) {
-                context.assets.open("licenses/GPL-3.0.txt").bufferedReader().use { it.readText() }
+            resource(document) {
+                document.assets.joinToString("\n\n") { asset ->
+                    context.assets.open(asset).bufferedReader(Charsets.UTF_8).use { it.readText() }
+                }
             }
         AlertDialog(
-            onDismissRequest = { showLicense = false },
-            title = { Text("GNU General Public License v3") },
+            onDismissRequest = { licenseDocument = null },
+            title = { Text(document.title) },
             text = {
                 when {
                     license.loading -> Loading()
                     license.error != null -> Text("Не удалось открыть лицензию: ${license.error}")
-                    else -> AboutDocument(license.value.orEmpty())
+                    else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(document.summary, style = MaterialTheme.typography.bodySmall)
+                        AboutDocument(license.value.orEmpty())
+                    }
                 }
             },
             confirmButton = {},

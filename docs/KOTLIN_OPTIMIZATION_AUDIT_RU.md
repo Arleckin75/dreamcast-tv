@@ -1,5 +1,7 @@
 # Аудит оптимизации ветки Kotlin
 
+> Исторический отчёт до удаления Dart/Flutter и LibVLC. Актуальная структура сборки описана в [BUILD_TV.md](../BUILD_TV.md).
+
 Дата: 04.11.2026. Исследованный коммит: `ca9dfef`.
 
 Это исходный аудит до изменений. Реализация и результаты проверок: [KOTLIN_OPTIMIZATION_RESULTS_RU.md](KOTLIN_OPTIMIZATION_RESULTS_RU.md).

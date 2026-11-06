@@ -1,5 +1,7 @@
 # Оптимизация Kotlin: изменения и проверки
 
+> Исторический отчёт до перехода software на dav1d. Актуальные команды и движки описаны в [BUILD_TV.md](../BUILD_TV.md).
+
 Дата: 04.11.2026. Изменения поверх `ca9dfef`, без коммита и публикации.
 Основание: [исходный аудит](KOTLIN_OPTIMIZATION_AUDIT_RU.md).
 
@@ -31,7 +33,7 @@
 Финальная локальная команда:
 
 ```powershell
-./android/gradlew.bat -p native-android :app:testHardwareAv1DebugUnitTest :app:testSoftwareAv1DebugUnitTest :app:lintHardwareAv1Debug :app:lintSoftwareAv1Debug :app:assembleHardwareAv1Release :app:assembleSoftwareAv1Release --console=plain
+./native-android/gradlew.bat -p native-android :app:testDebugUnitTest :app:testDebugUnitTest :app:lintDebug :app:lintDebug :app:assembleHardwareAv1Release :app:assembleSoftwareAv1Release --console=plain
 ```
 
 Результат: **BUILD SUCCESSFUL**.
@@ -80,7 +82,7 @@ Software fixture: собственный синтетический ролик �
 ## Повторение device-проверок
 
 ```powershell
-./android/gradlew.bat -p native-android '-PnativeDebugSuffix=.optimizationTest' :app:assembleHardwareAv1Debug :app:assembleHardwareAv1DebugAndroidTest :app:assembleSoftwareAv1Debug :app:assembleSoftwareAv1DebugAndroidTest
+./native-android/gradlew.bat -p native-android '-PnativeDebugSuffix=.optimizationTest' :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleDebug :app:assembleDebugAndroidTest
 ```
 
 Установить APK нужного flavor и его androidTest APK на соответствующее устройство, затем выполнить:

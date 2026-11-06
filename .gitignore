@@ -23,13 +23,7 @@ migrate_working_dir/
 # is commented out by default.
 #.vscode/
 
-# Flutter/Dart/Pub related
-**/doc/api/
-**/ios/Flutter/.last_build_id
-.dart_tool/
-.flutter-plugins-dependencies
-.pub-cache/
-.pub/
+# Local build outputs
 /build/
 /coverage/
 
@@ -39,36 +33,27 @@ app.*.symbols
 # Obfuscation related
 app.*.map.json
 
-# Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release
-android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
-
 # Android release signing
-/android/key.properties
-/android/app/*.jks
-/android/app/*.keystore
+/native-android/key.properties
+/native-android/app/*.jks
+/native-android/app/*.keystore
 # Protect signing keys anywhere in the repository.
 *.jks
 *.keystore
 **/key.properties
 # Local verification SDK and package cache.
 .tools/
-/pubspec_overrides.yaml
-/android/local.properties
-/android/.gradle/
 
 # Local Android outputs and native build caches.
 *.apk
 *.aab
 /dist/
-/android/.kotlin/
 /native-android/.gradle/
 /native-android/.kotlin/
 /native-android/local.properties
 /native-android/app/build/
+/native-android/dav1d/build/
+/native-android/dav1d/.cxx/
 /native-android/build/
-/android/app/.cxx/
 /av1-runtime-dependencies.txt
 /release-notes.md

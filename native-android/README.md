@@ -1,96 +1,55 @@
-# Dream Cast TV — Kotlin
+# Dream Cast TV — единый Kotlin-проект
 
-Нативное Android-приложение: Kotlin, Jetpack Compose / TV Material, coroutines,
-OkHttp, Jsoup, SQLite, WorkManager. Flutter SDK для сборки не требуется.
+Kotlin, Compose / TV Material, Media3/ExoPlayer, dav1d, SQLite, WorkManager.
+Flutter SDK и отдельные flavor для декодирования не используются.
 
-## Сборка
-
-Требуются JDK 17 и Android SDK Platform 36. Укажите `JAVA_HOME` и `ANDROID_HOME`.
-Из корня репозитория:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_native.ps1 -Player hardware
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_native.ps1 -Player software
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_native.ps1 -Player hardware -Test
-```
-
-Для software сначала распакуйте проверенный артефакт `libvlc-tv-maven` существующего
-workflow в `.tools/libvlc-tv/maven`; см. `third_party/libvlc_tv/README.md`.
-Автоматической подмены сокращённого LibVLC полной библиотекой нет.
-
-Linux/macOS используют тот же Gradle Wrapper:
+После [подготовки SDK и dav1d](../BUILD_TV.md):
 
 ```sh
-bash android/gradlew -p native-android :app:assembleHardwareAv1Debug
-bash android/gradlew -p native-android :app:testHardwareAv1DebugUnitTest
+bash native-android/gradlew -p native-android :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
 ```
 
-APK: `native-android/app/build/outputs/apk/{hardwareAv1,softwareAv1}/debug/`.
-Debug имеет отдельный applicationId `com.dreamcast.app.kotlin` и устанавливается
-рядом с основной версией. Release использует прежний `com.dreamcast.app` и ключ
-из `android/key.properties`; подпись тем же ключом необходима для обновления.
-Не подписанная сборка не является готовым обновлением.
+В PowerShell: `scripts/build_native.ps1`; Release — `-Configuration release`.
+Подпись читается из `native-android/key.properties`, относительный `storeFile`
+разрешается относительно `native-android`. Для обновления нужен прежний ключ.
 
-В GitHub Actions выберите `Build Dream Cast TV APK` и ветку `develop`.
-Workflow собирает оба нативных debug-варианта с unit-тестами, lint и аудитом APK.
-Готовые APK и SHA256 находятся в артефактах `dreamcast-tv-hardware-debug`
-и `dreamcast-tv-software-debug`; отчёты загружаются отдельно с суффиксом `-reports`.
-`Build Dream Cast TV Release APK` собирает и публикует нативный релиз v0.9.1
-из `main`. `build-libvlc-tv.yml` — внутренняя зависимость, без отдельного запуска.
+## Плеер
+
+`PlayerActivity` и `PlayerLauncher` основаны на прежней hardware-реализации.
+Один плеер обслуживает HLS/DASH, выбор качества/скорости/потока, прогресс,
+следующую серию и PiP. `VideoDecoderCapabilities` проверяет аппаратный флаг
+MediaCodec и поддержку текущего формата; системный программный декодер
+не включает пункт «Аппаратное».
+
+В «Авто» предпочтителен аппаратный путь; для AV1 без него применяется dav1d.
+При ошибке аппаратного видеорендерера в «Авто» выполняется однократный переход
+на dav1d с сохранением позиции. Сетевые и звуковые ошибки не маскируются этим
+переходом. Принудительный режим dav1d доступен только для поддерживаемого AV1.
+Параметры потока читаются до выбора SurfaceView или GL-вывода.
 
 ## Проверки
 
-JUnit/Robolectric проверяют парсеры PlayerJS, запросы, кэш, историю, библиотеку,
-прогресс и открытие реальной схемы Drift v3. `flutter_schema_v3.json` выгружен из
-исходного `AppDatabase`, а не переписан по памяти.
-
-Android runtime для Robolectric скачивается задачей `prepareRobolectricAndroid`
-через Gradle и его кэш. Тесты читают JAR из `app/build/robolectric-android`,
-без отдельного скачивания через `repo1.maven.org`. При изменении SDK в `@Config`
-или версии Robolectric нужно обновить зависимости `robolectricAndroid` и
-`robolectricResourceAndroid` в Gradle (сейчас API 28 для тестов и API 35 для ресурсов).
-
-На подключённом эмуляторе:
-
 ```sh
-bash android/gradlew -p native-android :app:connectedHardwareAv1DebugAndroidTest
+bash native-android/gradlew -p native-android :app:connectedDebugAndroidTest
+bash native-android/gradlew -p native-android :app:dependencies --configuration debugRuntimeClasspath > dependencies.txt
+python scripts/audit_av1_apk.py --apk native-android/app/build/outputs/apk/debug/app-debug.apk --dependencies dependencies.txt
 ```
 
-UI-тест использует локальный сервер. Разрешение HTTP в debug ограничено
-localhost; release продолжает использовать HTTPS. Тест запускается в отдельном
-debug-приложении и очищает его сетевой кэш.
+`UnifiedAv1PlaybackTest` проверяет AV1 + AAC, реальную доступность аппаратного
+декодера, отключённый пункт на неподдерживаемом устройстве, смену режима в паузе,
+позицию и возврат из фона. `PlayerPlaybackTest` сохраняет прежние проверки
+качества, скорости, перемотки и записи прогресса. Тесты используют локальный сервер.
 
-Проверка разделения движков: `scripts/audit_av1_apk.py`, тот же аудит,
-который используется для Flutter APK. В software отсутствует Media3/ExoPlayer,
-в hardware отсутствует LibVLC; в обоих отсутствует Flutter engine.
+JUnit/Robolectric проверяют парсеры, кэш, историю, библиотеку и совместимость
+с реальной схемой Drift v3 (`flutter_schema_v3.json`). Runtime JAR для тестов
+готовит `prepareRobolectricAndroid` через кэш Gradle.
 
-## Данные и сравнение
+## Данные и лицензии
 
-По окончании серии оба плеера предлагают следующую и отсчитывают 5 секунд до
-автоперехода. «Назад» на пульте закрывает окно и отменяет переход; уход приложения
-в фон также отменяет отсчёт. Кнопка «Следующая серия» запускает переход сразу.
-Если следующей серии нет, отсчёт не запускается. Software-вариант при переходе
-сохраняет выбранную технологию потока, без повторного запроса HLS/DASH.
+Сохранены SQLite `app_flutter/dream_cast.sqlite`, чтение FlutterSharedPreferences,
+история и позиции прежних APK. Старое промежуточное хранилище software-позиций
+по-прежнему читается для совместимости, но новый плеер пишет через ProgressWriter.
 
-Данные меню готовятся в фоне в `UiSnapshot` и хранятся в `AppViewModel`.
-Отрисовка и смена фокуса не перечитывают SQLite или SharedPreferences. Снимок
-обновляется после действий пользователя, возврата из плеера и изменений настроек,
-библиотеки или уведомлений. Записи выполняются последовательно в фоне; «С начала»
-сначала сохраняет сброшенную позицию и затем запускает плеер. Разбор сетевого
-и сохранённого HTML/JSON также выполняется вне главного потока.
-
-Это изменение проверено сборкой и тестами. Время кадров на телевизоре после
-оптимизации отдельно не измерялось; для сравнения плавности нужна release-сборка.
-
-При подписанном обновлении используется прежняя SQLite `app_flutter/dream_cast.sqlite`.
-Профиль, библиотека, подписки, история уведомлений, позиции и настройки читаются
-из прежних форматов. Flutter SharedPreferences не удаляются. Новые настройки
-сохраняются отдельно с приоритетом над старыми.
-
-Состояние переноса и ещё не подтверждённые проверки: `docs/KOTLIN_MIGRATION.md`.
-Исходники Flutter пока сохранены для сравнения поведения и проверки миграции.
-
-Документация используемого UI:
-- https://developer.android.com/training/tv/playback/compose
-- https://developer.android.com/develop/ui/compose/bom
-- https://kotlinlang.org/docs/compose-compiler-migration-guide.html
+Все лицензии компонентов доступны в едином APK из «О приложении».
+См. [проверку лицензий](../docs/PLAYER_LICENSES_RU.md) и
+[выбор декодера](../docs/MEDIA3_DAV1D_RU.md).

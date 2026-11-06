@@ -25,6 +25,7 @@ val sourceRevision = providers.environmentVariable("GITHUB_SHA").orElse(provider
 
 android {
     namespace = "com.dreamcast.nativeapp"
+    ndkVersion = "28.2.13676358"
     compileSdk = 36
     defaultConfig {
         applicationId = "com.dreamcast.app"
@@ -41,20 +42,9 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures { compose = true; buildConfig = true }
-    flavorDimensions += "av1"
-    productFlavors {
-        create("hardwareAv1") { dimension = "av1" }
-        create("softwareAv1") {
-            dimension = "av1"
-            ndk { abiFilters += setOf("armeabi-v7a", "arm64-v8a") }
-        }
-    }
+    defaultConfig { ndk { abiFilters += setOf("armeabi-v7a", "arm64-v8a") } }
     sourceSets {
-        getByName("main").java.srcDir(layout.buildDirectory.dir("generated/playerControls"))
-        getByName("main").res.srcDir("../../android/app/src/main/res")
         getByName("main").assets.srcDir("../../assets")
-        getByName("test").resources.srcDir("../../test/features/releases/fixtures")
-        getByName("softwareAv1").java.srcDir(layout.buildDirectory.dir("generated/vlc"))
     }
     buildTypes {
         debug { applicationIdSuffix = providers.gradleProperty("nativeDebugSuffix").getOrElse(".kotlin") }
@@ -63,14 +53,14 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            val signingFile = rootProject.file("../android/key.properties")
+            val signingFile = rootProject.file("key.properties")
             if (signingFile.exists()) {
                 val props = Properties().apply { signingFile.inputStream().use { load(it) } }
                 signingConfig = signingConfigs.create("production") {
                     keyAlias = props.getProperty("keyAlias")
                     keyPassword = props.getProperty("keyPassword")
                     val configured=File(props.getProperty("storeFile"))
-                    storeFile = if(configured.isAbsolute)configured else rootProject.file("../android/${props.getProperty("storeFile")}")
+                    storeFile = if(configured.isAbsolute)configured else rootProject.file(props.getProperty("storeFile"))
                     storePassword = props.getProperty("storePassword")
                 }
             }
@@ -107,21 +97,6 @@ tasks.withType<Test>().configureEach {
     systemProperty("robolectric.dependency.dir", layout.buildDirectory.dir("robolectric-android").get().asFile.absolutePath)
 }
 
-val copyVlcSources by tasks.registering(Sync::class) {
-    from("../../android/app/src/softwareAv1/kotlin") {
-        include("**/CosmosAv1PlayerActivity.kt", "**/CosmosFmp4Resolver.kt")
-    }
-    into(layout.buildDirectory.dir("generated/vlc"))
-}
-val copyPlayerControls by tasks.registering(Sync::class) {
-    from("../../android/app/src/softwareAv1/kotlin") { include("**/SoftwarePlayerControls.kt") }
-    into(layout.buildDirectory.dir("generated/playerControls"))
-}
-tasks.named("preBuild") { dependsOn(copyVlcSources, copyPlayerControls) }
-
-val vlc = Properties().apply {
-    rootProject.file("../third_party/libvlc_tv/versions.env").inputStream().use { load(it) }
-}
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
     implementation(platform("androidx.compose:compose-bom:2025.08.01"))
@@ -137,11 +112,11 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jsoup:jsoup:1.18.3")
     implementation("io.coil-kt:coil-compose:2.7.0")
-    add("hardwareAv1Implementation", "androidx.media3:media3-exoplayer:1.9.2")
-    add("hardwareAv1Implementation", "androidx.media3:media3-exoplayer-hls:1.9.2")
-    add("hardwareAv1Implementation", "androidx.media3:media3-exoplayer-dash:1.9.2")
-    add("hardwareAv1Implementation", "androidx.media3:media3-ui:1.9.2")
-    add("softwareAv1Implementation", "tv.dreamcast.libvlc:libvlc-tv:${vlc.getProperty("TV_VERSION")}")
+    implementation( "androidx.media3:media3-exoplayer:1.9.2")
+    implementation( "androidx.media3:media3-exoplayer-hls:1.9.2")
+    implementation( "androidx.media3:media3-exoplayer-dash:1.9.2")
+    implementation( "androidx.media3:media3-ui:1.9.2")
+    implementation(project(":dav1d"))
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")

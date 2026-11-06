@@ -1,5 +1,4 @@
 param(
-    [ValidateSet('hardware','software')][string]$Player = 'hardware',
     [ValidateSet('debug','release')][string]$Configuration = 'debug',
     [switch]$Test
 )
@@ -12,9 +11,8 @@ try {
         if ($localJdk) { $env:JAVA_HOME = $localJdk.FullName }
     }
     if (-not $env:ANDROID_HOME) { $env:ANDROID_HOME = Join-Path $env:LOCALAPPDATA 'Android/Sdk' }
-    $flavor = if ($Player -eq 'software') { 'SoftwareAv1' } else { 'HardwareAv1' }
     $buildType = if ($Configuration -eq 'release') { 'Release' } else { 'Debug' }
-    $target = if ($Test) { ":app:test${flavor}${buildType}UnitTest" } else { ":app:assemble${flavor}${buildType}" }
-    & ./android/gradlew.bat -p native-android $target --console=plain
+    $target = if ($Test) { ":app:test${buildType}UnitTest" } else { ":app:assemble${buildType}" }
+    & ./native-android/gradlew.bat -p native-android $target --console=plain
     if ($LASTEXITCODE -ne 0) { throw "Gradle failed ($LASTEXITCODE)" }
 } finally { Pop-Location }

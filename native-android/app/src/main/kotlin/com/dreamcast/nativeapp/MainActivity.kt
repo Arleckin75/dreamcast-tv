@@ -139,9 +139,8 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
         val appContext = context.applicationContext
         viewModelScope.launch {
             application.progressWriter.awaitPending()
-            if (software)
-                withContext(Dispatchers.IO) {
-                    localDataMutex.withLock { storage.syncVlcProgress(appContext) }
+            withContext(Dispatchers.IO) {
+                    localDataMutex.withLock { storage.syncSoftwareProgress(appContext) }
                 }
             changed(UiSection.PROGRESS)
         }
@@ -159,9 +158,6 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
 
     val route
         get() = routes.last()
-
-    val software
-        get() = BuildConfig.FLAVOR == "softwareAv1"
 
     fun navigate(route: Route) {
         routes = routes + route
@@ -240,11 +236,6 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
 class MainActivity : ComponentActivity() {
     private var playbackLaunch: Job? = null
     val model: AppViewModel by viewModels()
-    private var softwareRelease: Release? = null
-    private var softwareEpisode: Episode? = null
-    private var softwareStreamType: String? = null
-    private var completionCountdown: EpisodeCompletionCountdown? = null
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -253,23 +244,7 @@ class MainActivity : ComponentActivity() {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
         if (savedInstanceState != null) {
-            softwareStreamType = savedInstanceState.getString("softwareStreamType")
             model.restoreNavigation(savedInstanceState.getString("navigation"))
-            softwareRelease =
-                savedInstanceState.getString("softwareRelease")?.let {
-                    Release.fromJson(JSONObject(it))
-                }
-            softwareEpisode =
-                savedInstanceState.getString("softwareEpisode")?.let { json ->
-                    val obj = JSONObject(json)
-                    Episode(
-                        obj.getString("id"),
-                        obj.getInt("releaseId"),
-                        obj.getInt("ordinal"),
-                        obj.getString("title"),
-                        obj.getString("file"),
-                    )
-                }
         } else consumeIntent(intent)
         if (
             Build.VERSION.SDK_INT >= 33 &&
@@ -307,21 +282,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
-        outState.putString("softwareStreamType", softwareStreamType)
         outState.putString("navigation", model.saveNavigation())
-        softwareRelease?.let { outState.putString("softwareRelease", it.json().toString()) }
-        softwareEpisode?.let {
-            outState.putString(
-                "softwareEpisode",
-                JSONObject()
-                    .put("id", it.id)
-                    .put("releaseId", it.releaseId)
-                    .put("ordinal", it.ordinal)
-                    .put("title", it.title)
-                    .put("file", it.file)
-                    .toString(),
-            )
-        }
         super.onSaveInstanceState(outState)
     }
 
@@ -333,30 +294,7 @@ class MainActivity : ComponentActivity() {
                 try {
                     model.application.awaitStorageReady()
                     model.application.progressWriter.awaitPending()
-                    if (model.software) {
-                        val progress =
-                            withContext(Dispatchers.IO) {
-                                val previous = model.storage.progress(release.id, episode.id)
-                                model.storage.saveProgress(
-                                    release,
-                                    episode,
-                                    if (previous?.watched == true) 0 else previous?.positionMs ?: 0,
-                                    previous?.durationMs ?: 0,
-                                )
-                                model.storage.progress(release.id, episode.id)
-                            }
-                        softwareRelease = release
-                        softwareEpisode = episode
-                        softwareStreamType = stream.type
-                        SoftwareLauncher.launch(
-                            this@MainActivity,
-                            release,
-                            episode,
-                            stream,
-                            progress,
-                            model.storage,
-                        )
-                    } else HardwareLauncher.launch(this@MainActivity, release, episode, stream)
+                    PlayerLauncher.launch(this@MainActivity, release, episode, stream)
                 } catch (cancel: kotlinx.coroutines.CancellationException) {
                     throw cancel
                 } catch (error: Exception) {
@@ -365,72 +303,4 @@ class MainActivity : ComponentActivity() {
             }
     }
 
-    @Deprecated("Legacy LibVLC Activity result contract")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == 7192 && resultCode == Activity.RESULT_OK && data != null) {
-            val release = softwareRelease ?: return
-            val episode = softwareEpisode ?: return
-            if (!data.getBooleanExtra("playbackError", false))
-                model.application.progressWriter.save(
-                    ProgressSnapshot(
-                        release,
-                        episode,
-                        data.getLongExtra("positionMs", 0),
-                        data.getLongExtra("durationMs", 0),
-                        data.getBooleanExtra("completed", false),
-                    )
-                )
-            if (data.hasExtra("quality"))
-                model.storage.put(
-                    "software_av1_quality",
-                    data.getIntExtra("quality", 720).toString(),
-                )
-            model.refreshPlayerProgress(this)
-            if (data.getBooleanExtra("nextEpisode", false))
-                openNextSoftwareEpisode(release, episode)
-            else if (
-                data.getBooleanExtra("completed", false) &&
-                    episode.ordinal < release.currentEpisodes
-            ) {
-                completionCountdown?.dismiss()
-                completionCountdown =
-                    EpisodeCompletionCountdown(this, "Серия ${episode.ordinal + 1}") {
-                            openNextSoftwareEpisode(release, episode)
-                        }
-                        .also { it.show() }
-            }
-        }
-    }
-
-    private fun openNextSoftwareEpisode(release: Release, episode: Episode) {
-        val technology = softwareStreamType
-        model.viewModelScope.launch {
-            try {
-                val episodes = model.repository.playback(release).second
-                episodes.getOrNull(episode.ordinal)?.let {
-                    model.prepare(
-                        this@MainActivity,
-                        release,
-                        it.id,
-                        preferredTechnology = technology,
-                    )
-                }
-            } catch (cancel: kotlinx.coroutines.CancellationException) {
-                throw cancel
-            } catch (error: Exception) {
-                model.playbackError = error.message
-            }
-        }
-    }
-
-    override fun onDestroy() {
-        completionCountdown?.dismiss()
-        super.onDestroy()
-    }
-
-    override fun onResume() {
-        super.onResume()
-        model.refreshPlayerProgress(this)
-    }
 }
