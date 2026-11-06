@@ -63,6 +63,8 @@ class PlayerActivity : ComponentActivity() {
     private var loadJob: Job? = null
     private var resumePosition = 0L
     private var ready = false
+    private val softwareFrameMonitor = SoftwareFrameMonitor()
+    private var softwareAutoMaxHeight = 720
     private var completed = false
     private var activityStarted = false
     private var lastSaved: ProgressSnapshot? = null
@@ -75,6 +77,7 @@ class PlayerActivity : ComponentActivity() {
             override fun run() {
                 if (!activityStarted && !inPip()) return
                 save(force = false)
+                checkSoftwareFrames()
                 if (player?.isPlaying == true) handler.postDelayed(this, 5000)
             }
         }
@@ -241,6 +244,8 @@ class PlayerActivity : ComponentActivity() {
         video.player = null
         player?.release()
         player = null
+        softwareFrameMonitor.reset()
+        softwareAutoMaxHeight = 720
         controls.showLoading("Проверка видеопотока…")
         playbackJob = lifecycleScope.launch {
             try {
@@ -304,6 +309,32 @@ class PlayerActivity : ComponentActivity() {
         player = exo
         video.player = exo
         exo.addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+            override fun onVideoInputFormatChanged(
+                eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                format: androidx.media3.common.Format,
+                decoderReuseEvaluation: androidx.media3.exoplayer.DecoderReuseEvaluation?,
+            ) {
+                if (player !== exo) return
+                currentVideoFormat = format
+                android.util.Log.i("DCTV_DECODER", "format=${format.width}x${format.height} fps=${format.frameRate} bitrate=${format.bitrate}")
+            }
+
+            override fun onDroppedVideoFrames(
+                eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                droppedFrames: Int, elapsedMs: Long,
+            ) {
+                if (player === exo)
+                    android.util.Log.i("DCTV_DECODER", "dropped=$droppedFrames elapsedMs=$elapsedMs bufferedMs=${exo.totalBufferedDuration}")
+            }
+
+            override fun onVideoDisabled(
+                eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                counters: androidx.media3.exoplayer.DecoderCounters,
+            ) {
+                counters.ensureUpdated()
+                android.util.Log.i("DCTV_DECODER", "rendered=${counters.renderedOutputBufferCount} dropped=${counters.droppedBufferCount} skipped=${counters.skippedOutputBufferCount} maxConsecutiveDropped=${counters.maxConsecutiveDroppedBufferCount}")
+            }
+
             override fun onVideoDecoderInitialized(
                 eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
                 decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long,
@@ -329,7 +360,10 @@ class PlayerActivity : ComponentActivity() {
                     newPosition: Player.PositionInfo,
                     reason: Int,
                 ) {
-                    if (player === exo && reason == Player.DISCONTINUITY_REASON_SEEK) save()
+                    if (player === exo && reason == Player.DISCONTINUITY_REASON_SEEK) {
+                        softwareFrameMonitor.reset()
+                        save()
+                    }
                 }
 
                 override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
@@ -338,7 +372,6 @@ class PlayerActivity : ComponentActivity() {
                         if (group.type != androidx.media3.common.C.TRACK_TYPE_VIDEO) continue
                         for (index in 0 until group.length) if (group.isTrackSelected(index)) {
                             val format = group.getTrackFormat(index)
-                            currentVideoFormat = format
                             android.util.Log.i(
                                 "DCTV_NATIVE_PLAYER",
                                 "video=${format.sampleMimeType} size=${format.width}x${format.height}",
@@ -382,6 +415,7 @@ class PlayerActivity : ComponentActivity() {
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     if (player !== exo) return
+                    if (!isPlaying) softwareFrameMonitor.reset()
                     if (isPlaying) {
                         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                         reveal()
@@ -508,6 +542,8 @@ class PlayerActivity : ComponentActivity() {
             onDismiss = ::reveal,
         ) { index ->
             selectedQuality = heights[index]
+            softwareFrameMonitor.reset()
+            softwareAutoMaxHeight = 720
             player?.let(::applyQualityLimit)
         }
     }
@@ -531,12 +567,32 @@ class PlayerActivity : ComponentActivity() {
             exo.trackSelectionParameters
                 .buildUpon()
                 .apply {
-                    val maxHeight = if (output == VideoOutput.DAV1D && selectedQuality == 0) 720 else selectedQuality
+                    val maxHeight = if (output == VideoOutput.DAV1D && selectedQuality == 0) softwareAutoMaxHeight else selectedQuality
                     if (maxHeight == 0) clearVideoSizeConstraints()
                     else setMaxVideoSize(Int.MAX_VALUE, maxHeight)
                     currentVideoFormat?.sampleMimeType?.let { setPreferredVideoMimeTypes(it) }
                 }
                 .build()
+    }
+
+    private fun checkSoftwareFrames() {
+        val exo = player ?: return
+        if (output != VideoOutput.DAV1D || selectedQuality != 0 || !exo.isPlaying) {
+            softwareFrameMonitor.reset()
+            return
+        }
+        val counters = exo.videoDecoderCounters ?: return
+        counters.ensureUpdated()
+        if (!softwareFrameMonitor.sample(android.os.SystemClock.elapsedRealtime(),
+                counters.renderedOutputBufferCount, counters.droppedBufferCount)) return
+        val height = exo.videoFormat?.height ?: return
+        val lower = formats.filter { capabilities.software(it) && it.height in 1 until height &&
+            it.height < softwareAutoMaxHeight }.maxOfOrNull { it.height } ?: return
+        softwareAutoMaxHeight = lower
+        applyQualityLimit(exo)
+        android.util.Log.i("DCTV_DECODER", "softwareAutoMaxHeight=$lower reason=sustained_frame_drops")
+        android.widget.Toast.makeText(this, "Авто: ${lower}p для плавного воспроизведения",
+            android.widget.Toast.LENGTH_SHORT).show()
     }
 
     private fun tracks() {

@@ -57,7 +57,9 @@ class UnifiedRenderersFactory(context: Context, private val output: VideoOutput)
         allowedVideoJoiningTimeMs: Long, out: java.util.ArrayList<Renderer>,
     ) {
         if (output == VideoOutput.DAV1D) {
-            out.add(Libdav1dVideoRenderer(allowedVideoJoiningTimeMs, eventHandler, eventListener, 50))
+            // Queue enough frames to absorb decode-time spikes; preserve dav1d's automatic thread count.
+            out.add(Libdav1dVideoRenderer(allowedVideoJoiningTimeMs, eventHandler, eventListener,
+                50, Libdav1dVideoRenderer.THREAD_COUNT_DECODER_DEFAULT, 0, 12, 12, false))
         } else super.buildVideoRenderers(context, extensionRendererMode, mediaCodecSelector,
             enableDecoderFallback, eventHandler, eventListener, allowedVideoJoiningTimeMs, out)
     }
