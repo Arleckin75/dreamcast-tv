@@ -1,4 +1,4 @@
-package com.dreamcast.app
+package com.dreamcast.nativeapp
 
 import android.app.AlertDialog
 import android.content.Context
