@@ -50,14 +50,14 @@ keyPassword=YOUR_KEY_PASSWORD
 Особенности слияния веток описаны в [историческом плане переноса v0.8.5 в main](docs/MAIN_MIGRATION_RU.md).
 
 1. Перенесите проверенные изменения в `main`.
-   Версия этого выпуска — `0.9.3`, Android versionCode — `903001`.
-   Описание для GitHub Releases берётся из [заметок к релизу](RELEASE_NOTES_v0.9.3.md).
+   Версия этого выпуска — `0.9.4`, Android versionCode — `904001`.
+   Описание для GitHub Releases берётся из [заметок к релизу](docs/release-notes/RELEASE_NOTES_v0.9.4.md).
 2. Запустите **Build Dream Cast TV Release APK** из `main`.
-3. Флажок **Publish v0.9.3 on GitHub Releases (main only)** включён по умолчанию.
+3. Флажок **Publish v0.9.4 on GitHub Releases (main only)** включён по умолчанию.
    Для получения APK без публикации снимите его (`publish: false`).
-4. Получите артефакт `dreamcast-tv-v0.9.3-unified-signed-release`, проверьте отчёты и устройства.
+4. Получите артефакт `dreamcast-tv-v0.9.4-unified-signed-release`, проверьте отчёты и устройства.
 5. При включённом флажке (`publish: true`) после успешных проверок автоматически
-   создаётся GitHub Release v0.9.3. Для предварительной проверки APK сначала
+   создаётся GitHub Release v0.9.4. Для предварительной проверки APK сначала
    выполните запуск без публикации.
 
 Задания подписи находятся непосредственно в релизном workflow и

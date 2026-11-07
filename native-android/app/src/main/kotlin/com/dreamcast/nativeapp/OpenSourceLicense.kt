@@ -8,7 +8,7 @@ val applicationLicense = OpenSourceLicense(
 
 fun playerLicenses(): List<OpenSourceLicense> = buildList {
     add(OpenSourceLicense(
-        "Media3 / ExoPlayer 1.9.2", "Apache License 2.0 · The Android Open Source Project",
+        "Media3 / ExoPlayer 1.11.1", "Apache License 2.0 · The Android Open Source Project",
         listOf("licenses/media3-NOTICES.txt", "licenses/media3-APACHE-2.0.txt"),
     ))
     add(OpenSourceLicense(

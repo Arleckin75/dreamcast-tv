@@ -3,7 +3,7 @@ package com.dreamcast.nativeapp
 import android.content.Context
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
-import androidx.media3.exoplayer.MetadataRetriever
+import androidx.media3.inspector.MetadataRetriever
 import androidx.media3.exoplayer.source.MediaSource
 import java.util.concurrent.Executor
 import kotlin.coroutines.resume

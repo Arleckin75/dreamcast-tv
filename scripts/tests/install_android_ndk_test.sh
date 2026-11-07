@@ -3,7 +3,12 @@ set -euo pipefail
 mkdir -p .tools
 export NDK_TEST_VERSION="$(tr -d '[:space:]' < .android-ndk-version)"
 test_root="$(mktemp -d "$PWD/.tools/ndk-setup-test.XXXXXX")"
+# The simulated failures print ::warning:: and ::error:: commands. Stop GitHub
+# Actions from turning them into annotations while this test runs.
+commands_token="ndk-test-$(basename "$test_root")"
+echo "::stop-commands::$commands_token"
 cleanup() {
+  echo "::$commands_token::"
   case "$test_root" in "$PWD"/.tools/ndk-setup-test.*) rm -rf -- "$test_root" ;; *) exit 1 ;; esac
 }
 trap cleanup EXIT

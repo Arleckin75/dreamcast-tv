@@ -6,7 +6,6 @@ import android.view.View
 import android.widget.FrameLayout
 import android.widget.SeekBar
 import android.widget.TextView
-import com.dreamcast.app.PlayerControls
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith

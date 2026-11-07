@@ -1,4 +1,4 @@
-Source: https://github.com/androidx/media/tree/630c1af455a16b8eb1ab36f49d82d9db799d7f5e/libraries/decoder_av1
+Source: https://github.com/androidx/media/tree/8c6678b657ede1e7883fc164ef73ed483c7796c3/libraries/decoder_av1
 
 Original source-header notices follow. Some files/architectures may not be linked in this APK.
 

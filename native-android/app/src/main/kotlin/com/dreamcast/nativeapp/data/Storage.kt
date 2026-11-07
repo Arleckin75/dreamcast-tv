@@ -3,12 +3,13 @@ package com.dreamcast.nativeapp.data
 import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
+import android.os.Build
 import java.io.File
 import java.time.Instant
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Uses the original on-device names so a signed update can retain user data. */
+/** Native preferences and the application SQLite database. */
 class Storage(
     context: Context,
     private val maxCacheEntries: Int = 512,
@@ -16,10 +17,9 @@ class Storage(
 ) {
     init {
         require(maxCacheEntries > 0 && maxCacheBytes > 0)
+        deleteLegacyFlutterPreferences(context)
     }
 
-    private val preferences =
-        context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
     private val nativePreferences =
         context.getSharedPreferences("dream_cast_native", Context.MODE_PRIVATE)
     private val databaseDelegate = lazy { openDatabase(context.applicationContext) }
@@ -30,6 +30,8 @@ class Storage(
     }
 
     private fun openDatabase(context: Context): SQLiteDatabase {
+        // The path is inherited from the Flutter app. Moving it would lose the
+        // watch history and caches of existing 0.9.x installs, so it stays.
         val directory = File(context.applicationInfo.dataDir, "app_flutter").apply { mkdirs() }
         val database =
             SQLiteDatabase.openOrCreateDatabase(File(directory, "dream_cast.sqlite"), null)
@@ -56,41 +58,34 @@ class Storage(
         return database
     }
 
-    private fun preferenceFor(key: String): Pair<android.content.SharedPreferences, String> =
-        if (nativePreferences.contains(key)) nativePreferences to key
-        else preferences to "flutter.$key"
-
     fun string(key: String, default: String = ""): String {
-        val (source, name) = preferenceFor(key)
         return try {
-            source.getString(name, default) ?: default
+            nativePreferences.getString(key, default) ?: default
         } catch (_: ClassCastException) {
             default
         }
     }
 
     fun number(key: String, default: Long = 0): Long {
-        val (source, name) = preferenceFor(key)
-        if (!source.contains(name)) return default
+        if (!nativePreferences.contains(key)) return default
         try {
-            return source.getLong(name, default)
+            return nativePreferences.getLong(key, default)
         } catch (_: ClassCastException) {}
         try {
-            return source.getInt(name, 0).toLong()
+            return nativePreferences.getInt(key, 0).toLong()
         } catch (_: ClassCastException) {}
         try {
-            return source.getFloat(name, 0f).toLong()
+            return nativePreferences.getFloat(key, 0f).toLong()
         } catch (_: ClassCastException) {}
         return try {
-            source.getString(name, null)?.toLongOrNull() ?: default
+            nativePreferences.getString(key, null)?.toLongOrNull() ?: default
         } catch (_: ClassCastException) {
             default
         }
     }
 
     fun boolean(key: String, default: Boolean = false) =
-        if (nativePreferences.contains(key)) nativePreferences.getBoolean(key, default)
-        else preferences.getBoolean("flutter.$key", default)
+        nativePreferences.getBoolean(key, default)
 
     fun retentionHours(): Long =
         string("cache.retention.native").toLongOrNull()
@@ -114,18 +109,9 @@ class Storage(
 
     fun remove(key: String) {
         nativePreferences.edit().remove(key).apply()
-        preferences.edit().remove("flutter.$key").apply()
     }
 
-    fun recordSnapshot(): Map<String, Any?> {
-        val matching = LinkedHashMap<String, Any?>()
-        preferences.all.forEach { (rawKey, value) ->
-            val key = rawKey.removePrefix("flutter.")
-            matching[key] = value
-        }
-        nativePreferences.all.forEach { (key, value) -> matching[key] = value }
-        return matching
-    }
+    fun recordSnapshot(): Map<String, Any?> = nativePreferences.all.toMap()
 
     fun records(
         prefix: String,
@@ -186,22 +172,12 @@ class Storage(
         )
     }
 
-    fun searchHistory(): List<String> {
-        val native = nativePreferences.getString("search.history", null)
-        if (native != null)
-            return runCatching {
-                    val array = JSONArray(native)
-                    (0 until array.length()).map { array.getString(it) }
-                }
-                .getOrDefault(emptyList())
-        // Older installations use either serialized or JSON-prefixed lists.
-        val old = preferences.all["flutter.search.history"]
-        return when (old) {
-            is Set<*> -> old.filterIsInstance<String>()
-            is String -> LegacyPreferences.stringList(old)
-            else -> emptyList()
-        }
-    }
+    fun searchHistory(): List<String> =
+        runCatching {
+                val array = JSONArray(nativePreferences.getString("search.history", null) ?: "[]")
+                (0 until array.length()).map { array.getString(it) }
+            }
+            .getOrDefault(emptyList())
 
     fun saveSearch(query: String) {
         put(
@@ -543,5 +519,29 @@ class Storage(
             .edit()
             .putLong("progress.updatedAt.${release.id}:${episode.id}", System.currentTimeMillis())
             .apply()
+    }
+}
+
+internal const val LEGACY_FLUTTER_PREFERENCES = "FlutterSharedPreferences"
+
+/**
+ * Removes the preferences file left by the Flutter app (0.8.x and earlier).
+ * It is no longer read; deleting it frees space and drops old personal data.
+ */
+internal fun deleteLegacyFlutterPreferences(context: Context) {
+    val file =
+        File(context.applicationInfo.dataDir, "shared_prefs/$LEGACY_FLUTTER_PREFERENCES.xml")
+    if (!file.exists()) return
+    runCatching {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            context.deleteSharedPreferences(LEGACY_FLUTTER_PREFERENCES)
+        } else {
+            context
+                .getSharedPreferences(LEGACY_FLUTTER_PREFERENCES, Context.MODE_PRIVATE)
+                .edit()
+                .clear()
+                .commit()
+            file.delete()
+        }
     }
 }

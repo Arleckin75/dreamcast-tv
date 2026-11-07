@@ -1,14 +1,34 @@
-<p align="center"><img src="icon.png" width="96" height="96" alt="Dream Cast TV"></p>
+<p align="center"><img src="docs/icon.png" width="96" height="96" alt="Dream Cast TV"></p>
 
 # Dream Cast TV — Kotlin
 
 Неофициальный клиент Dream Cast для **Android TV и Google TV**: каталог аниме,
 библиотека и просмотр серий с управлением пультом.
 
-Версия исходников — **v0.9.3** на Kotlin и
+Версия исходников — **v0.9.4** на Kotlin и
 Jetpack Compose / TV Material. Приложение и его сборка работают без Flutter.
 Старые Dart/Flutter-исходники удалены; проект сборки находится в `native-android/`.
 Минимальная версия Android — **6.0 (API 23)**.
+
+## Установка и совместимость
+
+Переход с 0.8.x и более ранних версий на 0.9.x требует чистой установки:
+удалите старое приложение вместе с данными, затем установите новый APK без
+восстановления резервной копии. Перенос данных не поддерживается.
+
+Чтение старых настроек Flutter удалено. Если ранее вы обновились поверх старой
+версии без удаления данных, также выполните чистую установку.
+
+## Что нового в v0.9.4
+
+- Исправлено падение программного AV1 (dav1d) в release-сборке на устройствах
+  без аппаратного AV1, в том числе ARMv7.
+- Media3 обновлён до 1.11.1, jsoup — до 1.23.2, Guava — до 33.7.2;
+  обновлены Compose, AndroidX и OkHttp 5.
+- Нативные библиотеки выровнены по 16 КБ.
+- Старый файл настроек Flutter удаляется с устройства.
+
+Подробности — в [заметках к v0.9.4](docs/release-notes/RELEASE_NOTES_v0.9.4.md).
 
 ## Что нового в v0.9.3
 
@@ -19,7 +39,7 @@ Jetpack Compose / TV Material. Приложение и его сборка ра�
 - Исправлен переход кнопкой «Вниз» из поиска к тайтлам после закрытия клавиатуры.
 - Удалены LibVLC, Dart/Flutter и неиспользуемые экспериментальные рендереры.
 
-Подробности — в [заметках к v0.9.3](RELEASE_NOTES_v0.9.3.md).
+Подробности — в [заметках к v0.9.3](docs/release-notes/RELEASE_NOTES_v0.9.3.md).
 
 ## Возможности
 
@@ -38,7 +58,7 @@ Jetpack Compose / TV Material. Приложение и его сборка ра�
 Опубликованные версии доступны в [Releases](https://github.com/Arleckin75/dreamcast-tv/releases).
 
 1. Откройте нужный выпуск и скачайте единый APK Dream Cast TV.
-   Для v0.9.3 имя файла — `DreamCast-TV-v0.9.3-unified-release.apk`.
+   Для v0.9.4 имя файла — `DreamCast-TV-v0.9.4-unified-release.apk`.
 2. Если файл упакован в архив, распакуйте его.
 3. Перенесите APK на телевизор и установите приложение.
 
@@ -136,7 +156,7 @@ Kotlin-версия развиваются в [Arleckin75/dreamcast-tv](https://
 
 | Компонент | Где используется | Лицензия и уведомления |
 | --- | --- | --- |
-| Media3 / ExoPlayer 1.9.2 | Единый APK | [Apache-2.0](assets/licenses/media3-APACHE-2.0.txt), [уведомления](assets/licenses/media3-NOTICES.txt) |
+| Media3 / ExoPlayer 1.11.1 | Единый APK | [Apache-2.0](assets/licenses/media3-APACHE-2.0.txt), [уведомления](assets/licenses/media3-NOTICES.txt) |
 | dav1d 1.5.1 | Программное AV1 в едином APK | [BSD-2-Clause](native-android/app/src/main/assets/licenses/dav1d-BSD-2-Clause.txt), [авторские уведомления](native-android/app/src/main/assets/licenses/dav1d-NOTICES.txt) |
 | cpu_features 0.10.1 | JNI dav1d | [Apache-2.0 и сохранённые BSD-уведомления](native-android/app/src/main/assets/licenses/cpu_features-APACHE-2.0.txt), [авторство](native-android/app/src/main/assets/licenses/cpu_features-NOTICES.txt) |
 | LLVM / Android NDK runtime | Статическая линковка JNI | [Уведомления NDK 28.2.13676358](native-android/app/src/main/assets/licenses/ndk-LLVM-NOTICE.txt), включая libc++ / libc++abi и LLVM exceptions |

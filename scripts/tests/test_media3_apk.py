@@ -49,7 +49,7 @@ class Media3ApkTest(unittest.TestCase):
                 for name, data in payload.items():
                     archive.writestr(name, data)
             report = root / 'dependencies.txt'
-            report.write_text('androidx.media3:media3-exoplayer:1.9.2\n' + dependencies)
+            report.write_text('androidx.media3:media3-exoplayer:1.11.1\n' + dependencies)
             result = subprocess.run(
                 [sys.executable, str(SCRIPT), '--apk', str(apk), '--dependencies', str(report), '--player', player],
                 cwd=root, text=True, capture_output=True,

@@ -27,15 +27,23 @@ Debug package — `com.dreamcast.app.kotlin`, Release — `com.dreamcast.app`.
 
 ## GitHub Actions
 
-**Build unified Debug APK (develop)** вручную собирает один Debug из `develop`,
-запускает unit-тесты, lint и аудит APK. Артефакт — `dreamcast-tv-unified-debug`;
-отчёты — `dreamcast-tv-unified-debug-reports`. Workflow устанавливает фиксированные
-NDK/CMake и собирает закреплённый dav1d под ARMv7 и ARM64.
+**Build unified Debug and Release APKs (develop)** запускается при каждом push
+в `develop` и вручную. Собирает Debug, запускает unit-тесты, lint и аудит APK,
+затем собирает минифицированный Release (R8 и shrinkResources), запускает
+`lintRelease` и тот же аудит. Release подписан debug-ключом CI
+(`-PreleaseDebugSigning=true`), его можно установить для проверки, но не публиковать.
+Артефакты — `dreamcast-tv-unified-debug`, `dreamcast-tv-unified-release-debugsigned`;
+отчёты, mapping R8 и аудиты — `dreamcast-tv-unified-develop-reports`.
+Workflow устанавливает фиксированные NDK/CMake и собирает закреплённый dav1d
+под ARMv7 и ARM64.
 
-**Build Dream Cast TV Release APK** запускается из `main` и собирает один
+Локально тот же Release: добавьте `-PreleaseDebugSigning=true` к `:app:assembleRelease`
+(действует, только если нет `native-android/key.properties`).
+
+**Build Dream Cast TV Release APK** запускается вручную из `main` и собирает один
 подписанный APK. Публикацию можно отключить параметром workflow. Проверки
-сертификата относительно v0.7.0 и versionCode сохранены; автоматические
-сборки по push отключены. См. [подпись](RELEASE_SIGNING_RU.md).
+сертификата относительно v0.7.0 и versionCode сохранены.
+См. [подпись](RELEASE_SIGNING_RU.md).
 
 Перед выпуском проверяйте реальные HLS/DASH-потоки, аппаратное AV1 и dav1d,
 отключённый пункт аппаратного режима, смену режима в паузе, перемотку,

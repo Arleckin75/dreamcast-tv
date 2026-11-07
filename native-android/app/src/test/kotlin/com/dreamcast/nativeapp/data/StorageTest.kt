@@ -32,21 +32,43 @@ class StorageTest {
     }
 
     @Test
-    fun `filtered preference records retain native precedence and ignore malformed values`() {
+    fun `filtered preference records ignore malformed values`() {
         context
-            .getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            .getSharedPreferences("dream_cast_native", Context.MODE_PRIVATE)
             .edit()
-            .putString("flutter.test.item.one", """{"value":"legacy"}""")
-            .putString("flutter.test.item.two", """{"value":"legacy only"}""")
-            .putString("flutter.test.item.hidden", """{"value":"shadowed"}""")
-            .putString("flutter.unrelated", "invalid JSON")
+            .putString("test.item.one", """{"value":"initial"}""")
+            .putString("test.item.two", """{"value":"second"}""")
+            .putString("test.item.malformed", """{"value":"valid before overwrite"}""")
+            .putString("unrelated", "invalid JSON")
             .commit()
-        storage.put("test.item.one", """{"value":"native"}""")
-        storage.put("test.item.hidden", "invalid JSON")
+        storage.put("test.item.one", """{"value":"overwritten"}""")
+        storage.put("test.item.malformed", "invalid JSON")
         val records = storage.records("test.item.").toMap()
         assertEquals(2, records.size)
-        assertEquals("native", records["test.item.one"]!!.getString("value"))
-        assertEquals("legacy only", records["test.item.two"]!!.getString("value"))
+        assertEquals("overwritten", records["test.item.one"]!!.getString("value"))
+        assertEquals("second", records["test.item.two"]!!.getString("value"))
+    }
+
+    @Test
+    fun `legacy Flutter preferences file is deleted on startup`() {
+        context
+            .getSharedPreferences(LEGACY_FLUTTER_PREFERENCES, Context.MODE_PRIVATE)
+            .edit()
+            .putString("flutter.search.history", "old")
+            .commit()
+        val file =
+            File(context.applicationInfo.dataDir, "shared_prefs/$LEGACY_FLUTTER_PREFERENCES.xml")
+        assertTrue(file.exists())
+
+        Storage(context).close()
+
+        assertFalse(file.exists())
+        assertTrue(
+            context
+                .getSharedPreferences(LEGACY_FLUTTER_PREFERENCES, Context.MODE_PRIVATE)
+                .all
+                .isEmpty()
+        )
     }
 
     @Test
@@ -60,16 +82,16 @@ class StorageTest {
     }
 
     @Test
-    fun `typed preference reads preserve numeric formats and native precedence`() {
-        val legacy = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-        legacy
+    fun `typed preference reads preserve numeric formats`() {
+        val preferences = context.getSharedPreferences("dream_cast_native", Context.MODE_PRIVATE)
+        preferences
             .edit()
-            .putLong("flutter.long", 123)
-            .putInt("flutter.int", 42)
-            .putFloat("flutter.float", 4.5f)
-            .putString("flutter.text", "720")
-            .putBoolean("flutter.invalid", true)
-            .putString("flutter.override", "legacy")
+            .putLong("long", 123)
+            .putInt("int", 42)
+            .putFloat("float", 4.5f)
+            .putString("text", "720")
+            .putBoolean("invalid", true)
+            .putString("override", "initial")
             .commit()
         assertEquals(123L, storage.number("long"))
         assertEquals(42L, storage.number("int"))
@@ -112,11 +134,11 @@ class StorageTest {
     }
 
     @Test
-    fun `legacy numeric quality preferences remain readable`() {
+    fun `numeric quality preferences remain readable`() {
         context
-            .getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            .getSharedPreferences("dream_cast_native", Context.MODE_PRIVATE)
             .edit()
-            .putLong("flutter.software_av1_quality", 1080)
+            .putLong("software_av1_quality", 1080)
             .commit()
         assertEquals(1080L, storage.number("software_av1_quality", 720))
         storage.put("software_av1_quality", "480")
@@ -138,19 +160,19 @@ class StorageTest {
     }
 
     @Test
-    fun `reads old Flutter settings bookmarks and subscriptions`() {
+    fun `reads native settings bookmarks and subscriptions`() {
         val release = Release(540, "Релиз", posterUrl = "https://cdn.example.com/a.jpg")
-        val old = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-        old.edit()
-            .putString("flutter.settings.theme_mode", "light")
-            .putBoolean("flutter.settings.dynamic_color", false)
-            .putString("flutter.cache.retention", "forever")
+        val preferences = context.getSharedPreferences("dream_cast_native", Context.MODE_PRIVATE)
+        preferences.edit()
+            .putString("settings.theme_mode", "light")
+            .putBoolean("settings.dynamic_color", false)
+            .putString("cache.retention", "forever")
             .putString(
-                "flutter.library.release.item.540",
+                "library.release.item.540",
                 JSONObject().put("release", release.json()).put("status", "planned").toString(),
             )
             .putString(
-                "flutter.notifications.release.item.540",
+                "notifications.release.item.540",
                 JSONObject().put("release", release.json()).put("lastKnownEpisodes", 6).toString(),
             )
             .commit()
@@ -166,13 +188,13 @@ class StorageTest {
     }
 
     @Test
-    fun `legacy list encoding is retained and deletions persist`() {
+    fun `native search history updates and deletions persist`() {
         context
-            .getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            .getSharedPreferences("dream_cast_native", Context.MODE_PRIVATE)
             .edit()
             .putString(
-                "flutter.search.history",
-                "VGhpcyBpcyB0aGUgcHJlZml4IGZvciBhIGxpc3Qu[\"Комедия\",\"Магия\"]",
+                "search.history",
+                "[\"Комедия\",\"Магия\"]",
             )
             .commit()
         assertEquals(listOf("Комедия", "Магия"), storage.searchHistory())
