@@ -113,7 +113,7 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.11.2")
     implementation("androidx.core:core-ktx:1.18.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp:5.4.0")
     implementation("org.jsoup:jsoup:1.23.2")
     constraints {
         implementation("com.google.guava:guava:33.7.2-android") {
@@ -129,7 +129,7 @@ dependencies {
     implementation(project(":dav1d"))
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
-    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    testImplementation("com.squareup.okhttp3:mockwebserver:5.4.0")
     testImplementation("org.robolectric:robolectric:4.17")
     testImplementation("androidx.work:work-testing:2.11.2")
     androidTestImplementation(platform("androidx.compose:compose-bom:2026.06.01"))
@@ -137,5 +137,5 @@ dependencies {
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
-    androidTestImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    androidTestImplementation("com.squareup.okhttp3:mockwebserver:5.4.0")
 }
