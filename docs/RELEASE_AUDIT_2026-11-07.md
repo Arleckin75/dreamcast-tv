@@ -1,0 +1,99 @@
+# Проверка release и зависимостей — 7 ноября 2026
+
+Проверена локальная ветка `develop`, исходники `4748a638` с исправлением
+`native-android/dav1d/consumer-rules.pro`. Зависимости при проверке не обновлялись.
+
+## Найденная и исправленная ошибка
+
+На Cosmos минифицированный release падал при запуске программного AV1:
+`SIGABRT` в `ExoPlayer:Dav1d`. JNI не находил `DecoderInputBuffer.data`
+и `VideoDecoderOutputBuffer.width` (`NoSuchFieldError`).
+
+Существовавшее правило сохраняло только `androidx.media3.decoder.av1.**`.
+Общие классы буферов Media3 находятся в другом пакете; R8 переименовывал их поля.
+Добавлены правила для классов, полей и методов, которые `dav1d_jni.cc`
+ищет через `FindClass`, `GetFieldID` и `GetMethodID`, включая унаследованный `setFlags`.
+
+После исправления программное воспроизведение проверено на обоих устройствах.
+
+## Сборка и устройства
+
+Использован настоящий тип сборки `release`: R8 и shrinkResources включены,
+`debuggable` выключен. Только application ID изменён через локальный Gradle init
+script на `com.dreamcast.app.releaseaudit`; готовый APK подписан Android Debug
+ключом. Основное приложение установкой не заменялось.
+
+| Проверка | Cosmos, Android 11, ARMv7 | Google TV Streamer, Android 14, ARM64 |
+| --- | --- | --- |
+| Запуск, каталог, карточка релиза | Пройдено | Пройдено |
+| AV1, автоматический выбор | `libdav1d`, 720p | `c2.mtk.av1.decoder`, 1080p |
+| Программный AV1 | Воспроизводится | Воспроизводится, 720p |
+| Аппаратный AV1 | Корректно недоступен для выбранного видео | Воспроизводится |
+| Переключение декодеров | Проверено состояние недоступного пункта | Hardware → dav1d → Hardware, позиция сохраняется |
+| Возобновление после force-stop | Сохранена позиция 00:49 | Сохранена позиция 01:24 |
+| Потоки | HLS и DASH | HLS |
+| Экран лицензий | Открыт полный текст dav1d из «О приложении» | Открыт полный текст dav1d из «О приложении» |
+
+Использовалась первая серия «Красной реки» из живого каталога.
+На Cosmos при программном DASH зарегистрированы 27 пропущенных кадров за
+19,4 секунды. Это короткая функциональная проверка, не длительный тест плавности.
+
+`assembleRelease` и `lintRelease` завершились успешно. Lint: 0 ошибок,
+53 предупреждения, 5 подсказок. Проверка APK `audit_av1_apk.py` пройдена:
+оба ABI, ELF alignment ≥ 16 КБ, файлы лицензий, отсутствие Flutter/LibVLC.
+API 23 проверен настройками сборки и lint; устройства Android 6 для запуска не было.
+
+APK: `.tools/dreamcast-tv-release-audit-fixed.apk`.
+SHA-256: `d71d2c128417d357a1a60d6ef515a30132d29ad62f7c4c02c6fa359a4a1828ac`.
+Локальные журналы: `.tools/release-audit-fixed-build.log`,
+`.tools/release-audit-devices/`; дампы до исправления сохраняют исходный crash.
+
+## Зависимости
+
+Версии сверены с metadata официальных Google Maven и Maven Central на дату проверки.
+Новизна версии сама по себе не является доказательством дефекта.
+
+| Библиотека | В проекте | Стабильная версия в репозитории |
+| --- | --- | --- |
+| Media3 | 1.9.2 | 1.11.1 |
+| Compose BOM | 2025.08.01 | 2026.09.00 |
+| Activity Compose | 1.10.1 | 1.13.0 |
+| Lifecycle | 2.9.3 | 2.11.0 |
+| TV Material | 1.0.1 | 1.1.0 |
+| WorkManager | 2.10.3 | 2.12.0 |
+| Core KTX | 1.16.0 | 1.19.1 |
+| Coroutines | 1.10.2 | 1.11.0 |
+| OkHttp | 4.12.0 | 5.5.1 |
+| jsoup | 1.18.3 | 1.24.1 |
+| Coil, ветка 2.x (`io.coil-kt`) | 2.7.0 | 2.7.0 |
+
+Источники: [Media3](https://developer.android.com/jetpack/androidx/releases/media3),
+[Compose BOM](https://developer.android.com/develop/ui/compose/bom),
+[AndroidX](https://developer.android.com/jetpack/androidx/versions),
+[jsoup](https://jsoup.org/news/),
+[Coroutines](https://github.com/Kotlin/kotlinx.coroutines/releases).
+Точные metadata URL сохранены в `.tools/release-audit-versions.json`.
+
+Обновление Media3 требует согласованного изменения app, dav1d-модуля и закреплённых
+исходников decoder_av1 в `scripts/prepare_media3_dav1d.py`. Замена одного номера
+версии в app не проверяет совместимость JNI. NDK в обоих модулях и
+`.android-ndk-version` совпадает: `28.2.13676358`.
+
+## Записи об уязвимостях
+
+Запрос OSV по Maven-координатам из release dependency report дал следующие находки:
+
+- **jsoup 1.18.3**: [исчерпание памяти в XML-парсере](https://github.com/advisories/GHSA-65r4-943x-97jj),
+  исправлено в 1.23.2; [очистка HTML с пользовательским Safelist](https://github.com/jhy/jsoup/security/advisories/GHSA-pmhh-3w7g-xqp8),
+  исправлено в 1.23.1. Приложение использует HTML-парсинг `Jsoup.parse`,
+  вызовов XML parser, Cleaner или Safelist в его исходниках не найдено.
+- **Guava 33.3.1-android**, транзитивная зависимость:
+  [выделение памяти при Java-десериализации коллекций](https://github.com/google/guava/security/advisories/GHSA-xxph-c9ww-hj94),
+  исправлено начиная с 33.7.2-android. В исходниках приложения больше нет
+  `ObjectInputStream`/`readObject` после удаления LegacyPreferences.
+
+Наличие затронутой версии подтверждено; достижимость уязвимых сценариев в приложении
+не подтверждена. Рекомендуется отдельное обновление jsoup и Guava с проверкой
+парсеров и проигрывателя. Результат OSV сохранён в `.tools/release-audit-osv.json`.
+Проверка не является исчерпывающим аудитом безопасности, в частности native dav1d
+не проверялся через Maven OSV.
