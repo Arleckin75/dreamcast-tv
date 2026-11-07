@@ -73,6 +73,42 @@ fun decoderOutput(mode: DecoderMode, hardware: Boolean, dav1d: Boolean): VideoOu
     else -> VideoOutput.SYSTEM
 }
 
+/** Decoder mode actually used (a forced mode falls back to AUTO), chosen format and renderer. */
+data class VideoChoice(val mode: DecoderMode, val format: Format?, val output: VideoOutput)
+
+/**
+ * Picks the video format and renderer for [formats]. [maxHeight] is the user's quality
+ * limit (0 = Auto); dav1d prefers at most 720p in Auto. [hardware] and [software] are the
+ * capability checks, so the policy itself is independent of the device.
+ */
+fun chooseVideo(
+    formats: List<Format>,
+    maxHeight: Int,
+    mode: DecoderMode,
+    hardware: (Format) -> Boolean,
+    software: (Format) -> Boolean,
+): VideoChoice {
+    val ordered = formats.filter { maxHeight == 0 || it.height <= maxHeight }
+        .ifEmpty { formats }
+        .sortedByDescending { it.height }
+    val hardwareFormat = ordered.firstOrNull(hardware)
+    val softwareFormat = ordered.filter(software).let { candidates ->
+        candidates.firstOrNull { it.height <= (maxHeight.takeIf { h -> h > 0 } ?: 720) }
+            ?: candidates.lastOrNull()
+    }
+    val effective = if ((mode == DecoderMode.HARDWARE && hardwareFormat == null) ||
+        (mode == DecoderMode.SOFTWARE && softwareFormat == null)) DecoderMode.AUTO else mode
+    val chosen = if (effective == DecoderMode.SOFTWARE) softwareFormat
+        else hardwareFormat ?: softwareFormat ?: ordered.firstOrNull()
+    val output = decoderOutput(effective, chosen != null && hardware(chosen),
+        chosen != null && software(chosen))
+    return VideoChoice(effective, chosen, output)
+}
+
+/** Maximum video height for track selection; 0 means no limit. */
+fun videoHeightLimit(output: VideoOutput, selectedQuality: Int, softwareAutoMaxHeight: Int): Int =
+    if (output == VideoOutput.DAV1D && selectedQuality == 0) softwareAutoMaxHeight else selectedQuality
+
 fun canFallbackToDav1d(mode: DecoderMode, output: VideoOutput, attempted: Boolean,
     videoError: Boolean, supported: Boolean): Boolean =
     mode == DecoderMode.AUTO && output == VideoOutput.HARDWARE && !attempted && videoError && supported

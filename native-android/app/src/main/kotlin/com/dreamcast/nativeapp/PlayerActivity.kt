@@ -251,22 +251,12 @@ class PlayerActivity : ComponentActivity() {
                 val source = DefaultMediaSourceFactory(DefaultDataSource.Factory(this@PlayerActivity, http))
                 formats = videoFormats(this@PlayerActivity, source, MediaItem.fromUri(stream.url))
                 if (serial != playbackSerial) return@launch
-                val limited = formats.filter { selectedQuality == 0 || it.height <= selectedQuality }
-                    .ifEmpty { formats }
-                val ordered = limited.sortedByDescending { it.height }
-                val hardware = ordered.firstOrNull { !hardwareFailed && capabilities.hardware(it) }
-                val software = ordered.filter { capabilities.software(it) }
-                    .let { candidates ->
-                        candidates.firstOrNull { it.height <= (selectedQuality.takeIf { h -> h > 0 } ?: 720) }
-                            ?: candidates.lastOrNull()
-                    }
-                if ((decoderMode == DecoderMode.HARDWARE && hardware == null) ||
-                    (decoderMode == DecoderMode.SOFTWARE && software == null)) decoderMode = DecoderMode.AUTO
-                val chosen = if (decoderMode == DecoderMode.SOFTWARE) software
-                    else hardware ?: software ?: ordered.firstOrNull()
-                currentVideoFormat = chosen
-                output = decoderOutput(decoderMode, chosen != null && !hardwareFailed && capabilities.hardware(chosen),
-                    chosen != null && capabilities.software(chosen))
+                val choice = chooseVideo(formats, selectedQuality, decoderMode,
+                    hardware = { !hardwareFailed && capabilities.hardware(it) },
+                    software = capabilities::software)
+                decoderMode = choice.mode
+                currentVideoFormat = choice.format
+                output = choice.output
                 playPrepared(stream, playWhenReady, source)
             } catch (cancel: CancellationException) { throw cancel }
             catch (error: Exception) {
@@ -306,43 +296,15 @@ class PlayerActivity : ComponentActivity() {
                 .build()
         player = exo
         video.player = exo
-        exo.addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
-            override fun onVideoInputFormatChanged(
-                eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
-                format: androidx.media3.common.Format,
-                decoderReuseEvaluation: androidx.media3.exoplayer.DecoderReuseEvaluation?,
-            ) {
-                if (player !== exo) return
-                currentVideoFormat = format
-                android.util.Log.i("DCTV_DECODER", "format=${format.width}x${format.height} fps=${format.frameRate} bitrate=${format.bitrate}")
-            }
-
-            override fun onDroppedVideoFrames(
-                eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
-                droppedFrames: Int, elapsedMs: Long,
-            ) {
-                if (player === exo)
-                    android.util.Log.i("DCTV_DECODER", "dropped=$droppedFrames elapsedMs=$elapsedMs bufferedMs=${exo.totalBufferedDuration}")
-            }
-
-            override fun onVideoDisabled(
-                eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
-                counters: androidx.media3.exoplayer.DecoderCounters,
-            ) {
-                counters.ensureUpdated()
-                android.util.Log.i("DCTV_DECODER", "rendered=${counters.renderedOutputBufferCount} dropped=${counters.droppedBufferCount} skipped=${counters.skippedOutputBufferCount} maxConsecutiveDropped=${counters.maxConsecutiveDroppedBufferCount}")
-            }
-
-            override fun onVideoDecoderInitialized(
-                eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
-                decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long,
-            ) {
-                if (player === exo) {
-                    videoDecoderName = decoderName
-                    android.util.Log.i("DCTV_DECODER", "requested=$decoderMode output=$output decoder=$decoderName")
-                }
-            }
-        })
+        exo.addAnalyticsListener(
+            DecoderDiagnostics(
+                exo,
+                isCurrent = { player === exo },
+                requested = { "requested=$decoderMode output=$output" },
+                onFormat = { currentVideoFormat = it },
+                onDecoder = { videoDecoderName = it },
+            )
+        )
         exo.addListener(
             object : Player.Listener {
                 override fun onRenderedFirstFrame() {
@@ -565,7 +527,7 @@ class PlayerActivity : ComponentActivity() {
             exo.trackSelectionParameters
                 .buildUpon()
                 .apply {
-                    val maxHeight = if (output == VideoOutput.DAV1D && selectedQuality == 0) softwareAutoMaxHeight else selectedQuality
+                    val maxHeight = videoHeightLimit(output, selectedQuality, softwareAutoMaxHeight)
                     if (maxHeight == 0) clearVideoSizeConstraints()
                     else setMaxVideoSize(Int.MAX_VALUE, maxHeight)
                     currentVideoFormat?.sampleMimeType?.let { setPreferredVideoMimeTypes(it) }
@@ -597,75 +559,8 @@ class PlayerActivity : ComponentActivity() {
         if (player == null) return
         showPlayerMenu(this, "Звук и субтитры", listOf("Звук", "Субтитры"), onDismiss = ::reveal) {
             index ->
-            chooseTrack(
-                if (index == 0) androidx.media3.common.C.TRACK_TYPE_AUDIO
-                else androidx.media3.common.C.TRACK_TYPE_TEXT
-            )
-        }
-    }
-
-    private fun chooseTrack(type: Int) {
-        val exo = player ?: return
-        val choices =
-            exo.currentTracks.groups
-                .filter { it.type == type }
-                .flatMap { group ->
-                    (0 until group.length)
-                        .filter { group.isTrackSupported(it) }
-                        .map { index -> group to index }
-                }
-        val labels =
-            listOf("Авто", "Выключены") +
-                choices.mapIndexed { number, (group, index) ->
-                    val format = group.getTrackFormat(index)
-                    val language =
-                        format.language
-                            ?.takeIf { it != "und" }
-                            ?.let {
-                                java.util.Locale.forLanguageTag(it)
-                                    .getDisplayLanguage(java.util.Locale.forLanguageTag("ru"))
-                            }
-                            .orEmpty()
-                    listOfNotNull(
-                            format.label?.takeIf { it.isNotBlank() },
-                            language.takeIf { it.isNotBlank() },
-                        )
-                        .distinct()
-                        .joinToString(" · ")
-                        .ifBlank { "Дорожка ${number + 1}" }
-                }
-        val parameters = exo.trackSelectionParameters
-        val selected =
-            if (type in parameters.disabledTrackTypes) 1
-            else if (parameters.overrides.values.none { it.type == type }) 0
-            else
-                choices
-                    .indexOfFirst { (group, index) -> group.isTrackSelected(index) }
-                    .let { if (it < 0) 0 else it + 2 }
-        showPlayerMenu(
-            this,
-            if (type == androidx.media3.common.C.TRACK_TYPE_AUDIO) "Звук" else "Субтитры",
-            labels,
-            selected,
-            onDismiss = ::reveal,
-        ) { index ->
-            exo.trackSelectionParameters =
-                exo.trackSelectionParameters
-                    .buildUpon()
-                    .clearOverridesOfType(type)
-                    .setTrackTypeDisabled(type, index == 1)
-                    .apply {
-                        if (index >= 2) {
-                            val (group, track) = choices[index - 2]
-                            addOverride(
-                                androidx.media3.common.TrackSelectionOverride(
-                                    group.mediaTrackGroup,
-                                    listOf(track),
-                                )
-                            )
-                        }
-                    }
-                    .build()
+            val exo = player ?: return@showPlayerMenu
+            showTrackMenu(this, exo, if (index == 0) C.TRACK_TYPE_AUDIO else C.TRACK_TYPE_TEXT, ::reveal)
         }
     }
 
