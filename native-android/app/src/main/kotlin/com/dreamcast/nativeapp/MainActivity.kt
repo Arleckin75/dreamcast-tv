@@ -70,13 +70,7 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
 
     private val pendingSections = mutableSetOf<UiSection>()
     private val watchedPreferences =
-        listOf(
-            app.getSharedPreferences("dream_cast_native", android.content.Context.MODE_PRIVATE),
-            app.getSharedPreferences(
-                "FlutterSharedPreferences",
-                android.content.Context.MODE_PRIVATE,
-            ),
-        )
+        app.getSharedPreferences("dream_cast_native", android.content.Context.MODE_PRIVATE)
     private val preferenceListener =
         android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, rawKey ->
             val sections = uiSectionsForPreference(rawKey)
@@ -84,16 +78,12 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
         }
 
     init {
-        watchedPreferences.forEach {
-            it.registerOnSharedPreferenceChangeListener(preferenceListener)
-        }
+        watchedPreferences.registerOnSharedPreferenceChangeListener(preferenceListener)
         refreshLocalData()
     }
 
     override fun onCleared() {
-        watchedPreferences.forEach {
-            it.unregisterOnSharedPreferenceChangeListener(preferenceListener)
-        }
+        watchedPreferences.unregisterOnSharedPreferenceChangeListener(preferenceListener)
         super.onCleared()
     }
 

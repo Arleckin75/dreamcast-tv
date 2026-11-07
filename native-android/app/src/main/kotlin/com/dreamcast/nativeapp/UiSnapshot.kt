@@ -41,7 +41,7 @@ enum class UiSection {
 }
 
 internal fun uiSectionsForPreference(rawKey: String?): Set<UiSection> {
-    val key = rawKey?.removePrefix("flutter.") ?: return UiSection.entries.toSet()
+    val key = rawKey ?: return UiSection.entries.toSet()
     val section =
         when {
             key.startsWith("settings.") || key == "player.preferred_stream_technology" ->

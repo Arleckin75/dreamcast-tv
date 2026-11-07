@@ -8,7 +8,7 @@ import java.time.Instant
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Uses the original on-device names so a signed update can retain user data. */
+/** Native preferences and the application SQLite database. */
 class Storage(
     context: Context,
     private val maxCacheEntries: Int = 512,
@@ -18,8 +18,6 @@ class Storage(
         require(maxCacheEntries > 0 && maxCacheBytes > 0)
     }
 
-    private val preferences =
-        context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
     private val nativePreferences =
         context.getSharedPreferences("dream_cast_native", Context.MODE_PRIVATE)
     private val databaseDelegate = lazy { openDatabase(context.applicationContext) }
@@ -56,41 +54,34 @@ class Storage(
         return database
     }
 
-    private fun preferenceFor(key: String): Pair<android.content.SharedPreferences, String> =
-        if (nativePreferences.contains(key)) nativePreferences to key
-        else preferences to "flutter.$key"
-
     fun string(key: String, default: String = ""): String {
-        val (source, name) = preferenceFor(key)
         return try {
-            source.getString(name, default) ?: default
+            nativePreferences.getString(key, default) ?: default
         } catch (_: ClassCastException) {
             default
         }
     }
 
     fun number(key: String, default: Long = 0): Long {
-        val (source, name) = preferenceFor(key)
-        if (!source.contains(name)) return default
+        if (!nativePreferences.contains(key)) return default
         try {
-            return source.getLong(name, default)
+            return nativePreferences.getLong(key, default)
         } catch (_: ClassCastException) {}
         try {
-            return source.getInt(name, 0).toLong()
+            return nativePreferences.getInt(key, 0).toLong()
         } catch (_: ClassCastException) {}
         try {
-            return source.getFloat(name, 0f).toLong()
+            return nativePreferences.getFloat(key, 0f).toLong()
         } catch (_: ClassCastException) {}
         return try {
-            source.getString(name, null)?.toLongOrNull() ?: default
+            nativePreferences.getString(key, null)?.toLongOrNull() ?: default
         } catch (_: ClassCastException) {
             default
         }
     }
 
     fun boolean(key: String, default: Boolean = false) =
-        if (nativePreferences.contains(key)) nativePreferences.getBoolean(key, default)
-        else preferences.getBoolean("flutter.$key", default)
+        nativePreferences.getBoolean(key, default)
 
     fun retentionHours(): Long =
         string("cache.retention.native").toLongOrNull()
@@ -114,18 +105,9 @@ class Storage(
 
     fun remove(key: String) {
         nativePreferences.edit().remove(key).apply()
-        preferences.edit().remove("flutter.$key").apply()
     }
 
-    fun recordSnapshot(): Map<String, Any?> {
-        val matching = LinkedHashMap<String, Any?>()
-        preferences.all.forEach { (rawKey, value) ->
-            val key = rawKey.removePrefix("flutter.")
-            matching[key] = value
-        }
-        nativePreferences.all.forEach { (key, value) -> matching[key] = value }
-        return matching
-    }
+    fun recordSnapshot(): Map<String, Any?> = nativePreferences.all.toMap()
 
     fun records(
         prefix: String,
@@ -194,13 +176,7 @@ class Storage(
                     (0 until array.length()).map { array.getString(it) }
                 }
                 .getOrDefault(emptyList())
-        // Older installations use either serialized or JSON-prefixed lists.
-        val old = preferences.all["flutter.search.history"]
-        return when (old) {
-            is Set<*> -> old.filterIsInstance<String>()
-            is String -> LegacyPreferences.stringList(old)
-            else -> emptyList()
-        }
+        return emptyList()
     }
 
     fun saveSearch(query: String) {

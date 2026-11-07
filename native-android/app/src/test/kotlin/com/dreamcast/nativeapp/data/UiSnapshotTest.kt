@@ -128,7 +128,7 @@ class UiSnapshotTest {
     fun `preference invalidation targets only affected sections including legacy keys`() {
         assertEquals(
             setOf(UiSection.SETTINGS),
-            uiSectionsForPreference("flutter.settings.theme_mode"),
+            uiSectionsForPreference("settings.theme_mode"),
         )
         assertEquals(
             setOf(UiSection.SETTINGS),
