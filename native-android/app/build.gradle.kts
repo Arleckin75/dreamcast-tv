@@ -35,6 +35,7 @@ android {
         versionName = "0.9.3"
         buildConfigField("String", "SOURCE_REVISION", "\"$sourceRevision\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndk { abiFilters += setOf("armeabi-v7a", "arm64-v8a") }
     }
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
@@ -42,7 +43,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures { compose = true; buildConfig = true }
-    defaultConfig { ndk { abiFilters += setOf("armeabi-v7a", "arm64-v8a") } }
     sourceSets {
         getByName("main").assets.srcDir("../../assets")
     }
