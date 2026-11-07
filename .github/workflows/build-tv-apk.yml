@@ -1,6 +1,8 @@
-name: Build unified Debug APK (develop)
+name: Build unified Debug and Release APKs (develop)
 on:
   workflow_dispatch:
+  push:
+    branches: [develop]
 permissions:
   contents: read
 concurrency:
@@ -30,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -65,13 +67,37 @@ jobs:
             native-android/app/build/outputs/apk/debug/*.sha256
           if-no-files-found: error
           retention-days: 14
+      # Minified release, signed with the CI debug key. v0.9.3 shipped an R8
+      # problem that only a release build shows; this catches it before main.
+      - name: Lint and assemble minified Release APK
+        run: bash native-android/gradlew -p native-android :app:lintRelease :app:assembleRelease -PreleaseDebugSigning=true --console=plain
+      - name: Inspect Release dependencies and APK
+        run: |
+          bash native-android/gradlew -p native-android :app:dependencies --configuration releaseRuntimeClasspath --console=plain > native-release-dependencies.txt
+          # The script always writes dist/av1-audit-unified.txt; keep both reports.
+          mv dist/av1-audit-unified.txt dist/av1-audit-unified-debug.txt
+          python3 scripts/audit_av1_apk.py --apk native-android/app/build/outputs/apk/release/app-release.apk --dependencies native-release-dependencies.txt --player unified
+          mv dist/av1-audit-unified.txt dist/av1-audit-unified-release.txt
+      - name: Record Release APK checksum
+        working-directory: native-android/app/build/outputs/apk/release
+        run: sha256sum app-release.apk > app-release.apk.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dreamcast-tv-unified-release-debugsigned
+          path: |
+            native-android/app/build/outputs/apk/release/*.apk
+            native-android/app/build/outputs/apk/release/*.sha256
+          if-no-files-found: error
+          retention-days: 14
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: dreamcast-tv-unified-debug-reports
+          name: dreamcast-tv-unified-develop-reports
           path: |
             native-android/app/build/reports/
+            native-android/app/build/outputs/mapping/release/
             native-dependencies.txt
-            dist/av1-audit-unified.txt
+            native-release-dependencies.txt
+            dist/av1-audit-*.txt
           if-no-files-found: ignore
           retention-days: 14

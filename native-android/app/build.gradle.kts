@@ -53,6 +53,12 @@ android {
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             val signingFile = rootProject.file("key.properties")
+            if (!signingFile.exists() &&
+                providers.gradleProperty("releaseDebugSigning").orNull == "true"
+            ) {
+                // CI on develop: an installable minified build to catch R8 problems.
+                signingConfig = signingConfigs.getByName("debug")
+            }
             if (signingFile.exists()) {
                 val props = Properties().apply { signingFile.inputStream().use { load(it) } }
                 signingConfig = signingConfigs.create("production") {

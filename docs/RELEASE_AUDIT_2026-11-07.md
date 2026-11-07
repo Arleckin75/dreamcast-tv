@@ -3,6 +3,12 @@
 Проверена локальная ветка `develop`, исходники `4748a638` с исправлением
 `native-android/dav1d/consumer-rules.pro`. Зависимости при проверке не обновлялись.
 
+Пути вида `.tools/…` ниже указывают на локальные артефакты автора проверки:
+каталог исключён из Git и в репозитории отсутствует. Воспроизводимые проверки
+release-сборки (`assembleRelease`, `lintRelease`, `audit_av1_apk.py`) выполняет
+workflow `build-tv-apk.yml` для `develop`; его отчёты и APK доступны
+как artifacts соответствующего запуска GitHub Actions.
+
 ## Найденная и исправленная ошибка
 
 На Cosmos минифицированный release падал при запуске программного AV1:
@@ -181,8 +187,7 @@ SHA-256: `2ed6e59c31a95670d198927dc2b23e1bb72cac67407c7a2eb3a8659ed9c1abae`.
 `.tools/media3-111-alignment-build.log`, `.tools/media3-111-native-prepare.log`,
 `.tools/media3-111-packaging-tests.log`, `.tools/media3-111-osv.json`,
 `.tools/media3-111-instrumentation-build.log`,
-`.tools/media3-111-test-192.168.0.9.log`, `.tools/media3-111-test-192.168.0.10.log`,
-`.tools/media3-111-devices/`.
+журналы `UnifiedAv1PlaybackTest` для каждого устройства, `.tools/media3-111-devices/`.
 
 ## Исследование обновлений Compose и остальных AndroidX
 
