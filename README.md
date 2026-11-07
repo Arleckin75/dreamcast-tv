@@ -1,4 +1,4 @@
-<p align="center"><img src="icon.png" width="96" height="96" alt="Dream Cast TV"></p>
+<p align="center"><img src="docs/icon.png" width="96" height="96" alt="Dream Cast TV"></p>
 
 # Dream Cast TV — Kotlin
 
@@ -27,7 +27,7 @@ Jetpack Compose / TV Material. Приложение и его сборка ра�
 - Нативные библиотеки выровнены по 16 КБ.
 - Старый файл настроек Flutter удаляется с устройства.
 
-Подробности — в [заметках к v0.9.4](RELEASE_NOTES_v0.9.4.md).
+Подробности — в [заметках к v0.9.4](docs/release-notes/RELEASE_NOTES_v0.9.4.md).
 
 ## Что нового в v0.9.3
 
@@ -38,7 +38,7 @@ Jetpack Compose / TV Material. Приложение и его сборка ра�
 - Исправлен переход кнопкой «Вниз» из поиска к тайтлам после закрытия клавиатуры.
 - Удалены LibVLC, Dart/Flutter и неиспользуемые экспериментальные рендереры.
 
-Подробности — в [заметках к v0.9.3](RELEASE_NOTES_v0.9.3.md).
+Подробности — в [заметках к v0.9.3](docs/release-notes/RELEASE_NOTES_v0.9.3.md).
 
 ## Возможности
 

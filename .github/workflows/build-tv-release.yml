@@ -62,7 +62,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test -f native-android/app/build.gradle.kts
           test -f native-android/app/src/main/AndroidManifest.xml
-          test -f RELEASE_NOTES_v0.9.4.md
+          test -f docs/release-notes/RELEASE_NOTES_v0.9.4.md
       - name: Prepare official release keystore
         shell: bash
         env:
@@ -270,4 +270,4 @@ jobs:
             dist/DreamCast-TV-v0.9.4-unified-release.apk \
             dist/DreamCast-TV-v0.9.4-unified-release.apk.sha256 \
             --repo "$GH_REPO" --target "$GITHUB_SHA" \
-            --title 'Dream Cast TV v0.9.4' --notes-file RELEASE_NOTES_v0.9.4.md --latest
+            --title 'Dream Cast TV v0.9.4' --notes-file docs/release-notes/RELEASE_NOTES_v0.9.4.md --latest

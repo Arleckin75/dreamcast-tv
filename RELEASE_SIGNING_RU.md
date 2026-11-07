@@ -51,7 +51,7 @@ keyPassword=YOUR_KEY_PASSWORD
 
 1. Перенесите проверенные изменения в `main`.
    Версия этого выпуска — `0.9.4`, Android versionCode — `904001`.
-   Описание для GitHub Releases берётся из [заметок к релизу](RELEASE_NOTES_v0.9.4.md).
+   Описание для GitHub Releases берётся из [заметок к релизу](docs/release-notes/RELEASE_NOTES_v0.9.4.md).
 2. Запустите **Build Dream Cast TV Release APK** из `main`.
 3. Флажок **Publish v0.9.4 on GitHub Releases (main only)** включён по умолчанию.
    Для получения APK без публикации снимите его (`publish: false`).
