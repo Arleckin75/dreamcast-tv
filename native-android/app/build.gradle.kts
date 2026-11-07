@@ -76,7 +76,7 @@ android {
 
 kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
 
-// Resolve the API 28 test runtime and Robolectric 4.14.1's API 35 resource runtime
+// Resolve the API 28 test runtime and Robolectric's API 35 resource runtime
 // through Gradle's cache, rather than Robolectric's separate HTTP fetcher.
 val robolectricAndroid by configurations.creating {
     isCanBeConsumed = false
@@ -103,16 +103,16 @@ tasks.withType<Test>().configureEach {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
-    implementation(platform("androidx.compose:compose-bom:2025.08.01"))
-    implementation("androidx.activity:activity-compose:1.10.1")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.3")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.3")
+    implementation(platform("androidx.compose:compose-bom:2026.06.01"))
+    implementation("androidx.activity:activity-compose:1.13.0")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.tv:tv-material:1.0.1")
-    implementation("androidx.work:work-runtime-ktx:2.10.3")
-    implementation("androidx.core:core-ktx:1.16.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    implementation("androidx.tv:tv-material:1.1.0")
+    implementation("androidx.work:work-runtime-ktx:2.11.2")
+    implementation("androidx.core:core-ktx:1.18.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jsoup:jsoup:1.23.2")
     constraints {
@@ -130,9 +130,9 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
-    testImplementation("org.robolectric:robolectric:4.14.1")
-    testImplementation("androidx.work:work-testing:2.10.3")
-    androidTestImplementation(platform("androidx.compose:compose-bom:2025.08.01"))
+    testImplementation("org.robolectric:robolectric:4.17")
+    testImplementation("androidx.work:work-testing:2.11.2")
+    androidTestImplementation(platform("androidx.compose:compose-bom:2026.06.01"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")

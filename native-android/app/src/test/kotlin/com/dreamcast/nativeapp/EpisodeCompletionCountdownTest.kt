@@ -2,6 +2,7 @@ package com.dreamcast.nativeapp
 
 import android.app.AlertDialog
 import android.app.Application
+import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
@@ -14,11 +15,11 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.android.controller.ActivityController
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.LooperMode
 import org.robolectric.shadows.ShadowDialog
-import org.robolectric.shadows.ShadowLooper
 
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [28], manifest = Config.NONE)
@@ -43,7 +44,7 @@ class EpisodeCompletionCountdownTest {
     }
 
     private fun waitSeconds(seconds: Long) {
-        ShadowLooper.getShadowMainLooper().idleFor(seconds, TimeUnit.SECONDS)
+        shadowOf(Looper.getMainLooper()).idleFor(seconds, TimeUnit.SECONDS)
     }
 
     private fun title(dialog: AlertDialog) =
