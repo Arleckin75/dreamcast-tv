@@ -1,6 +1,6 @@
 # Выбор декодирования в едином APK
 
-Плеер основан на прежнем hardware-плеере Media3 1.9.2. Один APK для ARMv7 и
+Плеер использует Media3 1.11.1. Один APK для ARMv7 и
 ARM64 включает dav1d 1.5.1 и cpu_features 0.10.1. Сборка: [BUILD_TV.md](../BUILD_TV.md).
 
 ## Настройки плеера → Декодирование
@@ -47,4 +47,4 @@ HDR и 10-битный GL-вывод требуют отдельной пров�
 фактического декодера; `DCTV_PERF` — время первого кадра.
 
 Документация AV1-модуля:
-https://github.com/androidx/media/blob/1.9.2/libraries/decoder_av1/README.md
+https://github.com/androidx/media/blob/1.11.1/libraries/decoder_av1/README.md

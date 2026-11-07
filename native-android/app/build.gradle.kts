@@ -116,10 +116,11 @@ dependencies {
         }
     }
     implementation("io.coil-kt:coil-compose:2.7.0")
-    implementation( "androidx.media3:media3-exoplayer:1.9.2")
-    implementation( "androidx.media3:media3-exoplayer-hls:1.9.2")
-    implementation( "androidx.media3:media3-exoplayer-dash:1.9.2")
-    implementation( "androidx.media3:media3-ui:1.9.2")
+    implementation( "androidx.media3:media3-exoplayer:1.11.1")
+    implementation( "androidx.media3:media3-exoplayer-hls:1.11.1")
+    implementation( "androidx.media3:media3-exoplayer-dash:1.11.1")
+    implementation( "androidx.media3:media3-ui:1.11.1")
+    implementation("androidx.media3:media3-inspector:1.11.1")
     implementation(project(":dav1d"))
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")

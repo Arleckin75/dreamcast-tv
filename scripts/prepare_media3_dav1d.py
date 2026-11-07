@@ -11,7 +11,7 @@ from decoder_license_notices import verify_decoder_licenses
 ROOT = Path(__file__).resolve().parents[1]
 WORK = ROOT / '.tools' / 'media3-dav1d'
 SOURCES = {
-    'media': ('https://github.com/androidx/media.git', '630c1af455a16b8eb1ab36f49d82d9db799d7f5e'),
+    'media': ('https://github.com/androidx/media.git', '8c6678b657ede1e7883fc164ef73ed483c7796c3'),
     'dav1d': ('https://code.videolan.org/videolan/dav1d.git', '42b2b24fb8819f1ed3643aa9cf2a62f03868e3aa'),
     'cpu_features': ('https://github.com/google/cpu_features.git', 'd3b2440fcfc25fe8e6d0d4a85f06d68e98312f5b'),
 }

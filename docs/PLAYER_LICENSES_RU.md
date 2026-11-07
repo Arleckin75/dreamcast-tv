@@ -1,6 +1,6 @@
 # Лицензии компонентов воспроизведения
 
-Проверены исходники используемых версий: Media3 1.9.2, dav1d 1.5.1,
+Проверены исходники используемых версий: Media3 1.11.1, dav1d 1.5.1,
 cpu_features 0.10.1 и LLVM notices установленного Android NDK 28.2.13676358.
 Проверка относится к цепочке воспроизведения; это не полный аудит всех
 транзитивных зависимостей приложения.
@@ -16,7 +16,7 @@ cpu_features 0.10.1 и LLVM notices установленного Android NDK 28.
 
 ## Media3, cpu_features и runtime
 
-- [Media3 / ExoPlayer](https://github.com/androidx/media/blob/1.9.2/LICENSE) и
+- [Media3 / ExoPlayer](https://github.com/androidx/media/blob/1.11.1/LICENSE) и
   JNI-обвязка Media3 — Apache-2.0. Сохранены текст лицензии и copyright-заголовки
   обвязки. Файл `media3-NOTICES.txt` собран нами из исходных заголовков;
   это не выдаваемый за оригинал upstream-файл NOTICE.

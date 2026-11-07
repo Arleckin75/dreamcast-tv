@@ -145,7 +145,7 @@ Kotlin-версия развиваются в [Arleckin75/dreamcast-tv](https://
 
 | Компонент | Где используется | Лицензия и уведомления |
 | --- | --- | --- |
-| Media3 / ExoPlayer 1.9.2 | Единый APK | [Apache-2.0](assets/licenses/media3-APACHE-2.0.txt), [уведомления](assets/licenses/media3-NOTICES.txt) |
+| Media3 / ExoPlayer 1.11.1 | Единый APK | [Apache-2.0](assets/licenses/media3-APACHE-2.0.txt), [уведомления](assets/licenses/media3-NOTICES.txt) |
 | dav1d 1.5.1 | Программное AV1 в едином APK | [BSD-2-Clause](native-android/app/src/main/assets/licenses/dav1d-BSD-2-Clause.txt), [авторские уведомления](native-android/app/src/main/assets/licenses/dav1d-NOTICES.txt) |
 | cpu_features 0.10.1 | JNI dav1d | [Apache-2.0 и сохранённые BSD-уведомления](native-android/app/src/main/assets/licenses/cpu_features-APACHE-2.0.txt), [авторство](native-android/app/src/main/assets/licenses/cpu_features-NOTICES.txt) |
 | LLVM / Android NDK runtime | Статическая линковка JNI | [Уведомления NDK 28.2.13676358](native-android/app/src/main/assets/licenses/ndk-LLVM-NOTICE.txt), включая libc++ / libc++abi и LLVM exceptions |

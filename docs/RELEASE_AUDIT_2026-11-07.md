@@ -134,3 +134,52 @@ SHA-256: `997d634866c8c99047844cde6002b0bce87e98425edc4a8db489538ebc80f8ef`.
 `.tools/dependency-security-update-runtime-osv.json`,
 `.tools/dependency-security-update-osv.json`,
 `.tools/dependency-security-update-devices/`.
+
+## Последующее обновление Media3 и AV1-модуля
+
+Выполнено локально в `develop` поверх `3d387c4c`:
+
+- все runtime-компоненты Media3 и зависимости dav1d-модуля: `1.9.2` → `1.11.1`;
+- Java/JNI-исходники AV1-обёртки закреплены на commit
+  `8c6678b657ede1e7883fc164ef73ed483c7796c3` официального тега `1.11.1`;
+- `MetadataRetriever` перенесён на новый пакет `androidx.media3.inspector`,
+  добавлена зависимость `media3-inspector:1.11.1`;
+- dav1d `1.5.1`, cpu_features `0.10.1`, NDK и minSdk сохранены;
+- обновлены версия на экране лицензий, ссылки и snapshot уведомлений Media3.
+
+Upstream удалил явный флаг ELF alignment. Первый APK не прошёл наш аудит:
+ARMv7 JNI-библиотека имела выравнивание 4 КБ. Флаг
+`-Wl,-z,max-page-size=16384` теперь передаётся через CMake arguments в нашем
+Gradle-модуле для обоих ABI. Закреплённые исходники upstream остаются неизменёнными.
+Keep-правила JNI сохранены; поиск полей и методов в новой обёртке сверён с ними.
+
+Проверки итоговой версии:
+
+- 104 unit-теста: успешно, без пропусков;
+- 7 Python-тестов упаковки APK: успешно;
+- минифицированный `assembleRelease`, `lintRelease`: успешно,
+  lint — 0 ошибок, 49 предупреждений, 5 подсказок;
+- `audit_av1_apk.py`: PASS, оба ABI с ELF alignment ≥ 16 КБ;
+- snapshot лицензий совпадает с закреплёнными исходниками;
+- release dependency report не содержит Media3 1.9.2, все компоненты согласованы
+  на 1.11.1; OSV-запрос по Maven-координатам из него: находок нет;
+- на отдельной минифицированной release-установке Cosmos воспроизводит AV1 через
+  dav1d (HLS и DASH), Streamer — через dav1d и аппаратный `c2.mtk.av1.decoder`;
+  переключение декодера сохраняет позицию и состояние паузы;
+- на отдельной debug-установке `com.dreamcast.app.media3audit` существующий
+  `UnifiedAv1PlaybackTest` прошёл на каждом устройстве (по одному тесту):
+  автоматический выбор, ручная смена декодера, сохранение позиции и паузы,
+  перемотка, возврат из фона, дальнейшее воспроизведение.
+
+Debug-тест дополняет ручную проверку release; он не заменяет проверку R8.
+Основные установки приложения не заменены. Длительная плавность и Android 6
+на физическом устройстве не проверялись.
+
+Итоговый тестовый APK: `.tools/dreamcast-tv-media3-111.apk`.
+SHA-256: `2ed6e59c31a95670d198927dc2b23e1bb72cac67407c7a2eb3a8659ed9c1abae`.
+Артефакты: `.tools/media3-111-build.log`,
+`.tools/media3-111-alignment-build.log`, `.tools/media3-111-native-prepare.log`,
+`.tools/media3-111-packaging-tests.log`, `.tools/media3-111-osv.json`,
+`.tools/media3-111-instrumentation-build.log`,
+`.tools/media3-111-test-192.168.0.9.log`, `.tools/media3-111-test-192.168.0.10.log`,
+`.tools/media3-111-devices/`.

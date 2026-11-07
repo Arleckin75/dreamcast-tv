@@ -38,7 +38,7 @@ def decoder_licenses(project, media):
     wrapper = media / 'libraries/decoder_av1/src/main'
     files = list((wrapper / 'java').rglob('*.java')) + list((wrapper / 'jni').glob('*.cc')) + list((wrapper / 'jni').glob('*.h'))
     result[common / 'media3-NOTICES.txt'] = header_notices(
-        wrapper, files, 'https://github.com/androidx/media/tree/630c1af455a16b8eb1ab36f49d82d9db799d7f5e/libraries/decoder_av1'
+        wrapper, files, 'https://github.com/androidx/media/tree/8c6678b657ede1e7883fc164ef73ed483c7796c3/libraries/decoder_av1'
     )
     return {project / path: text for path, text in result.items()}
 
