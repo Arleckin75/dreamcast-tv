@@ -3,6 +3,7 @@ package com.dreamcast.nativeapp.data
 import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
+import android.os.Build
 import java.io.File
 import java.time.Instant
 import org.json.JSONArray
@@ -16,6 +17,7 @@ class Storage(
 ) {
     init {
         require(maxCacheEntries > 0 && maxCacheBytes > 0)
+        deleteLegacyFlutterPreferences(context)
     }
 
     private val nativePreferences =
@@ -28,6 +30,8 @@ class Storage(
     }
 
     private fun openDatabase(context: Context): SQLiteDatabase {
+        // The path is inherited from the Flutter app. Moving it would lose the
+        // watch history and caches of existing 0.9.x installs, so it stays.
         val directory = File(context.applicationInfo.dataDir, "app_flutter").apply { mkdirs() }
         val database =
             SQLiteDatabase.openOrCreateDatabase(File(directory, "dream_cast.sqlite"), null)
@@ -168,16 +172,12 @@ class Storage(
         )
     }
 
-    fun searchHistory(): List<String> {
-        val native = nativePreferences.getString("search.history", null)
-        if (native != null)
-            return runCatching {
-                    val array = JSONArray(native)
-                    (0 until array.length()).map { array.getString(it) }
-                }
-                .getOrDefault(emptyList())
-        return emptyList()
-    }
+    fun searchHistory(): List<String> =
+        runCatching {
+                val array = JSONArray(nativePreferences.getString("search.history", null) ?: "[]")
+                (0 until array.length()).map { array.getString(it) }
+            }
+            .getOrDefault(emptyList())
 
     fun saveSearch(query: String) {
         put(
@@ -519,5 +519,29 @@ class Storage(
             .edit()
             .putLong("progress.updatedAt.${release.id}:${episode.id}", System.currentTimeMillis())
             .apply()
+    }
+}
+
+internal const val LEGACY_FLUTTER_PREFERENCES = "FlutterSharedPreferences"
+
+/**
+ * Removes the preferences file left by the Flutter app (0.8.x and earlier).
+ * It is no longer read; deleting it frees space and drops old personal data.
+ */
+internal fun deleteLegacyFlutterPreferences(context: Context) {
+    val file =
+        File(context.applicationInfo.dataDir, "shared_prefs/$LEGACY_FLUTTER_PREFERENCES.xml")
+    if (!file.exists()) return
+    runCatching {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            context.deleteSharedPreferences(LEGACY_FLUTTER_PREFERENCES)
+        } else {
+            context
+                .getSharedPreferences(LEGACY_FLUTTER_PREFERENCES, Context.MODE_PRIVATE)
+                .edit()
+                .clear()
+                .commit()
+            file.delete()
+        }
     }
 }

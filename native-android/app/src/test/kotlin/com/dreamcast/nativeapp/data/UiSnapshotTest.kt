@@ -125,7 +125,7 @@ class UiSnapshotTest {
     }
 
     @Test
-    fun `preference invalidation targets only affected sections including legacy keys`() {
+    fun `preference invalidation targets only affected sections`() {
         assertEquals(
             setOf(UiSection.SETTINGS),
             uiSectionsForPreference("settings.theme_mode"),

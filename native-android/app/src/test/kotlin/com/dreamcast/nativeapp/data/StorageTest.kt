@@ -38,15 +38,37 @@ class StorageTest {
             .edit()
             .putString("test.item.one", """{"value":"initial"}""")
             .putString("test.item.two", """{"value":"second"}""")
-            .putString("test.item.hidden", """{"value":"shadowed"}""")
+            .putString("test.item.malformed", """{"value":"valid before overwrite"}""")
             .putString("unrelated", "invalid JSON")
             .commit()
-        storage.put("test.item.one", """{"value":"native"}""")
-        storage.put("test.item.hidden", "invalid JSON")
+        storage.put("test.item.one", """{"value":"overwritten"}""")
+        storage.put("test.item.malformed", "invalid JSON")
         val records = storage.records("test.item.").toMap()
         assertEquals(2, records.size)
-        assertEquals("native", records["test.item.one"]!!.getString("value"))
+        assertEquals("overwritten", records["test.item.one"]!!.getString("value"))
         assertEquals("second", records["test.item.two"]!!.getString("value"))
+    }
+
+    @Test
+    fun `legacy Flutter preferences file is deleted on startup`() {
+        context
+            .getSharedPreferences(LEGACY_FLUTTER_PREFERENCES, Context.MODE_PRIVATE)
+            .edit()
+            .putString("flutter.search.history", "old")
+            .commit()
+        val file =
+            File(context.applicationInfo.dataDir, "shared_prefs/$LEGACY_FLUTTER_PREFERENCES.xml")
+        assertTrue(file.exists())
+
+        Storage(context).close()
+
+        assertFalse(file.exists())
+        assertTrue(
+            context
+                .getSharedPreferences(LEGACY_FLUTTER_PREFERENCES, Context.MODE_PRIVATE)
+                .all
+                .isEmpty()
+        )
     }
 
     @Test

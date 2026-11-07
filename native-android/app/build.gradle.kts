@@ -31,8 +31,8 @@ android {
         applicationId = "com.dreamcast.app"
         minSdk = 23
         targetSdk = 36
-        versionCode = 903001
-        versionName = "0.9.3"
+        versionCode = 904001
+        versionName = "0.9.4"
         buildConfigField("String", "SOURCE_REVISION", "\"$sourceRevision\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += setOf("armeabi-v7a", "arm64-v8a") }
@@ -49,7 +49,6 @@ android {
     buildTypes {
         debug { applicationIdSuffix = providers.gradleProperty("nativeDebugSuffix").getOrElse(".kotlin") }
         release {
-            ndk { abiFilters += setOf("armeabi-v7a", "arm64-v8a") }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

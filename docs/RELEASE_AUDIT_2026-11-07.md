@@ -183,3 +183,56 @@ SHA-256: `2ed6e59c31a95670d198927dc2b23e1bb72cac67407c7a2eb3a8659ed9c1abae`.
 `.tools/media3-111-instrumentation-build.log`,
 `.tools/media3-111-test-192.168.0.9.log`, `.tools/media3-111-test-192.168.0.10.log`,
 `.tools/media3-111-devices/`.
+
+## Исследование обновлений Compose и остальных AndroidX
+
+Изучены официальные release notes и metadata AAR/BOM. Версии в Gradle
+в рамках этого исследования не изменялись. Перечисленная польза — основание
+для проверки обновления, а не доказательство наличия соответствующего бага в приложении.
+
+| Компонент | Рассмотренный следующий шаг | Вывод для проекта |
+| --- | --- | --- |
+| WorkManager 2.10.3 | 2.11.2 | Наиболее конкретная польза для периодической проверки новых серий: исправления фоновой сети и перепланирования периодических заданий после необработанных исключений. Обновлять `work-runtime-ktx` и `work-testing` вместе. |
+| Compose BOM 2025.08.01 (Compose 1.9.0) | BOM 2026.06.01 (Compose 1.11.4) | Полезны исправления фокуса в переиспользуемых lazy-контейнерах и оптимизации runtime. В 1.11 переработан SlotTable, поэтому изменение требует тщательной проверки каталога, прокрутки и фокуса. |
+| TV Material 1.0.1 | 1.1.0, вместе с выбранным Compose | Есть исправления отрисовки текста при масштабировании Surface и фокуса Carousel. В приложении используются TV Button/Text/Theme, но не upstream Carousel; исправление Carousel не следует считать исправлением нашей собственной карусели. |
+| Activity Compose 1.10.1 | 1.13.0, отдельным шагом | Добавлена интеграция событий PiP; с 1.12 переписана обработка Back поверх NavigationEvent. Прямой необходимости для текущего кода не выявлено. Проверять Back на всех экранах и возврат из плеера/PiP. |
+| Lifecycle 2.9.3 | 2.10.0 при необходимости | 2.9.4 исправляет преимущественно KMP-сборку. Главное новшество 2.10 — scoped lifecycle в Compose; сейчас оно не используется. Срочного основания для обновления нет. |
+| Core KTX 1.16.0 | Пока оставить | Польза актуальных изменений для наших используемых API не установлена. Последняя 1.19.1 требует новой сборочной среды. |
+
+### Ограничения и совместимость
+
+- Наши параметры: minSdk 23, compileSdk 36, AGP 8.11.1, Kotlin 2.2.20.
+- BOM 2026.06.01 согласует Foundation/UI/Runtime 1.11.4 и Material3 1.4.0.
+  Прямой AAR UI 1.11.4 требует minSdk 23, compileSdk ≥ 35 и AGP ≥ 8.6.0;
+  такие же проверенные пороги у TV Material 1.1.0 и Lifecycle Runtime Compose 2.10.0.
+  Это предварительная проверка: полный граф зависимостей ещё не собирался.
+- Последний BOM 2026.09.00 содержит Compose 1.12.1. Прямой AAR UI 1.12.1
+  требует compileSdk 37 и AGP ≥ 9.1.0; release notes Compose говорят о переходе
+  на API 37 / AGP 9.2.0. В любом случае текущей среды недостаточно — это отдельная
+  миграция инструментов сборки, а не обычное обновление библиотек.
+- Activity 1.13.0: проверенный прямой AAR требует minSdk 23,
+  compileSdk ≥ 36, AGP ≥ 8.9.1. Текущая среда удовлетворяет этим порогам.
+- WorkManager 2.11.2 сохраняет API 23; 2.12.0 повышает минимум до API 24
+  и исключит Android 6. Не выбирать 2.12.0 без отдельного решения о поддержке ОС.
+- Lifecycle 2.11.0 также связан с обновлением Compose / compileSdk 37.
+- Прямой AAR Core 1.19.1 требует compileSdk 37 и AGP ≥ 9.1.0;
+  Core KTX в новой ветке объединён с основным Core. Переход без необходимости не предлагается.
+- Исправление D-pad в TextField из Foundation 1.9.0 уже есть в текущем BOM;
+  его нельзя учитывать как новую пользу от обновления.
+
+Предлагаемый порядок: WorkManager 2.11.2 отдельно, затем Compose BOM 2026.06.01
+и TV Material 1.1.0 одной согласованной группой. Для UI проверить тесты поиска,
+каталога и фокуса, возврат между экранами, длинные списки и минифицированный release
+на обоих устройствах. Activity/Lifecycle/Core отложить до конкретной необходимости
+или подтверждённого требования обновлённого графа зависимостей.
+
+Источники: [WorkManager](https://developer.android.com/jetpack/androidx/releases/work#2.11.2),
+[Compose UI](https://developer.android.com/jetpack/androidx/releases/compose-ui),
+[Foundation](https://developer.android.com/jetpack/androidx/releases/compose-foundation),
+[Runtime](https://developer.android.com/jetpack/androidx/releases/compose-runtime),
+[TV Material](https://developer.android.com/jetpack/androidx/releases/tv),
+[Activity](https://developer.android.com/jetpack/androidx/releases/activity),
+[Lifecycle](https://developer.android.com/jetpack/androidx/releases/lifecycle),
+[Core](https://developer.android.com/jetpack/androidx/releases/core),
+[BOM 2026.06.01](https://dl.google.com/dl/android/maven2/androidx/compose/compose-bom/2026.06.01/compose-bom-2026.06.01.pom).
+Локальные выписки и извлечённые metadata: `.tools/androidx-review/`.

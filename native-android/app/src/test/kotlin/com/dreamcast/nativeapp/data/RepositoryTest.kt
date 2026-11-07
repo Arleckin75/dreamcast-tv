@@ -170,7 +170,7 @@ class RepositoryTest {
     }
 
     @Test
-    fun `uses existing Flutter catalog and episode caches without network`() = runBlocking {
+    fun `uses existing catalog and episode caches without network`() = runBlocking {
         storage.putCache(
             "dreamcast:releases:ongoing:1:16",
             """{"releases":[{"id":1,"russian":"До переноса","url":"/home/release/1"}],"count":1}""",
