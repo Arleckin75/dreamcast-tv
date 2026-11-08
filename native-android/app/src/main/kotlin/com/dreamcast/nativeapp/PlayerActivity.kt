@@ -18,8 +18,6 @@ import androidx.media3.common.Format
 import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
@@ -151,18 +149,10 @@ class PlayerActivity : ComponentActivity() {
         )
         setContentView(root)
         root.setOnKeyListener { _, key, event ->
-            if (
-                key in
-                    listOf(
-                        KeyEvent.KEYCODE_DPAD_UP,
-                        KeyEvent.KEYCODE_DPAD_DOWN,
-                        KeyEvent.KEYCODE_DPAD_LEFT,
-                        KeyEvent.KEYCODE_DPAD_RIGHT,
-                    ) && !controls.hasActionFocus
-            ) {
+            if (key in DPAD_KEYS && !controls.hasActionFocus) {
                 if (event.action == KeyEvent.ACTION_DOWN) {
                     if (key == KeyEvent.KEYCODE_DPAD_LEFT || key == KeyEvent.KEYCODE_DPAD_RIGHT)
-                        seekBy(if (key == KeyEvent.KEYCODE_DPAD_LEFT) -10_000 else 10_000)
+                        seekBy(if (key == KeyEvent.KEYCODE_DPAD_LEFT) -SEEK_STEP_MS else SEEK_STEP_MS)
                     else if (key == KeyEvent.KEYCODE_DPAD_UP || controls.visible) {
                         reveal()
                         controls.show(true)
@@ -172,15 +162,16 @@ class PlayerActivity : ComponentActivity() {
             } else false
         }
         root.requestFocus()
-        resumePosition = savedInstanceState?.getLong("position") ?: 0
-        streamTypePreference = savedInstanceState?.getString("streamType")
-        selectedQuality = savedInstanceState?.getInt("qualityHeight") ?: 0
-        selectedSpeed = savedInstanceState?.getFloat("playbackSpeed", 1f) ?: 1f
-        decoderMode = DecoderMode.from(savedInstanceState?.getString("decoderMode")
+        val saved = PlayerSavedState.from(savedInstanceState)
+        resumePosition = saved?.positionMs ?: 0
+        streamTypePreference = saved?.streamType
+        selectedQuality = saved?.qualityHeight ?: 0
+        selectedSpeed = saved?.playbackSpeed ?: 1f
+        decoderMode = DecoderMode.from(saved?.decoderMode
             ?: app.storage.string("player.decoder_mode", "AUTO"))
         load(
-            savedInstanceState?.getString("episodeId") ?: intent.getStringExtra("episodeId")!!,
-            if (savedInstanceState == null) intent.getStringExtra("stream") else null,
+            saved?.episodeId ?: intent.getStringExtra("episodeId")!!,
+            if (saved == null) intent.getStringExtra("stream") else null,
         )
     }
 
@@ -201,7 +192,7 @@ class PlayerActivity : ComponentActivity() {
                     save()
                     ready = false
                     episode = found
-                    streams = PlayerJs.streams(found)
+                    streams = app.repository.streams(found)
                     require(streams.isNotEmpty()) { "Потоки видео не найдены" }
                     app.progressWriter.awaitPending()
                     val progress =
@@ -247,8 +238,7 @@ class PlayerActivity : ComponentActivity() {
         controls.showLoading("Проверка видеопотока…")
         playbackJob = lifecycleScope.launch {
             try {
-                val http = DefaultHttpDataSource.Factory().setDefaultRequestProperties(app.repository.site.headers)
-                val source = DefaultMediaSourceFactory(DefaultDataSource.Factory(this@PlayerActivity, http))
+                val source = mediaSourceFactory(this@PlayerActivity, app.repository.streamHeaders)
                 formats = videoFormats(this@PlayerActivity, source, MediaItem.fromUri(stream.url))
                 if (serial != playbackSerial) return@launch
                 val choice = chooseVideo(formats, selectedQuality, decoderMode,
@@ -285,15 +275,7 @@ class PlayerActivity : ComponentActivity() {
         completed = false
         videoDecoderName = ""
         configureVideoView()
-        val exo =
-            ExoPlayer.Builder(this, UnifiedRenderersFactory(this, output))
-                .setTrackSelector(androidx.media3.exoplayer.trackselection.DefaultTrackSelector(this).apply {
-                    setParameters(buildUponParameters().setExceedRendererCapabilitiesIfNecessary(false))
-                })
-                .setSeekBackIncrementMs(10_000)
-                .setSeekForwardIncrementMs(10_000)
-                .setMediaSourceFactory(source)
-                .build()
+        val exo = createPlayer(this, output, source)
         player = exo
         video.player = exo
         exo.addAnalyticsListener(
@@ -391,31 +373,26 @@ class PlayerActivity : ComponentActivity() {
                     if (player !== exo) return
                     save()
                     val format = currentVideoFormat
-                    val videoError = (error is androidx.media3.exoplayer.ExoPlaybackException &&
-                        error.type == androidx.media3.exoplayer.ExoPlaybackException.TYPE_RENDERER &&
-                        (error.rendererFormat?.sampleMimeType?.startsWith("video/") == true ||
-                            error.rendererName?.contains("Video") == true))
-                    if (canFallbackToDav1d(decoderMode, output, hardwareFailed, videoError,
-                            format != null && capabilities.software(format))) {
-                        resumePosition = exo.currentPosition.coerceAtLeast(0)
-                        hardwareFailed = true
-                        android.widget.Toast.makeText(this@PlayerActivity,
-                            "Ошибка аппаратного декодера. Переключение на dav1d", android.widget.Toast.LENGTH_LONG).show()
-                        play(stream, exo.playWhenReady)
-                        return
-                    }
-                    failedStreams += stream.url
-                    if (retryCount++ == 0) {
-                        val position = exo.currentPosition
-                        resumePosition = position.coerceAtLeast(0)
-                        episode?.let { load(it.id, null, refresh = true) }
-                    } else {
-                        val alternative = streams.firstOrNull { it.url !in failedStreams }
-                        if (alternative != null) play(alternative)
-                        else
-                            failure(
-                                "Не удалось воспроизвести ${stream.type.uppercase()}: ${error.errorCodeName}"
-                            )
+                    val dav1d = canFallbackToDav1d(decoderMode, output, hardwareFailed,
+                        isVideoRendererError(error), format != null && capabilities.software(format))
+                    if (!dav1d) failedStreams += stream.url
+                    val recovery = planRecovery(dav1d, firstFailure = !dav1d && retryCount++ == 0,
+                        stream, streams, failedStreams, error.errorCodeName)
+                    when (recovery) {
+                        PlaybackRecovery.Dav1dFallback -> {
+                            resumePosition = exo.currentPosition.coerceAtLeast(0)
+                            hardwareFailed = true
+                            android.widget.Toast.makeText(this@PlayerActivity,
+                                "Ошибка аппаратного декодера. Переключение на dav1d",
+                                android.widget.Toast.LENGTH_LONG).show()
+                            play(stream, exo.playWhenReady)
+                        }
+                        PlaybackRecovery.ReloadPage -> {
+                            resumePosition = exo.currentPosition.coerceAtLeast(0)
+                            episode?.let { load(it.id, null, refresh = true) }
+                        }
+                        is PlaybackRecovery.OtherStream -> play(recovery.stream)
+                        is PlaybackRecovery.Fail -> failure(recovery.message)
                     }
                 }
             }
@@ -493,7 +470,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun chooseQuality() {
-        val heights = listOf(0, 480, 720, 1080, 2160)
+        val heights = QUALITY_HEIGHTS
         showPlayerMenu(
             this,
             "Качество",
@@ -509,7 +486,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun chooseSpeed() {
-        val speeds = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
+        val speeds = PLAYBACK_SPEEDS
         showPlayerMenu(
             this,
             "Скорость",
@@ -546,8 +523,8 @@ class PlayerActivity : ComponentActivity() {
         if (!softwareFrameMonitor.sample(android.os.SystemClock.elapsedRealtime(),
                 counters.renderedOutputBufferCount, counters.droppedBufferCount)) return
         val height = exo.videoFormat?.height ?: return
-        val lower = formats.filter { capabilities.software(it) && it.height in 1 until height &&
-            it.height < softwareAutoMaxHeight }.maxOfOrNull { it.height } ?: return
+        val lower = lowerSoftwareHeight(formats, height, softwareAutoMaxHeight,
+            capabilities::software) ?: return
         softwareAutoMaxHeight = lower
         applyQualityLimit(exo)
         android.util.Log.i("DCTV_DECODER", "softwareAutoMaxHeight=$lower reason=sustained_frame_drops")
@@ -604,12 +581,15 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         save()
-        outState.putLong("position", resumePosition)
-        outState.putString("episodeId", episode?.id ?: intent.getStringExtra("episodeId"))
-        outState.putString("streamType", streamTypePreference)
-        outState.putInt("qualityHeight", selectedQuality)
-        outState.putFloat("playbackSpeed", selectedSpeed)
-        outState.putString("decoderMode", decoderMode.name)
+        PlayerSavedState(
+                episodeId = episode?.id ?: intent.getStringExtra("episodeId"),
+                positionMs = resumePosition,
+                streamType = streamTypePreference,
+                qualityHeight = selectedQuality,
+                playbackSpeed = selectedSpeed,
+                decoderMode = decoderMode.name,
+            )
+            .writeTo(outState)
         super.onSaveInstanceState(outState)
     }
 
@@ -686,32 +666,17 @@ class PlayerActivity : ComponentActivity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        if (event.action == KeyEvent.ACTION_DOWN)
-            when (event.keyCode) {
-                KeyEvent.KEYCODE_DPAD_CENTER,
-                KeyEvent.KEYCODE_ENTER,
-                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
-                    player?.let { if (it.isPlaying) it.pause() else it.play() }
-                    return true
-                }
-                KeyEvent.KEYCODE_MEDIA_PAUSE -> {
-                    player?.pause()
-                    return true
-                }
-                KeyEvent.KEYCODE_MEDIA_PLAY -> {
-                    player?.play()
-                    return true
-                }
-                KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
-                    seekBy(10000)
-                    return true
-                }
-                KeyEvent.KEYCODE_MEDIA_REWIND -> {
-                    seekBy(-10000)
-                    return true
-                }
-            }
-        return super.onKeyDown(keyCode, event)
+        val action =
+            if (event.action == KeyEvent.ACTION_DOWN) remoteAction(event.keyCode) else null
+        when (action) {
+            RemoteAction.TOGGLE -> player?.let { if (it.isPlaying) it.pause() else it.play() }
+            RemoteAction.PAUSE -> player?.pause()
+            RemoteAction.PLAY -> player?.play()
+            RemoteAction.FORWARD -> seekBy(SEEK_STEP_MS)
+            RemoteAction.REWIND -> seekBy(-SEEK_STEP_MS)
+            null -> return super.onKeyDown(keyCode, event)
+        }
+        return true
     }
 
     override fun onDestroy() {

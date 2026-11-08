@@ -109,6 +109,20 @@ fun chooseVideo(
 fun videoHeightLimit(output: VideoOutput, selectedQuality: Int, softwareAutoMaxHeight: Int): Int =
     if (output == VideoOutput.DAV1D && selectedQuality == 0) softwareAutoMaxHeight else selectedQuality
 
+/**
+ * The next lower height dav1d can decode, below both the playing [currentHeight] and the
+ * current automatic [limit]; null when there is none.
+ */
+fun lowerSoftwareHeight(
+    formats: List<Format>,
+    currentHeight: Int,
+    limit: Int,
+    software: (Format) -> Boolean,
+): Int? =
+    formats
+        .filter { software(it) && it.height in 1 until currentHeight && it.height < limit }
+        .maxOfOrNull { it.height }
+
 fun canFallbackToDav1d(mode: DecoderMode, output: VideoOutput, attempted: Boolean,
     videoError: Boolean, supported: Boolean): Boolean =
     mode == DecoderMode.AUTO && output == VideoOutput.HARDWARE && !attempted && videoError && supported

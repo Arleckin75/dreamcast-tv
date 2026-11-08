@@ -85,7 +85,9 @@ object SiteParser {
                 }
                 ScheduleDay(
                     title,
-                    row?.select(".poster")?.mapNotNull(::scheduleCard) ?: emptyList(),
+                    // A malformed card is skipped instead of failing the whole schedule.
+                    row?.select(".poster")?.mapNotNull { runCatching { scheduleCard(it) }.getOrNull() }
+                        ?: emptyList(),
                 )
             }
         require(days.any { it.releases.isNotEmpty() }) { "Расписание не найдено" }

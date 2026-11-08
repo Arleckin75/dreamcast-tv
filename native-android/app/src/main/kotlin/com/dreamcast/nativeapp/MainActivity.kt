@@ -200,7 +200,7 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
                 val (playbackRelease, episodes) = repository.playback(release)
                 val episode =
                     episodes.firstOrNull { it.id == episodeId } ?: error("Серия не найдена")
-                val streams = PlayerJs.streams(episode)
+                val streams = repository.streams(episode)
                 require(streams.isNotEmpty()) { "Для серии не найдены потоки" }
                 val technology =
                     preferredTechnology
