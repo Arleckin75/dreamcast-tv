@@ -68,6 +68,14 @@ class PlayerActivity : ComponentActivity() {
     private val failedStreams = mutableSetOf<String>()
     private var completionCountdown: EpisodeCompletionCountdown? = null
     private val handler = Handler(Looper.getMainLooper())
+    private val scrubber = SeekScrubber()
+    private val thumbnails by lazy { ThumbnailLoader(app.repository.streamHeaders) }
+    private var thumbnailTrack: ThumbnailTrack? = null
+    private var thumbnailJob: Job? = null
+    private var frameJob: Job? = null
+    private var frameSprite = ""
+    private var swallowKeyUp = KeyEvent.KEYCODE_UNKNOWN
+    private val commitScrubTask = Runnable { commitScrub() }
     private val saveTick =
         object : Runnable {
             override fun run() {
@@ -84,6 +92,7 @@ class PlayerActivity : ComponentActivity() {
         root =
             object : FrameLayout(this) {
                 override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+                    if (handleScrubKey(event)) return true
                     if (
                         event.action == KeyEvent.ACTION_DOWN &&
                             event.keyCode != KeyEvent.KEYCODE_BACK &&
@@ -113,6 +122,7 @@ class PlayerActivity : ComponentActivity() {
                     reveal()
                 },
                 onSeek = ::seekBy,
+                onScrub = ::scrub,
                 onRetry = {
                     retryCount = 0
                     episode?.let { load(it.id, null, refresh = true) }
@@ -143,6 +153,8 @@ class PlayerActivity : ComponentActivity() {
             this,
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
+                    // Back first leaves scrubbing without seeking.
+                    if (cancelScrub()) return
                     if (controls.visible) controls.hide() else finish()
                 }
             },
@@ -152,7 +164,7 @@ class PlayerActivity : ComponentActivity() {
             if (key in DPAD_KEYS && !controls.hasActionFocus) {
                 if (event.action == KeyEvent.ACTION_DOWN) {
                     if (key == KeyEvent.KEYCODE_DPAD_LEFT || key == KeyEvent.KEYCODE_DPAD_RIGHT)
-                        seekBy(if (key == KeyEvent.KEYCODE_DPAD_LEFT) -SEEK_STEP_MS else SEEK_STEP_MS)
+                        scrub(if (key == KeyEvent.KEYCODE_DPAD_LEFT) -1 else 1, event.repeatCount)
                     else if (key == KeyEvent.KEYCODE_DPAD_UP || controls.visible) {
                         reveal()
                         controls.show(true)
@@ -193,6 +205,7 @@ class PlayerActivity : ComponentActivity() {
                     save()
                     ready = false
                     episode = found
+                    loadThumbnails(found)
                     streams = app.repository.streams(found)
                     require(streams.isNotEmpty()) { "Потоки видео не найдены" }
                     app.progressWriter.awaitPending()
@@ -642,6 +655,7 @@ class PlayerActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         activityStarted = false
+        cancelScrub()
         handler.removeCallbacks(controlTick)
         handler.removeCallbacks(hideControls)
         if (!inPip()) {
@@ -697,6 +711,86 @@ class PlayerActivity : ComponentActivity() {
         handler.postDelayed(hideControls, 5000)
     }
 
+    /** Loads [target]'s preview track in the background; scrubbing works without it. */
+    private fun loadThumbnails(target: Episode) {
+        cancelScrub()
+        thumbnailJob?.cancel()
+        thumbnailTrack = null
+        if (target.thumbnails.isBlank()) return
+        thumbnailJob = lifecycleScope.launch { thumbnailTrack = thumbnails.track(target.thumbnails) }
+    }
+
+    /**
+     * Moves the seek target one step in [direction] and shows its preview; the seek happens on
+     * OK or [SeekScrubber.COMMIT_DELAY_MS] after the last press. Without a known duration it
+     * falls back to an immediate seek.
+     */
+    private fun scrub(direction: Int, repeatCount: Int) {
+        val exo = player ?: return
+        val duration = exo.duration
+        if (!ready || duration <= 0 || !exo.isCurrentMediaItemSeekable) {
+            seekBy(direction * SEEK_STEP_MS)
+            return
+        }
+        val target = scrubber.step(direction, exo.currentPosition, duration, repeatCount)
+        controls.show()
+        reveal()
+        showScrubFrame(target)
+        handler.removeCallbacks(commitScrubTask)
+        handler.postDelayed(commitScrubTask, SeekScrubber.COMMIT_DELAY_MS)
+    }
+
+    private fun showScrubFrame(target: Long) {
+        val track = thumbnailTrack
+        val cue = track?.frameAt(target)
+        val frame = cue?.let(thumbnails::cachedFrame)
+        controls.showScrub(target, frame, hasPreviews = track != null)
+        if (cue == null || frame != null) return
+        // Keep one download per sprite while the target moves within it.
+        if (frameJob?.isActive == true && frameSprite == cue.imageUrl) return
+        frameJob?.cancel()
+        frameSprite = cue.imageUrl
+        frameJob = lifecycleScope.launch {
+            thumbnails.frame(cue)
+            val current = scrubber.target?.let(track::frameAt) ?: return@launch
+            thumbnails.cachedFrame(current)?.let(controls::setScrubFrame)
+        }
+    }
+
+    private fun commitScrub() {
+        handler.removeCallbacks(commitScrubTask)
+        val target = scrubber.commit() ?: return
+        controls.hideScrub()
+        player?.seekTo(target)
+        if (controls.visible) reveal()
+    }
+
+    /** Leaves scrubbing without seeking; true when it was active. */
+    private fun cancelScrub(): Boolean {
+        handler.removeCallbacks(commitScrubTask)
+        if (!scrubber.active) return false
+        scrubber.cancel()
+        controls.hideScrub()
+        return true
+    }
+
+    /** While scrubbing, OK seeks now; the key up is consumed too. Back is in the back callback. */
+    private fun handleScrubKey(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_UP && event.keyCode == swallowKeyUp) {
+            swallowKeyUp = KeyEvent.KEYCODE_UNKNOWN
+            return true
+        }
+        if (event.action != KeyEvent.ACTION_DOWN || !scrubber.active) return false
+        when (event.keyCode) {
+            KeyEvent.KEYCODE_DPAD_CENTER,
+            KeyEvent.KEYCODE_ENTER,
+            KeyEvent.KEYCODE_NUMPAD_ENTER -> commitScrub()
+            else -> return false
+        }
+        swallowKeyUp = event.keyCode
+        return true
+    }
+
     private fun seekBy(delta: Long) {
         player?.let { exo ->
             val end = exo.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
@@ -713,8 +807,8 @@ class PlayerActivity : ComponentActivity() {
             RemoteAction.TOGGLE -> player?.let { if (it.isPlaying) it.pause() else it.play() }
             RemoteAction.PAUSE -> player?.pause()
             RemoteAction.PLAY -> player?.play()
-            RemoteAction.FORWARD -> seekBy(SEEK_STEP_MS)
-            RemoteAction.REWIND -> seekBy(-SEEK_STEP_MS)
+            RemoteAction.FORWARD -> scrub(1, event.repeatCount)
+            RemoteAction.REWIND -> scrub(-1, event.repeatCount)
             null -> return super.onKeyDown(keyCode, event)
         }
         return true
@@ -728,6 +822,7 @@ class PlayerActivity : ComponentActivity() {
         playbackJob?.cancel()
         playbackSerial++
         completionCountdown?.dismiss()
+        thumbnails.clear()
         video.player = null
         player?.release()
         player = null

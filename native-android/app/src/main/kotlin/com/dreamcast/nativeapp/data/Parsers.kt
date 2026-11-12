@@ -311,9 +311,14 @@ object PlayerJs {
                 index + 1,
                 item.text("title").ifBlank { item.text("label").ifBlank { "Серия ${index + 1}" } },
                 item.getString("file"),
+                thumbnailsUrl(item.text("thumbnails")),
             )
         }
     }
+
+    /** Absolute https URL of a thumbnails track, or empty when missing or not https. */
+    internal fun thumbnailsUrl(value: String): String =
+        runCatching { imageUrl(value) }.getOrNull()?.takeIf { it.startsWith("https://") }.orEmpty()
 
     fun streams(episode: Episode): List<VideoStream> =
         Regex("https?://[^\\s]+")

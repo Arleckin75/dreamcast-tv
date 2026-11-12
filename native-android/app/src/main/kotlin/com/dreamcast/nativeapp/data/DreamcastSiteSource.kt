@@ -85,6 +85,7 @@ class DreamcastSiteSource(val client: SiteClient = SiteClient()) : DreamcastSour
                             episode.getInt("ordinal"),
                             episode.getString("title"),
                             episode.getString("file"),
+                            PlayerJs.thumbnailsUrl(episode.text("thumbnails")),
                         )
                     }
                 else PlayerJs.episodes(json, detail.release.id)
