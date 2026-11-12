@@ -328,30 +328,21 @@ private fun TopNavigation(model: AppViewModel) {
                 contentPadding = PaddingValues(0.dp),
             ) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    // Unread notifications turn the bell red, also while focused; the count
+                    // stays in the label. A badge would be clipped by the round button.
                     Icon(
                         painterResource(icon),
                         contentDescription = null,
-                        tint = androidx.tv.material3.LocalContentColor.current,
+                        tint =
+                            if (route == "notifications" && unread > 0) UNREAD_NOTIFICATIONS
+                            else androidx.tv.material3.LocalContentColor.current,
                         modifier = Modifier.size(24.dp),
                     )
-                    if (route == "notifications" && unread > 0) {
-                        Box(
-                            Modifier.align(Alignment.TopEnd)
-                                .padding(2.dp)
-                                .size(16.dp)
-                                .background(Color(0xFFBF223C), RoundedCornerShape(50)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                if (unread > 9) "9+" else unread.toString(),
-                                color = Color.White,
-                                fontSize = 9.sp,
-                                lineHeight = 10.sp,
-                            )
-                        }
-                    }
                 }
             }
         }
     }
 }
+
+/** Bell colour while there are unread notifications. */
+private val UNREAD_NOTIFICATIONS = Color(0xFFBF223C)
