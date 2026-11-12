@@ -279,6 +279,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        // The player saves progress in the background; show it once the saves have finished,
+        // so returning from the player updates the episode list and "Continue watching".
+        model.refreshPlayerProgress(this)
         // Continue an update install after the user allowed it in system settings.
         model.updates.onResume()
     }
