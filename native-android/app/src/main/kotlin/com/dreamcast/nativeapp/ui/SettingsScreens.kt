@@ -246,7 +246,10 @@ internal fun Notifications(model: AppViewModel) {
     }
     Spacer(Modifier.height(16.dp))
     if (entries.isEmpty()) Text("Уведомлений пока нет")
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(
+        contentPadding = PaddingValues(vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
         items(entries, key = { it.key }) { entry ->
             entry.release?.let { release ->
                 Action(

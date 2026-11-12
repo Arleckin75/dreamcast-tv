@@ -69,7 +69,10 @@ internal fun <T> resource(key: Any, loader: suspend ((T) -> Unit) -> T): Load<T>
 @Composable
 fun DreamApp(model: AppViewModel, activity: MainActivity) {
     // Keep focused items stationary until their reserved bounds leave the viewport.
-    CompositionLocalProvider(LocalBringIntoViewSpec provides VisibleItemScrollSpec) {
+    // The margin covers the focus scale (4%) and the antialiasing edge of focused buttons.
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val scrollSpec = remember(density) { VisibleItemScrollSpec(with(density) { 6.dp.toPx() }) }
+    CompositionLocalProvider(LocalBringIntoViewSpec provides scrollSpec) {
         DreamAppContent(model, activity)
     }
 }

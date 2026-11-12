@@ -98,7 +98,10 @@ internal fun Catalog(model: AppViewModel) {
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
-                        LazyColumn(Modifier.weight(1f).heightIn(max = 320.dp)) {
+                        LazyColumn(
+                            Modifier.weight(1f).heightIn(max = 320.dp),
+                            contentPadding = PaddingValues(vertical = 6.dp),
+                        ) {
                             items(data.genres, key = { it.id }) { genre ->
                                 Row(
                                     Modifier.fillMaxWidth()
@@ -198,7 +201,10 @@ internal fun Search(model: AppViewModel) {
     Column(Modifier.fillMaxSize().focusRequester(resultsFocus).focusGroup()) {
         if (submitted.isBlank()) {
             val history = model.ui.searchHistory
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyColumn(
+                contentPadding = PaddingValues(vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 item { Text("История поиска", style = MaterialTheme.typography.titleLarge) }
                 items(history, key = { it }) { item ->
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
