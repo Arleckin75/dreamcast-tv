@@ -94,6 +94,15 @@ internal fun Settings(model: AppViewModel) {
                     AboutAction("О приложении", R.drawable.ic_about_tv) {
                         model.navigate(Route("about"))
                     }
+                    AboutAction("Проверить обновления", R.drawable.ic_about_send) {
+                        model.updates.checkManually()
+                    }
+                    AboutAction(
+                        "Автопроверка обновлений: ${if (model.updates.autoCheck) "включена" else "выключена"}",
+                        R.drawable.ic_nav_notifications,
+                    ) {
+                        model.updates.setAutoCheckEnabled(!model.updates.autoCheck)
+                    }
                 }
             }
         }

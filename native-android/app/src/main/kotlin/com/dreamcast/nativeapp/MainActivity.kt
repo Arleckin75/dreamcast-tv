@@ -56,6 +56,12 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
     val application = app as DreamApplication
     val storage = application.storage
     val repository = application.repository
+    val updates =
+        com.dreamcast.nativeapp.update.UpdateController(
+            app,
+            viewModelScope,
+            com.dreamcast.nativeapp.update.UpdateChecker(storage, BuildConfig.VERSION_NAME),
+        )
     var routes by mutableStateOf(listOf(Route("home")))
         private set
 
@@ -269,6 +275,12 @@ class MainActivity : ComponentActivity() {
                 model.navigate(Route("detail", release))
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Continue an update install after the user allowed it in system settings.
+        model.updates.onResume()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {

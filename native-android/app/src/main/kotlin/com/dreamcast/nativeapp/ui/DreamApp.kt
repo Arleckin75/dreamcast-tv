@@ -80,6 +80,8 @@ private fun DreamAppContent(model: AppViewModel, activity: MainActivity) {
         withFrameNanos {}
         NativePerformance.firstFrame()
         model.application.maintainCacheAfterFirstFrame()
+        // Debug builds use another application ID, so a release APK would not update them.
+        if (!BuildConfig.DEBUG) model.updates.checkAutomatically()
     }
     if (!model.uiReady) {
         Box(
@@ -240,6 +242,7 @@ private fun DreamAppContent(model: AppViewModel, activity: MainActivity) {
                     ) {
                         CircularProgressIndicator()
                     }
+                UpdateDialog(model.updates)
                 model.playbackError?.let { error ->
                     AlertDialog(
                         onDismissRequest = { model.playbackError = null },
