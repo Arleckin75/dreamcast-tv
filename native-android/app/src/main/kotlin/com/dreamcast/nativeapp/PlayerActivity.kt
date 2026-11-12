@@ -179,6 +179,7 @@ class PlayerActivity : ComponentActivity() {
         id: String,
         forcedUrl: String? = intent.getStringExtra("stream"),
         refresh: Boolean = false,
+        fromStart: Boolean = false,
     ) {
         loadJob?.cancel()
         loadJob =
@@ -197,7 +198,7 @@ class PlayerActivity : ComponentActivity() {
                     app.progressWriter.awaitPending()
                     val progress =
                         withContext(Dispatchers.IO) { app.storage.progress(release.id, found.id) }
-                    if (resumePosition == 0L && progress?.watched != true)
+                    if (!fromStart && resumePosition == 0L && progress?.watched != true)
                         resumePosition = progress?.positionMs ?: 0
                     controls.title.text = release.title
                     controls.subtitle.text = found.title
@@ -351,7 +352,7 @@ class PlayerActivity : ComponentActivity() {
                                         ::nextEpisode,
                                     )
                                     .also { it.show() }
-                        } else finish()
+                        } else showSeasonEnd()
                     }
                 }
 
@@ -446,13 +447,53 @@ class PlayerActivity : ComponentActivity() {
         playbackSerial++
         completionCountdown?.dismiss()
         val next = episodes.getOrNull(episode?.ordinal ?: return) ?: return
+        startEpisode(next)
+    }
+
+    private fun startEpisode(target: Episode, fromStart: Boolean = false) {
         save()
         ready = false
         player?.stop()
         resumePosition = 0
         retryCount = 0
         episode = null
-        load(next.id, null)
+        load(target.id, null, fromStart = fromStart)
+    }
+
+    /** After the last available episode: rewatch, mark the release watched, or close. */
+    private fun showSeasonEnd() {
+        if (inPip() || isFinishing) {
+            finish()
+            return
+        }
+        val shown = release
+        lifecycleScope.launch {
+            val status =
+                withContext(Dispatchers.IO) {
+                    app.storage.bookmarks().firstOrNull { it.release.id == shown.id }?.status
+                }
+            if (isFinishing || release.id != shown.id) return@launch
+            val menu = seasonEndMenu(shown, episodes.size, status)
+            showPlayerMenu(
+                this@PlayerActivity,
+                menu.title,
+                menu.actions.map { it.label },
+                onCancel = { finish() },
+            ) { index ->
+                when (menu.actions[index]) {
+                    SeasonEndAction.REWATCH -> {
+                        playbackJob?.cancel()
+                        playbackSerial++
+                        episodes.firstOrNull()?.let { startEpisode(it, fromStart = true) }
+                    }
+                    SeasonEndAction.MARK_WATCHED -> {
+                        app.storage.bookmark(shown, LibraryStatus.completed)
+                        finish()
+                    }
+                    SeasonEndAction.CLOSE -> finish()
+                }
+            }
+        }
     }
 
     private fun chooseStream() {
