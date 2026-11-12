@@ -85,7 +85,9 @@ object SiteParser {
                 }
                 ScheduleDay(
                     title,
-                    row?.select(".poster")?.mapNotNull(::scheduleCard) ?: emptyList(),
+                    // A malformed card is skipped instead of failing the whole schedule.
+                    row?.select(".poster")?.mapNotNull { runCatching { scheduleCard(it) }.getOrNull() }
+                        ?: emptyList(),
                 )
             }
         require(days.any { it.releases.isNotEmpty() }) { "Расписание не найдено" }
@@ -309,9 +311,14 @@ object PlayerJs {
                 index + 1,
                 item.text("title").ifBlank { item.text("label").ifBlank { "Серия ${index + 1}" } },
                 item.getString("file"),
+                thumbnailsUrl(item.text("thumbnails")),
             )
         }
     }
+
+    /** Absolute https URL of a thumbnails track, or empty when missing or not https. */
+    internal fun thumbnailsUrl(value: String): String =
+        runCatching { imageUrl(value) }.getOrNull()?.takeIf { it.startsWith("https://") }.orEmpty()
 
     fun streams(episode: Episode): List<VideoStream> =
         Regex("https?://[^\\s]+")

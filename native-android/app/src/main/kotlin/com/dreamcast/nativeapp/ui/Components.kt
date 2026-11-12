@@ -169,6 +169,7 @@ internal fun ChoiceDialog(
                 header?.invoke()
                 LazyColumn(
                     Modifier.heightIn(max = 330.dp),
+                    contentPadding = PaddingValues(vertical = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(items.size) { index ->

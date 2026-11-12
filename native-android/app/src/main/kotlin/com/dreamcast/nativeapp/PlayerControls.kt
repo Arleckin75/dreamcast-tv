@@ -25,6 +25,8 @@ internal class PlayerControls(
     private val onInteraction: () -> Unit,
     private val settingsItems: () -> List<Pair<String, () -> Unit>> = { emptyList() },
     onCaptions: (() -> Unit)? = null,
+    /** Left/right on the timeline: direction (-1 or 1) and the key repeat count. */
+    private val onScrub: (Int, Int) -> Unit = { direction, _ -> onSeek(direction * 10_000L) },
 ) {
     private fun dp(value: Int) = (value * context.resources.displayMetrics.density).toInt()
 
@@ -130,7 +132,7 @@ internal class PlayerControls(
                 else {
                     if (event.action == KeyEvent.ACTION_DOWN) {
                         onInteraction()
-                        onSeek(if (key == KeyEvent.KEYCODE_DPAD_LEFT) -10_000L else 10_000L)
+                        onScrub(if (key == KeyEvent.KEYCODE_DPAD_LEFT) -1 else 1, event.repeatCount)
                     }
                     true
                 }
@@ -185,6 +187,29 @@ internal class PlayerControls(
             visibility = View.GONE
         }
     private val hideFeedback = Runnable { feedback.visibility = View.GONE }
+    private val previewImage =
+        ImageView(context).apply {
+            scaleType = ImageView.ScaleType.FIT_XY
+            background = rounded(0xFF202020.toInt(), dp(8))
+            clipToOutline = true
+            visibility = View.GONE
+        }
+    private val previewTime =
+        label(16f).apply {
+            gravity = Gravity.CENTER
+            setTypeface(null, Typeface.BOLD)
+            setShadowLayer(dp(3).toFloat(), 0f, 0f, Color.BLACK)
+        }
+    private val preview =
+        LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            visibility = View.GONE
+            addView(previewImage, LinearLayout.LayoutParams(dp(PREVIEW_WIDTH_DP), dp(PREVIEW_HEIGHT_DP)))
+            addView(previewTime, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6) })
+        }
+    private var scrubbing = false
+    private var scrubFraction = 0f
     private var dialog: AlertDialog? = null
     private var activeQuality = 720
     private var duration = 0L
@@ -287,6 +312,11 @@ internal class PlayerControls(
         )
         loading.addView(loadingText)
         root.addView(loading, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
+        root.addView(preview, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START))
+        // A frame arriving later makes the preview taller; the panel may still be laying out.
+        val replace = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> placePreview() }
+        preview.addOnLayoutChangeListener(replace)
+        timeline.addOnLayoutChangeListener(replace)
         root.addView(
             feedback,
             FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL or Gravity.START).apply {
@@ -396,8 +426,68 @@ internal class PlayerControls(
         if (shown) renderPlaybackState()
     }
 
+    /**
+     * Shows the scrub target [targetMs] on the timeline with its preview [frame] above it.
+     * A null frame keeps the previous image while the next one loads, or shows only the time.
+     */
+    fun showScrub(targetMs: Long, frame: Bitmap?, hasPreviews: Boolean) {
+        scrubbing = true
+        val fraction = if (duration > 0) targetMs.coerceIn(0, duration).toFloat() / duration else 0f
+        timeline.progress = (fraction * 1000).toInt()
+        positionLabel.text = formatTime(targetMs)
+        previewTime.text = formatTime(targetMs)
+        if (frame != null) previewImage.setImageBitmap(frame)
+        previewImage.visibility =
+            if (hasPreviews && (frame != null || previewImage.drawable != null)) View.VISIBLE
+            else View.GONE
+        scrubFraction = fraction
+        // Stay invisible until placed, so it never flashes at a stale position.
+        if (preview.visibility == View.GONE) preview.visibility = View.INVISIBLE
+        placePreview()
+    }
+
+    /** Replaces the preview image if scrubbing is still showing a target. */
+    fun setScrubFrame(frame: Bitmap) {
+        if (!scrubbing) return
+        previewImage.setImageBitmap(frame)
+        previewImage.visibility = View.VISIBLE
+    }
+
+    fun hideScrub() {
+        if (!scrubbing) return
+        scrubbing = false
+        preview.visibility = View.GONE
+        previewImage.setImageDrawable(null)
+        if (shown) renderPlaybackState()
+    }
+
+    /**
+     * Puts the preview centred over the scrub target with its bottom just above the timeline.
+     * Runs again whenever the preview or the timeline changes size or position.
+     */
+    private fun placePreview() {
+        if (!scrubbing || root.width == 0 || timeline.width == 0 || !timeline.isShown) return
+        val fraction = scrubFraction
+        val rootOrigin = IntArray(2).also(root::getLocationInWindow)
+        val bar = IntArray(2).also(timeline::getLocationInWindow)
+        val track = timeline.width - timeline.paddingLeft - timeline.paddingRight
+        val centerX = bar[0] - rootOrigin[0] + timeline.paddingLeft + track * fraction
+        val margin = dp(16).toFloat()
+        // The first placement can run before the preview's own layout pass.
+        if (preview.width == 0)
+            preview.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+        val width = (preview.width.takeIf { it > 0 } ?: preview.measuredWidth).toFloat()
+        val height = (preview.height.takeIf { it > 0 } ?: preview.measuredHeight).toFloat()
+        preview.translationX =
+            (centerX - width / 2).coerceIn(margin, (root.width - width - margin).coerceAtLeast(margin))
+        // Use the panel's resting position, not a slide-in animation frame.
+        val barTop = bar[1] - rootOrigin[1] - bottom.translationY
+        preview.translationY = barTop - height - dp(4)
+        preview.visibility = View.VISIBLE
+    }
+
     private fun renderPlaybackState() {
-        if (!dragging) {
+        if (!dragging && !scrubbing) {
             val text = formatTime(position)
             if (positionLabel.text.toString() != text) positionLabel.text = text
             timeline.progress =
@@ -472,11 +562,15 @@ internal class PlayerControls(
         dialog?.setOnDismissListener(null)
         dialog?.dismiss()
         feedback.removeCallbacks(hideFeedback)
+        hideScrub()
         panel.animate().cancel()
         bottom.animate().cancel()
     }
 
     companion object {
+        private const val PREVIEW_WIDTH_DP = 204
+        private const val PREVIEW_HEIGHT_DP = 115
+
         private fun formatTime(ms: Long): String {
             val seconds = ms / 1000
             return if (seconds >= 3600)

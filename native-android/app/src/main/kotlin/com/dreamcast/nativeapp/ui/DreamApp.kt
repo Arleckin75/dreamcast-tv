@@ -69,7 +69,10 @@ internal fun <T> resource(key: Any, loader: suspend ((T) -> Unit) -> T): Load<T>
 @Composable
 fun DreamApp(model: AppViewModel, activity: MainActivity) {
     // Keep focused items stationary until their reserved bounds leave the viewport.
-    CompositionLocalProvider(LocalBringIntoViewSpec provides VisibleItemScrollSpec) {
+    // The margin covers the focus scale (4%) and the antialiasing edge of focused buttons.
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val scrollSpec = remember(density) { VisibleItemScrollSpec(with(density) { 6.dp.toPx() }) }
+    CompositionLocalProvider(LocalBringIntoViewSpec provides scrollSpec) {
         DreamAppContent(model, activity)
     }
 }
@@ -80,6 +83,8 @@ private fun DreamAppContent(model: AppViewModel, activity: MainActivity) {
         withFrameNanos {}
         NativePerformance.firstFrame()
         model.application.maintainCacheAfterFirstFrame()
+        // Debug builds use another application ID, so a release APK would not update them.
+        if (!BuildConfig.DEBUG) model.updates.checkAutomatically()
     }
     if (!model.uiReady) {
         Box(
@@ -240,6 +245,7 @@ private fun DreamAppContent(model: AppViewModel, activity: MainActivity) {
                     ) {
                         CircularProgressIndicator()
                     }
+                UpdateDialog(model.updates)
                 model.playbackError?.let { error ->
                     AlertDialog(
                         onDismissRequest = { model.playbackError = null },
@@ -322,30 +328,21 @@ private fun TopNavigation(model: AppViewModel) {
                 contentPadding = PaddingValues(0.dp),
             ) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    // Unread notifications turn the bell red, also while focused; the count
+                    // stays in the label. A badge would be clipped by the round button.
                     Icon(
                         painterResource(icon),
                         contentDescription = null,
-                        tint = androidx.tv.material3.LocalContentColor.current,
+                        tint =
+                            if (route == "notifications" && unread > 0) UNREAD_NOTIFICATIONS
+                            else androidx.tv.material3.LocalContentColor.current,
                         modifier = Modifier.size(24.dp),
                     )
-                    if (route == "notifications" && unread > 0) {
-                        Box(
-                            Modifier.align(Alignment.TopEnd)
-                                .padding(2.dp)
-                                .size(16.dp)
-                                .background(Color(0xFFBF223C), RoundedCornerShape(50)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                if (unread > 9) "9+" else unread.toString(),
-                                color = Color.White,
-                                fontSize = 9.sp,
-                                lineHeight = 10.sp,
-                            )
-                        }
-                    }
                 }
             }
         }
     }
 }
+
+/** Bell colour while there are unread notifications. */
+private val UNREAD_NOTIFICATIONS = Color(0xFFBF223C)

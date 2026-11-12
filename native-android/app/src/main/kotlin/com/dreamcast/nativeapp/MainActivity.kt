@@ -56,6 +56,12 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
     val application = app as DreamApplication
     val storage = application.storage
     val repository = application.repository
+    val updates =
+        com.dreamcast.nativeapp.update.UpdateController(
+            app,
+            viewModelScope,
+            com.dreamcast.nativeapp.update.UpdateChecker(storage, BuildConfig.VERSION_NAME),
+        )
     var routes by mutableStateOf(listOf(Route("home")))
         private set
 
@@ -200,7 +206,7 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
                 val (playbackRelease, episodes) = repository.playback(release)
                 val episode =
                     episodes.firstOrNull { it.id == episodeId } ?: error("Серия не найдена")
-                val streams = PlayerJs.streams(episode)
+                val streams = repository.streams(episode)
                 require(streams.isNotEmpty()) { "Для серии не найдены потоки" }
                 val technology =
                     preferredTechnology
@@ -269,6 +275,15 @@ class MainActivity : ComponentActivity() {
                 model.navigate(Route("detail", release))
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // The player saves progress in the background; show it once the saves have finished,
+        // so returning from the player updates the episode list and "Continue watching".
+        model.refreshPlayerProgress(this)
+        // Continue an update install after the user allowed it in system settings.
+        model.updates.onResume()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {

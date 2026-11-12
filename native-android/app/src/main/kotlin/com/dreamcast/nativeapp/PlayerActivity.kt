@@ -18,8 +18,6 @@ import androidx.media3.common.Format
 import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
@@ -70,6 +68,14 @@ class PlayerActivity : ComponentActivity() {
     private val failedStreams = mutableSetOf<String>()
     private var completionCountdown: EpisodeCompletionCountdown? = null
     private val handler = Handler(Looper.getMainLooper())
+    private val scrubber = SeekScrubber()
+    private val thumbnails by lazy { ThumbnailLoader(app.repository.streamHeaders) }
+    private var thumbnailTrack: ThumbnailTrack? = null
+    private var thumbnailJob: Job? = null
+    private var frameJob: Job? = null
+    private var frameSprite = ""
+    private var swallowKeyUp = KeyEvent.KEYCODE_UNKNOWN
+    private val commitScrubTask = Runnable { commitScrub() }
     private val saveTick =
         object : Runnable {
             override fun run() {
@@ -86,6 +92,7 @@ class PlayerActivity : ComponentActivity() {
         root =
             object : FrameLayout(this) {
                 override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+                    if (handleScrubKey(event)) return true
                     if (
                         event.action == KeyEvent.ACTION_DOWN &&
                             event.keyCode != KeyEvent.KEYCODE_BACK &&
@@ -115,6 +122,7 @@ class PlayerActivity : ComponentActivity() {
                     reveal()
                 },
                 onSeek = ::seekBy,
+                onScrub = ::scrub,
                 onRetry = {
                     retryCount = 0
                     episode?.let { load(it.id, null, refresh = true) }
@@ -145,24 +153,18 @@ class PlayerActivity : ComponentActivity() {
             this,
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
+                    // Back first leaves scrubbing without seeking.
+                    if (cancelScrub()) return
                     if (controls.visible) controls.hide() else finish()
                 }
             },
         )
         setContentView(root)
         root.setOnKeyListener { _, key, event ->
-            if (
-                key in
-                    listOf(
-                        KeyEvent.KEYCODE_DPAD_UP,
-                        KeyEvent.KEYCODE_DPAD_DOWN,
-                        KeyEvent.KEYCODE_DPAD_LEFT,
-                        KeyEvent.KEYCODE_DPAD_RIGHT,
-                    ) && !controls.hasActionFocus
-            ) {
+            if (key in DPAD_KEYS && !controls.hasActionFocus) {
                 if (event.action == KeyEvent.ACTION_DOWN) {
                     if (key == KeyEvent.KEYCODE_DPAD_LEFT || key == KeyEvent.KEYCODE_DPAD_RIGHT)
-                        seekBy(if (key == KeyEvent.KEYCODE_DPAD_LEFT) -10_000 else 10_000)
+                        scrub(if (key == KeyEvent.KEYCODE_DPAD_LEFT) -1 else 1, event.repeatCount)
                     else if (key == KeyEvent.KEYCODE_DPAD_UP || controls.visible) {
                         reveal()
                         controls.show(true)
@@ -172,15 +174,16 @@ class PlayerActivity : ComponentActivity() {
             } else false
         }
         root.requestFocus()
-        resumePosition = savedInstanceState?.getLong("position") ?: 0
-        streamTypePreference = savedInstanceState?.getString("streamType")
-        selectedQuality = savedInstanceState?.getInt("qualityHeight") ?: 0
-        selectedSpeed = savedInstanceState?.getFloat("playbackSpeed", 1f) ?: 1f
-        decoderMode = DecoderMode.from(savedInstanceState?.getString("decoderMode")
+        val saved = PlayerSavedState.from(savedInstanceState)
+        resumePosition = saved?.positionMs ?: 0
+        streamTypePreference = saved?.streamType
+        selectedQuality = saved?.qualityHeight ?: 0
+        selectedSpeed = saved?.playbackSpeed ?: 1f
+        decoderMode = DecoderMode.from(saved?.decoderMode
             ?: app.storage.string("player.decoder_mode", "AUTO"))
         load(
-            savedInstanceState?.getString("episodeId") ?: intent.getStringExtra("episodeId")!!,
-            if (savedInstanceState == null) intent.getStringExtra("stream") else null,
+            saved?.episodeId ?: intent.getStringExtra("episodeId")!!,
+            if (saved == null) intent.getStringExtra("stream") else null,
         )
     }
 
@@ -188,6 +191,7 @@ class PlayerActivity : ComponentActivity() {
         id: String,
         forcedUrl: String? = intent.getStringExtra("stream"),
         refresh: Boolean = false,
+        fromStart: Boolean = false,
     ) {
         loadJob?.cancel()
         loadJob =
@@ -201,12 +205,13 @@ class PlayerActivity : ComponentActivity() {
                     save()
                     ready = false
                     episode = found
-                    streams = PlayerJs.streams(found)
+                    loadThumbnails(found)
+                    streams = app.repository.streams(found)
                     require(streams.isNotEmpty()) { "Потоки видео не найдены" }
                     app.progressWriter.awaitPending()
                     val progress =
                         withContext(Dispatchers.IO) { app.storage.progress(release.id, found.id) }
-                    if (resumePosition == 0L && progress?.watched != true)
+                    if (!fromStart && resumePosition == 0L && progress?.watched != true)
                         resumePosition = progress?.positionMs ?: 0
                     controls.title.text = release.title
                     controls.subtitle.text = found.title
@@ -247,8 +252,7 @@ class PlayerActivity : ComponentActivity() {
         controls.showLoading("Проверка видеопотока…")
         playbackJob = lifecycleScope.launch {
             try {
-                val http = DefaultHttpDataSource.Factory().setDefaultRequestProperties(app.repository.site.headers)
-                val source = DefaultMediaSourceFactory(DefaultDataSource.Factory(this@PlayerActivity, http))
+                val source = mediaSourceFactory(this@PlayerActivity, app.repository.streamHeaders)
                 formats = videoFormats(this@PlayerActivity, source, MediaItem.fromUri(stream.url))
                 if (serial != playbackSerial) return@launch
                 val choice = chooseVideo(formats, selectedQuality, decoderMode,
@@ -285,15 +289,7 @@ class PlayerActivity : ComponentActivity() {
         completed = false
         videoDecoderName = ""
         configureVideoView()
-        val exo =
-            ExoPlayer.Builder(this, UnifiedRenderersFactory(this, output))
-                .setTrackSelector(androidx.media3.exoplayer.trackselection.DefaultTrackSelector(this).apply {
-                    setParameters(buildUponParameters().setExceedRendererCapabilitiesIfNecessary(false))
-                })
-                .setSeekBackIncrementMs(10_000)
-                .setSeekForwardIncrementMs(10_000)
-                .setMediaSourceFactory(source)
-                .build()
+        val exo = createPlayer(this, output, source)
         player = exo
         video.player = exo
         exo.addAnalyticsListener(
@@ -369,7 +365,7 @@ class PlayerActivity : ComponentActivity() {
                                         ::nextEpisode,
                                     )
                                     .also { it.show() }
-                        } else finish()
+                        } else showSeasonEnd()
                     }
                 }
 
@@ -391,31 +387,26 @@ class PlayerActivity : ComponentActivity() {
                     if (player !== exo) return
                     save()
                     val format = currentVideoFormat
-                    val videoError = (error is androidx.media3.exoplayer.ExoPlaybackException &&
-                        error.type == androidx.media3.exoplayer.ExoPlaybackException.TYPE_RENDERER &&
-                        (error.rendererFormat?.sampleMimeType?.startsWith("video/") == true ||
-                            error.rendererName?.contains("Video") == true))
-                    if (canFallbackToDav1d(decoderMode, output, hardwareFailed, videoError,
-                            format != null && capabilities.software(format))) {
-                        resumePosition = exo.currentPosition.coerceAtLeast(0)
-                        hardwareFailed = true
-                        android.widget.Toast.makeText(this@PlayerActivity,
-                            "Ошибка аппаратного декодера. Переключение на dav1d", android.widget.Toast.LENGTH_LONG).show()
-                        play(stream, exo.playWhenReady)
-                        return
-                    }
-                    failedStreams += stream.url
-                    if (retryCount++ == 0) {
-                        val position = exo.currentPosition
-                        resumePosition = position.coerceAtLeast(0)
-                        episode?.let { load(it.id, null, refresh = true) }
-                    } else {
-                        val alternative = streams.firstOrNull { it.url !in failedStreams }
-                        if (alternative != null) play(alternative)
-                        else
-                            failure(
-                                "Не удалось воспроизвести ${stream.type.uppercase()}: ${error.errorCodeName}"
-                            )
+                    val dav1d = canFallbackToDav1d(decoderMode, output, hardwareFailed,
+                        isVideoRendererError(error), format != null && capabilities.software(format))
+                    if (!dav1d) failedStreams += stream.url
+                    val recovery = planRecovery(dav1d, firstFailure = !dav1d && retryCount++ == 0,
+                        stream, streams, failedStreams, error.errorCodeName)
+                    when (recovery) {
+                        PlaybackRecovery.Dav1dFallback -> {
+                            resumePosition = exo.currentPosition.coerceAtLeast(0)
+                            hardwareFailed = true
+                            android.widget.Toast.makeText(this@PlayerActivity,
+                                "Ошибка аппаратного декодера. Переключение на dav1d",
+                                android.widget.Toast.LENGTH_LONG).show()
+                            play(stream, exo.playWhenReady)
+                        }
+                        PlaybackRecovery.ReloadPage -> {
+                            resumePosition = exo.currentPosition.coerceAtLeast(0)
+                            episode?.let { load(it.id, null, refresh = true) }
+                        }
+                        is PlaybackRecovery.OtherStream -> play(recovery.stream)
+                        is PlaybackRecovery.Fail -> failure(recovery.message)
                     }
                 }
             }
@@ -469,13 +460,53 @@ class PlayerActivity : ComponentActivity() {
         playbackSerial++
         completionCountdown?.dismiss()
         val next = episodes.getOrNull(episode?.ordinal ?: return) ?: return
+        startEpisode(next)
+    }
+
+    private fun startEpisode(target: Episode, fromStart: Boolean = false) {
         save()
         ready = false
         player?.stop()
         resumePosition = 0
         retryCount = 0
         episode = null
-        load(next.id, null)
+        load(target.id, null, fromStart = fromStart)
+    }
+
+    /** After the last available episode: rewatch, mark the release watched, or close. */
+    private fun showSeasonEnd() {
+        if (inPip() || isFinishing) {
+            finish()
+            return
+        }
+        val shown = release
+        lifecycleScope.launch {
+            val status =
+                withContext(Dispatchers.IO) {
+                    app.storage.bookmarks().firstOrNull { it.release.id == shown.id }?.status
+                }
+            if (isFinishing || release.id != shown.id) return@launch
+            val menu = seasonEndMenu(shown, episodes.size, status)
+            showPlayerMenu(
+                this@PlayerActivity,
+                menu.title,
+                menu.actions.map { it.label },
+                onCancel = { finish() },
+            ) { index ->
+                when (menu.actions[index]) {
+                    SeasonEndAction.REWATCH -> {
+                        playbackJob?.cancel()
+                        playbackSerial++
+                        episodes.firstOrNull()?.let { startEpisode(it, fromStart = true) }
+                    }
+                    SeasonEndAction.MARK_WATCHED -> {
+                        app.storage.bookmark(shown, LibraryStatus.completed)
+                        finish()
+                    }
+                    SeasonEndAction.CLOSE -> finish()
+                }
+            }
+        }
     }
 
     private fun chooseStream() {
@@ -493,7 +524,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun chooseQuality() {
-        val heights = listOf(0, 480, 720, 1080, 2160)
+        val heights = QUALITY_HEIGHTS
         showPlayerMenu(
             this,
             "Качество",
@@ -509,7 +540,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun chooseSpeed() {
-        val speeds = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
+        val speeds = PLAYBACK_SPEEDS
         showPlayerMenu(
             this,
             "Скорость",
@@ -546,8 +577,8 @@ class PlayerActivity : ComponentActivity() {
         if (!softwareFrameMonitor.sample(android.os.SystemClock.elapsedRealtime(),
                 counters.renderedOutputBufferCount, counters.droppedBufferCount)) return
         val height = exo.videoFormat?.height ?: return
-        val lower = formats.filter { capabilities.software(it) && it.height in 1 until height &&
-            it.height < softwareAutoMaxHeight }.maxOfOrNull { it.height } ?: return
+        val lower = lowerSoftwareHeight(formats, height, softwareAutoMaxHeight,
+            capabilities::software) ?: return
         softwareAutoMaxHeight = lower
         applyQualityLimit(exo)
         android.util.Log.i("DCTV_DECODER", "softwareAutoMaxHeight=$lower reason=sustained_frame_drops")
@@ -604,12 +635,15 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         save()
-        outState.putLong("position", resumePosition)
-        outState.putString("episodeId", episode?.id ?: intent.getStringExtra("episodeId"))
-        outState.putString("streamType", streamTypePreference)
-        outState.putInt("qualityHeight", selectedQuality)
-        outState.putFloat("playbackSpeed", selectedSpeed)
-        outState.putString("decoderMode", decoderMode.name)
+        PlayerSavedState(
+                episodeId = episode?.id ?: intent.getStringExtra("episodeId"),
+                positionMs = resumePosition,
+                streamType = streamTypePreference,
+                qualityHeight = selectedQuality,
+                playbackSpeed = selectedSpeed,
+                decoderMode = decoderMode.name,
+            )
+            .writeTo(outState)
         super.onSaveInstanceState(outState)
     }
 
@@ -621,6 +655,7 @@ class PlayerActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         activityStarted = false
+        cancelScrub()
         handler.removeCallbacks(controlTick)
         handler.removeCallbacks(hideControls)
         if (!inPip()) {
@@ -676,6 +711,86 @@ class PlayerActivity : ComponentActivity() {
         handler.postDelayed(hideControls, 5000)
     }
 
+    /** Loads [target]'s preview track in the background; scrubbing works without it. */
+    private fun loadThumbnails(target: Episode) {
+        cancelScrub()
+        thumbnailJob?.cancel()
+        thumbnailTrack = null
+        if (target.thumbnails.isBlank()) return
+        thumbnailJob = lifecycleScope.launch { thumbnailTrack = thumbnails.track(target.thumbnails) }
+    }
+
+    /**
+     * Moves the seek target one step in [direction] and shows its preview; the seek happens on
+     * OK or [SeekScrubber.COMMIT_DELAY_MS] after the last press. Without a known duration it
+     * falls back to an immediate seek.
+     */
+    private fun scrub(direction: Int, repeatCount: Int) {
+        val exo = player ?: return
+        val duration = exo.duration
+        if (!ready || duration <= 0 || !exo.isCurrentMediaItemSeekable) {
+            seekBy(direction * SEEK_STEP_MS)
+            return
+        }
+        val target = scrubber.step(direction, exo.currentPosition, duration, repeatCount)
+        controls.show()
+        reveal()
+        showScrubFrame(target)
+        handler.removeCallbacks(commitScrubTask)
+        handler.postDelayed(commitScrubTask, SeekScrubber.COMMIT_DELAY_MS)
+    }
+
+    private fun showScrubFrame(target: Long) {
+        val track = thumbnailTrack
+        val cue = track?.frameAt(target)
+        val frame = cue?.let(thumbnails::cachedFrame)
+        controls.showScrub(target, frame, hasPreviews = track != null)
+        if (cue == null || frame != null) return
+        // Keep one download per sprite while the target moves within it.
+        if (frameJob?.isActive == true && frameSprite == cue.imageUrl) return
+        frameJob?.cancel()
+        frameSprite = cue.imageUrl
+        frameJob = lifecycleScope.launch {
+            thumbnails.frame(cue)
+            val current = scrubber.target?.let(track::frameAt) ?: return@launch
+            thumbnails.cachedFrame(current)?.let(controls::setScrubFrame)
+        }
+    }
+
+    private fun commitScrub() {
+        handler.removeCallbacks(commitScrubTask)
+        val target = scrubber.commit() ?: return
+        controls.hideScrub()
+        player?.seekTo(target)
+        if (controls.visible) reveal()
+    }
+
+    /** Leaves scrubbing without seeking; true when it was active. */
+    private fun cancelScrub(): Boolean {
+        handler.removeCallbacks(commitScrubTask)
+        if (!scrubber.active) return false
+        scrubber.cancel()
+        controls.hideScrub()
+        return true
+    }
+
+    /** While scrubbing, OK seeks now; the key up is consumed too. Back is in the back callback. */
+    private fun handleScrubKey(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_UP && event.keyCode == swallowKeyUp) {
+            swallowKeyUp = KeyEvent.KEYCODE_UNKNOWN
+            return true
+        }
+        if (event.action != KeyEvent.ACTION_DOWN || !scrubber.active) return false
+        when (event.keyCode) {
+            KeyEvent.KEYCODE_DPAD_CENTER,
+            KeyEvent.KEYCODE_ENTER,
+            KeyEvent.KEYCODE_NUMPAD_ENTER -> commitScrub()
+            else -> return false
+        }
+        swallowKeyUp = event.keyCode
+        return true
+    }
+
     private fun seekBy(delta: Long) {
         player?.let { exo ->
             val end = exo.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
@@ -686,32 +801,17 @@ class PlayerActivity : ComponentActivity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        if (event.action == KeyEvent.ACTION_DOWN)
-            when (event.keyCode) {
-                KeyEvent.KEYCODE_DPAD_CENTER,
-                KeyEvent.KEYCODE_ENTER,
-                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
-                    player?.let { if (it.isPlaying) it.pause() else it.play() }
-                    return true
-                }
-                KeyEvent.KEYCODE_MEDIA_PAUSE -> {
-                    player?.pause()
-                    return true
-                }
-                KeyEvent.KEYCODE_MEDIA_PLAY -> {
-                    player?.play()
-                    return true
-                }
-                KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
-                    seekBy(10000)
-                    return true
-                }
-                KeyEvent.KEYCODE_MEDIA_REWIND -> {
-                    seekBy(-10000)
-                    return true
-                }
-            }
-        return super.onKeyDown(keyCode, event)
+        val action =
+            if (event.action == KeyEvent.ACTION_DOWN) remoteAction(event.keyCode) else null
+        when (action) {
+            RemoteAction.TOGGLE -> player?.let { if (it.isPlaying) it.pause() else it.play() }
+            RemoteAction.PAUSE -> player?.pause()
+            RemoteAction.PLAY -> player?.play()
+            RemoteAction.FORWARD -> scrub(1, event.repeatCount)
+            RemoteAction.REWIND -> scrub(-1, event.repeatCount)
+            null -> return super.onKeyDown(keyCode, event)
+        }
+        return true
     }
 
     override fun onDestroy() {
@@ -722,6 +822,7 @@ class PlayerActivity : ComponentActivity() {
         playbackJob?.cancel()
         playbackSerial++
         completionCountdown?.dismiss()
+        thumbnails.clear()
         video.player = null
         player?.release()
         player = null

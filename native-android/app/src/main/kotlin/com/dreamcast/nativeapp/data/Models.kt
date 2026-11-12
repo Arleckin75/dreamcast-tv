@@ -124,6 +124,8 @@ data class Episode(
     val ordinal: Int,
     val title: String,
     val file: String,
+    /** WebVTT track of seek preview frames; empty when the source has none. */
+    val thumbnails: String = "",
 )
 
 data class VideoStream(val url: String, val type: String, val quality: Int)

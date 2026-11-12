@@ -153,6 +153,59 @@ class ParsersTest {
         assertEquals("magic", options.genres.first().id)
     }
 
+    @Test
+    fun `parses schedule fixture and skips malformed cards`() {
+        val days = SiteParser.schedule(fixture("schedule_page.html"))
+        assertEquals(listOf("Понедельник", "Вторник"), days.map { it.title })
+        assertEquals(emptyList<Release>(), days[1].releases)
+        val (full, originalOnly) = days[0].releases
+        assertEquals(2, days[0].releases.size)
+        assertEquals(540, full.id)
+        assertEquals("Тестовый релиз", full.title)
+        assertEquals("Test Release", full.originalTitle)
+        assertEquals("https://dreamerscast.com/home/release/540", full.url)
+        assertEquals("https://cache.dreamerscast.com/uploads/540.jpg", full.posterUrl)
+        assertEquals(2026, full.year)
+        assertEquals(6, full.currentEpisodes)
+        assertEquals(12, full.totalEpisodes)
+        assertEquals("Драма", full.genres)
+        assertEquals("Studio", full.studio)
+        assertEquals("Original Only", originalOnly.title)
+        assertEquals("https://cdn.example.test/541.jpg", originalOnly.posterUrl)
+        assertEquals(3, originalOnly.currentEpisodes)
+        assertEquals(0, originalOnly.totalEpisodes)
+    }
+
+    @Test
+    fun `changed schedule markup is an error, not an empty schedule`() {
+        val error =
+            assertThrows(IllegalArgumentException::class.java) {
+                SiteParser.schedule("<html><body><h4>Понедельник</h4><p>…</p></body></html>")
+            }
+        assertEquals("Расписание не найдено", error.message)
+    }
+
+    @Test
+    fun `release page without player is reported`() {
+        val page = fixture("release_page.html").replace("{{PLAYER_PAYLOAD}}", "#0payload")
+        val noPayload = page.replace(Regex("""(?:new\s+)?Playerjs\s*\([^)]*\)"""), "")
+        assertEquals(
+            "Не найден PlayerJS payload",
+            assertThrows(IllegalStateException::class.java) {
+                    SiteParser.detail(noPayload, Release(1, ""))
+                }
+                .message,
+        )
+        val noScript = page.replace("/js/playerjs", "/js/other")
+        assertEquals(
+            "Не найден скрипт PlayerJS",
+            assertThrows(IllegalStateException::class.java) {
+                    SiteParser.detail(noScript, Release(1, ""))
+                }
+                .message,
+        )
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun `site failure is not an empty catalog`() {
         SiteParser.options("<html>Unavailable</html>")

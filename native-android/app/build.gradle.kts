@@ -31,8 +31,8 @@ android {
         applicationId = "com.dreamcast.app"
         minSdk = 23
         targetSdk = 36
-        versionCode = 904001
-        versionName = "0.9.4"
+        versionCode = 905001
+        versionName = "0.9.5"
         buildConfigField("String", "SOURCE_REVISION", "\"$sourceRevision\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += setOf("armeabi-v7a", "arm64-v8a") }
