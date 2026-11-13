@@ -14,7 +14,13 @@ import com.dreamcast.nativeapp.data.Storage
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.*
 
-class DreamApplication : Application() {
+class DreamApplication : Application(), coil.ImageLoaderFactory {
+    /** Posters load over the app's shared HTTP connections (SharedHttp). */
+    override fun newImageLoader(): coil.ImageLoader =
+        coil.ImageLoader.Builder(this)
+            .okHttpClient { com.dreamcast.nativeapp.data.SharedHttp.base }
+            .build()
+
     internal val episodeCheckMutex = kotlinx.coroutines.sync.Mutex()
     private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var startup: Deferred<Unit>? = null

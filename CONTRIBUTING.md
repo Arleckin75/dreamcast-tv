@@ -37,7 +37,7 @@
 ```
 fix: keep Media3 buffer fields used by dav1d JNI from R8
 build: update OkHttp to 5.4.0
-chore: prepare v0.9.4 release
+docs: add release notes for v0.9.6
 ```
 
 Не используйте сообщения вроде `fix`, `audit`, `clear`, `rebuild`: по ним

@@ -20,8 +20,8 @@ jobs:
           persist-credentials: false
       - name: Check packaging scripts
         run: |
-          python3 -m py_compile scripts/prepare_media3_dav1d.py scripts/decoder_license_notices.py scripts/audit_dav1d_apk.py scripts/audit_av1_apk.py
-          python3 -m unittest discover -s scripts/tests -p 'test_media3_apk.py' -v
+          python3 -m py_compile scripts/prepare_media3_dav1d.py scripts/decoder_license_notices.py scripts/audit_dav1d_apk.py scripts/audit_av1_apk.py scripts/app_version.py
+          python3 -m unittest discover -s scripts/tests -p 'test_*.py' -v
           bash scripts/tests/install_android_ndk_test.sh
   app:
     name: Build Media3 + dav1d Debug APK
@@ -32,6 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 0 # builds are named after the latest vX.Y.Z tag, e.g. 0.9.5-dev
       - uses: actions/setup-java@v5
         with:
           distribution: temurin

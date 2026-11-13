@@ -2,7 +2,6 @@ package com.dreamcast.nativeapp.update
 
 import com.dreamcast.nativeapp.data.Storage
 import java.io.IOException
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -76,10 +75,7 @@ class UpdateChecker(
         const val DAY_MS = 24 * 3600 * 1000L
 
         val defaultClient: OkHttpClient by lazy {
-            OkHttpClient.Builder()
-                .connectTimeout(20, TimeUnit.SECONDS)
-                .readTimeout(60, TimeUnit.SECONDS)
-                .build()
+            com.dreamcast.nativeapp.data.SharedHttp.client(connect = 20, read = 60)
         }
     }
 }

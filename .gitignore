@@ -53,6 +53,7 @@ app.*.map.json
 /native-android/local.properties
 /native-android/app/build/
 /native-android/dav1d/build/
+/native-android/baselineprofile/build/
 /native-android/dav1d/.cxx/
 /native-android/build/
 /av1-runtime-dependencies.txt

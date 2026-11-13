@@ -277,7 +277,7 @@ private fun ReleaseFeed(model: AppViewModel, filter: CatalogFilter, query: Strin
     }
     Column(Modifier.fillMaxSize()) {
         if (stale || response?.stale == true) Stale()
-        if (loading && displayed.isEmpty()) Loading()
+        if (loading && displayed.isEmpty()) PosterGridSkeleton()
         if (!loading && all.isEmpty() && data.error == null)
             Text("Релизы не найдены", modifier = Modifier.padding(24.dp))
         if (displayed.isNotEmpty()) {
