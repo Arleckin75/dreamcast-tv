@@ -4,7 +4,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.LruCache
 import java.io.IOException
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -90,10 +89,7 @@ internal class ThumbnailLoader(
 
     companion object {
         private val defaultClient: OkHttpClient by lazy {
-            OkHttpClient.Builder()
-                .connectTimeout(10, TimeUnit.SECONDS)
-                .readTimeout(15, TimeUnit.SECONDS)
-                .build()
+            com.dreamcast.nativeapp.data.SharedHttp.client(connect = 10, read = 15)
         }
 
         /** The [cue] region of [sprite]; the whole sprite when the cue has no region. */

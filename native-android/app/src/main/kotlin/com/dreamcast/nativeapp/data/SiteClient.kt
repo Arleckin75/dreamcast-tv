@@ -1,7 +1,6 @@
 package com.dreamcast.nativeapp.data
 
 import java.io.IOException
-import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.CancellationException
@@ -18,12 +17,7 @@ import okhttp3.Response
 /** HTTP client for dreamerscast.com with the browser headers and retries the site needs. */
 class SiteClient(
     val baseUrl: String = BASE_URL,
-    private val client: OkHttpClient =
-        OkHttpClient.Builder()
-            .connectTimeout(45, TimeUnit.SECONDS)
-            .readTimeout(45, TimeUnit.SECONDS)
-            .callTimeout(12, TimeUnit.SECONDS)
-            .build(),
+    private val client: OkHttpClient = SharedHttp.client(connect = 45, read = 45, call = 12),
 ) {
     private class HttpFailure(val status: Int) : IOException("Ошибка сервера: $status")
 
