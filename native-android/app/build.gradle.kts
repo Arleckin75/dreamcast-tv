@@ -23,6 +23,27 @@ val sourceRevision = providers.environmentVariable("GITHUB_SHA").orElse(provider
     }.getOrDefault("local")
 }).get().replace(Regex("[^A-Za-z0-9._-]"), "").take(40)
 
+// Release numbers come from git tags, see scripts/app_version.py: only the release workflow
+// takes the next number and passes it as -PappVersion. Every other build reuses the latest
+// release tag and is marked "-dev" (release) or "-debug" (debug).
+val releaseVersionPattern = Regex("""^(\d+)\.(\d)\.(\d)$""")
+val requestedAppVersion = providers.gradleProperty("appVersion").orNull?.trim()?.takeIf { it.isNotEmpty() }
+val latestReleaseTag = runCatching {
+    providers.exec {
+        workingDir(rootProject.projectDir.parentFile)
+        commandLine("git", "tag", "--list", "v*")
+    }.standardOutput.asText.get()
+        .lines()
+        .mapNotNull { Regex("""^v(\d+)\.(\d+)\.(\d+)$""").find(it.trim())?.destructured }
+        .map { (a, b, c) -> listOf(a.toInt(), b.toInt(), c.toInt()) }
+        .maxWithOrNull(compareBy<List<Int>>({ it[0] }, { it[1] }, { it[2] }))
+        ?.joinToString(".")
+}.getOrNull() ?: "0.0.0"
+val appVersionName = requestedAppVersion ?: latestReleaseTag
+val appVersionCode = releaseVersionPattern.find(appVersionName)?.destructured
+    ?.let { (major, minor, patch) -> major.toInt() * 1_000_000 + minor.toInt() * 100_000 + patch.toInt() * 1000 + 1 }
+    ?: error("appVersion must be X.Y.Z with Y and Z in 0-9, got '$appVersionName'")
+
 android {
     namespace = "com.dreamcast.nativeapp"
     ndkVersion = "28.2.13676358"
@@ -31,8 +52,8 @@ android {
         applicationId = "com.dreamcast.app"
         minSdk = 23
         targetSdk = 36
-        versionCode = 905001
-        versionName = "0.9.5"
+        versionCode = appVersionCode
+        versionName = appVersionName
         buildConfigField("String", "SOURCE_REVISION", "\"$sourceRevision\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += setOf("armeabi-v7a", "arm64-v8a") }
@@ -47,8 +68,13 @@ android {
         getByName("main").assets.srcDir("../../assets")
     }
     buildTypes {
-        debug { applicationIdSuffix = providers.gradleProperty("nativeDebugSuffix").getOrElse(".kotlin") }
+        debug {
+            applicationIdSuffix = providers.gradleProperty("nativeDebugSuffix").getOrElse(".kotlin")
+            versionNameSuffix = "-debug"
+        }
         release {
+            // Only the release workflow passes appVersion; other release builds are not releases.
+            if (requestedAppVersion == null) versionNameSuffix = "-dev"
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
