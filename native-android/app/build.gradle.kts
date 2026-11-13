@@ -96,6 +96,18 @@ android {
                 }
             }
         }
+        // Baseline Profile generation only (:baselineprofile): release code without R8, so the
+        // profile names real classes; R8 maps them in release builds. Its own application ID and
+        // the debug key let it install next to a published release on the TV.
+        create("profiling") {
+            initWith(getByName("release"))
+            isMinifyEnabled = false
+            isShrinkResources = false
+            applicationIdSuffix = ".profiling"
+            versionNameSuffix = "-profiling"
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += "release"
+        }
     }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }
@@ -138,6 +150,8 @@ dependencies {
     implementation("androidx.tv:tv-material:1.1.0")
     implementation("androidx.work:work-runtime-ktx:2.11.2")
     implementation("androidx.core:core-ktx:1.18.0")
+    // Installs src/main/baseline-prof.txt on sideloaded installs, where no app store does it.
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation("com.squareup.okhttp3:okhttp:5.4.0")
     implementation("org.jsoup:jsoup:1.23.2")

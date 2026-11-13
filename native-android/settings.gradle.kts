@@ -10,3 +10,5 @@ dependencyResolutionManagement {
 rootProject.name = "DreamCastNative"
 include(":app")
 include(":dav1d")
+// Generates app/src/main/baseline-prof.txt on a connected TV; not part of the APK.
+include(":baselineprofile")
