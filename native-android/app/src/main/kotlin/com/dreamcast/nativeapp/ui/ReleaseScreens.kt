@@ -82,13 +82,15 @@ internal fun ReleaseDetail(model: AppViewModel, seed: Release) {
                     }
                 }
             }
-            if (loaded.loading) Loading()
             loaded.error?.let { ErrorState(it) { retry++ } }
-            Text(
-                release.description.ifBlank { "Описание отсутствует" },
-                fontSize = 18.sp,
-                modifier = Modifier.focusable(),
-            )
+            // The list item has no description; skeleton lines until the page arrives.
+            if (loaded.loading && release.description.isBlank()) DescriptionSkeleton()
+            else
+                Text(
+                    release.description.ifBlank { "Описание отсутствует" },
+                    fontSize = 18.sp,
+                    modifier = Modifier.focusable(),
+                )
         }
     }
     if (bookmarkDialog)
@@ -150,7 +152,7 @@ internal fun Episodes(model: AppViewModel, activity: MainActivity, release: Rele
         }
     }
     val progress = model.ui.progressByRelease[release.id].orEmpty()
-    if (data.loading) Loading()
+    if (data.loading && data.value == null) EpisodeListSkeleton()
     data.error?.let { ErrorState(it) { retry++ } }
     if (data.value?.stale == true) Stale()
     LazyColumn(
@@ -203,7 +205,8 @@ internal fun Schedule(model: AppViewModel) {
     LaunchedEffect(firstDayIndex, initialFocus) {
         if (initialFocus && firstDayIndex >= 0) listState.scrollToItem(firstDayIndex)
     }
-    if (data.loading) Loading()
+    // First load only: a refresh keeps showing the saved schedule instead.
+    if (data.loading && data.value == null) ScheduleSkeleton()
     data.error?.let { ErrorState(it) { retry++ } }
     if (data.value?.stale == true) Stale()
     LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(16.dp)) {

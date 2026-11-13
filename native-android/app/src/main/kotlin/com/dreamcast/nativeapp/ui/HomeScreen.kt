@@ -94,7 +94,7 @@ internal fun Home(model: AppViewModel) {
                 ) {
                     model.navigate(Route("detail", featured))
                 }
-            else if (data.loading) Loading() else data.error?.let { ErrorState(it) { retry++ } }
+            else if (data.loading) BannerSkeleton() else data.error?.let { ErrorState(it) { retry++ } }
         }
         if (data.value?.stale == true) item { Stale() }
         if (recent.isNotEmpty())
