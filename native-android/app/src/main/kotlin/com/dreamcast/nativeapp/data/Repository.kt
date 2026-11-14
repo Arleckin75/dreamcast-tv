@@ -3,6 +3,9 @@ package com.dreamcast.nativeapp.data
 import com.dreamcast.nativeapp.NativePerformance
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
 /**
@@ -151,6 +154,50 @@ class Repository(val storage: Storage, val source: DreamcastSource = DreamcastSi
     ): Cached<CatalogOptions> =
         cached("dreamcast:catalog:options", 86400000L, source.catalogOptions(), onStale = onStale)
 
+    /**
+     * Number of catalog releases per genre id. The site has no such list, so this asks the
+     * catalog once per genre, one request at a time with a pause between them, and keeps the
+     * result for a day. A failed refresh keeps the previous counts.
+     */
+    suspend fun genreCounts(genres: List<Genre>): Cached<Map<String, Int>> =
+        cached(
+            "dreamcast:catalog:genre-counts",
+            GENRE_COUNTS_TTL_MS,
+            SourceRequest(
+                fetch = {
+                    // A few genres at a time: the counts arrive faster, while each worker still
+                    // pauses between its requests so the site never sees a burst.
+                    val gate = kotlinx.coroutines.sync.Semaphore(GENRE_COUNT_PARALLEL)
+                    val counts =
+                        kotlinx.coroutines.coroutineScope {
+                            genres
+                                .mapIndexed { index, genre ->
+                                    async {
+                                        gate.withPermit {
+                                            if (index >= GENRE_COUNT_PARALLEL)
+                                                kotlinx.coroutines.delay(GENRE_COUNT_PAUSE_MS)
+                                            val request =
+                                                source.releases(
+                                                    "",
+                                                    CatalogFilter(genres = setOf(genre.id)),
+                                                    1,
+                                                )
+                                            genre.id to request.parse(request.fetch()).total
+                                        }
+                                    }
+                                }
+                                .awaitAll()
+                        }
+                    org.json.JSONObject().apply { counts.forEach { (id, total) -> put(id, total) } }
+                        .toString()
+                },
+                parse = { text ->
+                    val json = org.json.JSONObject(text)
+                    json.keys().asSequence().associateWith { json.getInt(it) }
+                },
+            ),
+        )
+
     suspend fun detail(
         release: Release,
         refresh: Boolean = false,
@@ -181,4 +228,12 @@ class Repository(val storage: Storage, val source: DreamcastSource = DreamcastSi
         onStale: ((Cached<List<ScheduleDay>>) -> Unit)? = null
     ): Cached<List<ScheduleDay>> =
         cached("dreamcast:schedule", 30 * 60000L, source.schedule(), onStale = onStale)
+
+    private companion object {
+        const val GENRE_COUNTS_TTL_MS = 24 * 3600 * 1000L
+        /** Spreads the per-genre requests out so the site sees no burst. */
+        const val GENRE_COUNT_PAUSE_MS = 250L
+        /** Genre count requests in flight at once. */
+        const val GENRE_COUNT_PARALLEL = 3
+    }
 }

@@ -1,7 +1,6 @@
 package com.dreamcast.nativeapp.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -58,6 +57,23 @@ internal fun Home(model: AppViewModel) {
     val featuredIndex = releases.indexOfFirst { it.id == featuredId }.coerceAtLeast(0)
     val featured = releases.getOrNull(featuredIndex)
     val recent = model.ui.continueWatching
+    val marks = rememberPosterMarks(model.ui)
+    val schedule = resource("home-schedule") { publish -> model.repository.schedule(onStale = publish) }
+    val nextDay =
+        remember(schedule.value) {
+            nearestScheduleDay(schedule.value?.value.orEmpty(), java.time.LocalDate.now().dayOfWeek)
+        }
+    val fresh =
+        remember(model.ui.notifications) {
+            model.ui.notifications.filter { it.unread }.mapNotNull { it.release }.distinctBy { it.id }
+        }
+    val watching =
+        remember(model.ui.bookmarks, recent) {
+            val inProgress = recent.map { it.release.id }.toSet()
+            model.ui.bookmarks
+                .filter { it.status == LibraryStatus.watching && it.release.id !in inProgress }
+                .map { it.release }
+        }
     val listState = rememberLazyListState()
     var bannerFocused by remember { mutableStateOf(false) }
     var initialBannerFocus by remember { mutableStateOf(true) }
@@ -97,42 +113,113 @@ internal fun Home(model: AppViewModel) {
             else if (data.loading) BannerSkeleton() else data.error?.let { ErrorState(it) { retry++ } }
         }
         if (data.value?.stale == true) item { Stale() }
+        // Right under the banner: Down from the banner always reaches the catalog first.
+        if (releases.isNotEmpty())
+            item { Action("Все релизы  ›") { model.selectSection("catalog") } }
         if (recent.isNotEmpty())
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Продолжить просмотр", style = MaterialTheme.typography.titleLarge)
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(18.dp),
-                        contentPadding = PaddingValues(6.dp),
-                    ) {
-                        items(recent, key = { it.release.id }) { item ->
-                            Column(Modifier.width(220.dp)) {
-                                Poster(item.release, landscape = true) {
-                                    model.navigate(Route("episodes", item.release, item.episodeId))
-                                }
-                                LinearProgressIndicator(
-                                    progress = {
-                                        if (item.durationMs > 0)
-                                            (item.positionMs.toFloat() / item.durationMs).coerceIn(
-                                                0f,
-                                                1f,
-                                            )
-                                        else 0f
-                                    },
-                                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                                )
-                                Text(
-                                    "Серия ${item.ordinal}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    modifier = Modifier.padding(top = 6.dp),
-                                )
-                            }
+                    FittedRow(recent, perScreen = 4, key = { it.release.id }) { item ->
+                        // The caption sits inside the card, so scrolling to it shows it whole.
+                        Poster(
+                            item.release,
+                            landscape = true,
+                            progress =
+                                if (item.durationMs > 0)
+                                    (item.positionMs.toFloat() / item.durationMs).coerceIn(0f, 1f)
+                                else 0f,
+                            caption = "Серия ${item.ordinal}",
+                        ) {
+                            model.navigate(Route("episodes", item.release, item.episodeId))
                         }
                     }
                 }
             }
-        if (releases.isNotEmpty())
-            item { Action("Все релизы  ›") { model.selectSection("catalog") } }
+        if (fresh.isNotEmpty())
+            item { PosterRow("Новые серии", fresh, marks) { model.navigate(Route("detail", it)) } }
+        if (watching.isNotEmpty())
+            item { PosterRow("Смотрю", watching, marks) { model.navigate(Route("detail", it)) } }
+        nextDay?.let { (day, today) ->
+            item {
+                PosterRow(if (today) "Сегодня по расписанию" else "Расписание · ${day.title}", day.releases, marks) {
+                    model.navigate(Route("detail", it))
+                }
+            }
+        }
+    }
+}
+
+private val WEEKDAYS =
+    mapOf(
+        java.time.DayOfWeek.MONDAY to "Понедельник",
+        java.time.DayOfWeek.TUESDAY to "Вторник",
+        java.time.DayOfWeek.WEDNESDAY to "Среда",
+        java.time.DayOfWeek.THURSDAY to "Четверг",
+        java.time.DayOfWeek.FRIDAY to "Пятница",
+        java.time.DayOfWeek.SATURDAY to "Суббота",
+        java.time.DayOfWeek.SUNDAY to "Воскресенье",
+    )
+
+/**
+ * The schedule day for the home screen and whether it is [today]: today's day when it has
+ * releases, else the next day with releases (the site lists the week from Monday, so this wraps
+ * around). Without a day named like today, the first day with releases.
+ */
+internal fun nearestScheduleDay(days: List<ScheduleDay>, today: java.time.DayOfWeek): Pair<ScheduleDay, Boolean>? {
+    val name = WEEKDAYS.getValue(today)
+    val start = days.indexOfFirst { it.title.trim().startsWith(name, ignoreCase = true) }
+    if (start < 0) return days.firstOrNull { it.releases.isNotEmpty() }?.let { it to false }
+    for (offset in days.indices) {
+        val day = days[(start + offset) % days.size]
+        if (day.releases.isNotEmpty()) return day to (offset == 0)
+    }
+    return null
+}
+
+/** A titled row of portrait posters on the home screen. */
+@Composable
+private fun PosterRow(
+    title: String,
+    releases: List<Release>,
+    marks: PosterMarks,
+    onOpen: (Release) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(title, style = MaterialTheme.typography.titleLarge)
+        FittedRow(releases, perScreen = 5, key = { it.id }) { release ->
+            Poster(
+                release,
+                progress = marks.progress(release.id),
+                isNew = marks.isNew(release.id),
+            ) {
+                onOpen(release)
+            }
+        }
+    }
+}
+
+/**
+ * A horizontal row whose cards are sized so exactly [perScreen] fit the screen width: the last
+ * visible card is never cut off at the edge, the rest come into view whole while scrolling.
+ */
+@Composable
+private fun <T> FittedRow(
+    items: List<T>,
+    perScreen: Int,
+    key: (T) -> Any,
+    content: @Composable (T) -> Unit,
+) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val gap = 16.dp
+        val edge = 6.dp
+        val width = (maxWidth - edge * 2 - gap * (perScreen - 1)) / perScreen
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(gap),
+            contentPadding = PaddingValues(edge),
+        ) {
+            items(items, key = key) { item -> Box(Modifier.width(width)) { content(item) } }
+        }
     }
 }
 
@@ -167,12 +254,7 @@ private fun FeaturedRelease(
                     true
                 } else false
             }
-            .border(
-                2.dp,
-                if (focused) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                else Color.Transparent,
-                RoundedCornerShape(22.dp),
-            )
+            .focusFrame(focused, MaterialTheme.colorScheme.onSurface, 22.dp)
             .clip(RoundedCornerShape(22.dp))
             .background(MaterialTheme.colorScheme.surface)
     ) {

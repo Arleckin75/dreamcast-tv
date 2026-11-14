@@ -82,4 +82,32 @@ class VideoDecodingTest {
         assertEquals(1080, videoHeightLimit(VideoOutput.DAV1D, 1080, 540))
         assertEquals(0, videoHeightLimit(VideoOutput.HARDWARE, 0, 540))
     }
+    @Test fun onlyDav1dSeeksToTheNearestKeyframe() {
+        assertEquals(
+            androidx.media3.exoplayer.SeekParameters.CLOSEST_SYNC,
+            seekParametersFor(VideoOutput.DAV1D),
+        )
+        assertEquals(
+            androidx.media3.exoplayer.SeekParameters.EXACT,
+            seekParametersFor(VideoOutput.HARDWARE),
+        )
+        assertEquals(
+            androidx.media3.exoplayer.SeekParameters.EXACT,
+            seekParametersFor(VideoOutput.SYSTEM),
+        )
+    }
+    @Test fun keyframeSeeksMoveInTheirDirectionToTheNearestKeyframe() {
+        val keyframes = listOf(0L, 10_010L, 20_020L, 30_030L, 40_040L)
+        // Forward from the end of a segment still moves forward, to the next keyframe.
+        assertEquals(20_020L, keyframeSeekTarget(19_900L, 9_900L, keyframes))
+        // Nearest keyframe to the target, ahead or behind it.
+        assertEquals(30_030L, keyframeSeekTarget(28_000L, 15_000L, keyframes))
+        assertEquals(20_020L, keyframeSeekTarget(23_000L, 15_000L, keyframes))
+        // Backward never picks a keyframe after the current position.
+        assertEquals(10_010L, keyframeSeekTarget(12_000L, 20_100L, keyframes))
+        assertEquals(20_020L, keyframeSeekTarget(16_300L, 26_300L, keyframes))
+        // No keyframes (not HLS) or none in that direction: the exact target.
+        assertEquals(12_345L, keyframeSeekTarget(12_345L, 2_345L, emptyList()))
+        assertEquals(45_000L, keyframeSeekTarget(45_000L, 41_000L, keyframes))
+    }
 }

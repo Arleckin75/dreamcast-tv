@@ -1,8 +1,6 @@
 package com.dreamcast.nativeapp.data
 
 import android.content.Context
-import android.os.Build
-import java.io.File
 import org.json.JSONObject
 
 /**
@@ -18,7 +16,6 @@ class Storage(
 ) {
     init {
         require(maxCacheEntries > 0 && maxCacheBytes > 0)
-        deleteLegacyFlutterPreferences(context)
     }
 
     data class CacheRow(val value: String, val updatedAt: Long, val expiresAt: Long?)
@@ -115,28 +112,4 @@ class Storage(
         duration: Long,
         completed: Boolean = false,
     ) = history.saveProgress(release, episode, position, duration, completed)
-}
-
-internal const val LEGACY_FLUTTER_PREFERENCES = "FlutterSharedPreferences"
-
-/**
- * Removes the preferences file left by the Flutter app (0.8.x and earlier).
- * It is no longer read; deleting it frees space and drops old personal data.
- */
-internal fun deleteLegacyFlutterPreferences(context: Context) {
-    val file =
-        File(context.applicationInfo.dataDir, "shared_prefs/$LEGACY_FLUTTER_PREFERENCES.xml")
-    if (!file.exists()) return
-    runCatching {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            context.deleteSharedPreferences(LEGACY_FLUTTER_PREFERENCES)
-        } else {
-            context
-                .getSharedPreferences(LEGACY_FLUTTER_PREFERENCES, Context.MODE_PRIVATE)
-                .edit()
-                .clear()
-                .commit()
-            file.delete()
-        }
-    }
 }

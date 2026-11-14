@@ -18,6 +18,18 @@ internal data class ThumbnailCue(
  * `00:00:10.000 --> 00:00:20.000` followed by `img1.webp#xywh=160,0,160,90`.
  */
 internal class ThumbnailTrack(val cues: List<ThumbnailCue>) {
+    /**
+     * One cue per sprite around [positionMs]: the sprite shown there and the sprites just before
+     * and after it, so scrubbing from here in either direction finds its frames already loaded.
+     */
+    fun spritesAround(positionMs: Long): List<ThumbnailCue> {
+        val here = frameAt(positionMs) ?: return emptyList()
+        val index = cues.indexOf(here)
+        val before = cues.subList(0, index).lastOrNull { it.imageUrl != here.imageUrl }
+        val after = cues.subList(index + 1, cues.size).firstOrNull { it.imageUrl != here.imageUrl }
+        return listOfNotNull(here, after, before)
+    }
+
     /** The frame shown at [positionMs]: the cue containing it, else the closest earlier one. */
     fun frameAt(positionMs: Long): ThumbnailCue? {
         if (cues.isEmpty()) return null

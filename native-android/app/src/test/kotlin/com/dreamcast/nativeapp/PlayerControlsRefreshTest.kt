@@ -34,7 +34,6 @@ class PlayerControlsRefreshTest {
                 onRetry = {},
                 onNext = {},
                 nextTitle = null,
-                onQuality = {},
                 onInteraction = {},
             )
         try {

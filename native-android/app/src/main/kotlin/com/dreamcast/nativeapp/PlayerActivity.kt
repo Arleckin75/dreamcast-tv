@@ -60,7 +60,7 @@ class PlayerActivity : ComponentActivity() {
     private var resumePosition = 0L
     private var ready = false
     private val softwareFrameMonitor = SoftwareFrameMonitor()
-    private var softwareAutoMaxHeight = 720
+    private var softwareAutoMaxHeight = SOFTWARE_AUTO_START_HEIGHT
     private var completed = false
     private var activityStarted = false
     private var lastSaved: ProgressSnapshot? = null
@@ -74,6 +74,8 @@ class PlayerActivity : ComponentActivity() {
     private var thumbnailJob: Job? = null
     private var frameJob: Job? = null
     private var frameSprite = ""
+    private var prefetchJob: Job? = null
+    private var prefetchSprites = emptyList<String>()
     private var swallowKeyUp = KeyEvent.KEYCODE_UNKNOWN
     private val commitScrubTask = Runnable { commitScrub() }
     private val saveTick =
@@ -102,15 +104,10 @@ class PlayerActivity : ComponentActivity() {
                     return super.dispatchKeyEvent(event)
                 }
             }
-        video =
-            PlayerView(this).apply {
-                keepScreenOn = true
-                setShowSubtitleButton(true)
-                setShowNextButton(false)
-                setShowPreviousButton(false)
-            }
+        // A placeholder until playback starts: configureVideoView() replaces it with the view
+        // for the chosen decoder, and the window's keep-screen-on flag follows playback.
+        video = PlayerView(this).apply { useController = false }
         root.addView(video, FrameLayout.LayoutParams(-1, -1))
-        video.useController = false
         controls =
             PlayerControls(
                 this,
@@ -129,7 +126,6 @@ class PlayerActivity : ComponentActivity() {
                 },
                 onNext = ::nextEpisode,
                 nextTitle = null,
-                onQuality = {},
                 onInteraction = ::reveal,
                 settingsItems = {
                     buildList {
@@ -248,7 +244,7 @@ class PlayerActivity : ComponentActivity() {
         player?.release()
         player = null
         softwareFrameMonitor.reset()
-        softwareAutoMaxHeight = 720
+        softwareAutoMaxHeight = SOFTWARE_AUTO_START_HEIGHT
         controls.showLoading("Проверка видеопотока…")
         playbackJob = lifecycleScope.launch {
             try {
@@ -524,7 +520,15 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun chooseQuality() {
-        val heights = QUALITY_HEIGHTS
+        // Only heights the stream really has and the current decoder path can play.
+        val playable = formats.filter {
+            when (output) {
+                VideoOutput.DAV1D -> capabilities.software(it)
+                VideoOutput.HARDWARE -> capabilities.hardware(it)
+                VideoOutput.SYSTEM -> true
+            }
+        }
+        val heights = qualityChoices((playable.ifEmpty { formats }).map { it.height })
         showPlayerMenu(
             this,
             "Качество",
@@ -534,7 +538,7 @@ class PlayerActivity : ComponentActivity() {
         ) { index ->
             selectedQuality = heights[index]
             softwareFrameMonitor.reset()
-            softwareAutoMaxHeight = 720
+            softwareAutoMaxHeight = SOFTWARE_AUTO_START_HEIGHT
             player?.let(::applyQualityLimit)
         }
     }
@@ -705,6 +709,7 @@ class PlayerActivity : ComponentActivity() {
     private fun reveal() {
         if (!activityStarted || inPip()) return
         controls.show()
+        prefetchPreviews()
         handler.removeCallbacks(controlTick)
         handler.post(controlTick)
         handler.removeCallbacks(hideControls)
@@ -717,7 +722,25 @@ class PlayerActivity : ComponentActivity() {
         thumbnailJob?.cancel()
         thumbnailTrack = null
         if (target.thumbnails.isBlank()) return
-        thumbnailJob = lifecycleScope.launch { thumbnailTrack = thumbnails.track(target.thumbnails) }
+        thumbnailJob = lifecycleScope.launch {
+            thumbnailTrack = thumbnails.track(target.thumbnails)
+            prefetchPreviews()
+        }
+    }
+
+    /**
+     * Loads the preview sprites around the playback position in the background, so the first
+     * left/right press shows a frame instead of waiting for its sprite.
+     */
+    private fun prefetchPreviews(positionMs: Long? = null) {
+        val track = thumbnailTrack ?: return
+        val position = positionMs ?: player?.currentPosition ?: return
+        val cues = track.spritesAround(position)
+        val sprites = cues.map { it.imageUrl }
+        if (prefetchJob?.isActive == true && sprites == prefetchSprites) return
+        prefetchJob?.cancel()
+        prefetchSprites = sprites
+        prefetchJob = lifecycleScope.launch { cues.forEach { thumbnails.frame(it) } }
     }
 
     /**
@@ -761,7 +784,7 @@ class PlayerActivity : ComponentActivity() {
         handler.removeCallbacks(commitScrubTask)
         val target = scrubber.commit() ?: return
         controls.hideScrub()
-        player?.seekTo(target)
+        player?.let { seekToward(it, target) }
         if (controls.visible) reveal()
     }
 
@@ -791,10 +814,20 @@ class PlayerActivity : ComponentActivity() {
         return true
     }
 
+    /** dav1d seeks land on a keyframe: decoding up to an exact position is slow on weak TVs. */
+    private fun seekToward(exo: ExoPlayer, target: Long) {
+        val position =
+            if (output == VideoOutput.DAV1D)
+                keyframeSeekTarget(target, exo.currentPosition, hlsKeyframesMs(exo))
+            else target
+        exo.seekTo(position)
+        prefetchPreviews(position)
+    }
+
     private fun seekBy(delta: Long) {
         player?.let { exo ->
             val end = exo.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
-            exo.seekTo((exo.currentPosition + delta).coerceIn(0, end))
+            seekToward(exo, (exo.currentPosition + delta).coerceIn(0, end))
         }
         controls.showSeekFeedback(delta)
         if (controls.visible) reveal()

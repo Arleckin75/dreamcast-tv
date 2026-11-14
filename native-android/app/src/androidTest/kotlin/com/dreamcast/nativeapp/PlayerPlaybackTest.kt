@@ -126,7 +126,8 @@ class PlayerPlaybackTest {
                         app.storage.number("progress.updatedAt.990001:990001-1"),
                     )
                     onView(withText(startsWith("Качество ·"))).perform(click())
-                    onView(withContentDescription("720p")).perform(click())
+                    // The audio-only fixture has no video variants, so the menu offers only Auto.
+                    onView(withContentDescription("Авто")).perform(click())
                     openSettings()
                     onView(withText(startsWith("Скорость ·"))).perform(click())
                     onView(withContentDescription("1.5×")).perform(click())
@@ -155,7 +156,11 @@ class PlayerPlaybackTest {
                             androidx.media3.common.C.TRACK_TYPE_AUDIO in
                                 engine.trackSelectionParameters.disabledTrackTypes
                         )
-                        assertEquals(720, engine.trackSelectionParameters.maxVideoHeight)
+                        // Auto without a dav1d video stream leaves the video height unlimited.
+                        assertEquals(
+                            Int.MAX_VALUE,
+                            engine.trackSelectionParameters.maxVideoHeight,
+                        )
                         assertEquals(1.5f, engine.playbackParameters.speed)
                         val content =
                             activity.findViewById<android.view.ViewGroup>(android.R.id.content)
@@ -172,6 +177,9 @@ class PlayerPlaybackTest {
                     }
                     InstrumentationRegistry.getInstrumentation()
                         .sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_DPAD_RIGHT)
+                    // Right picks a seek target; it is applied after SeekScrubber.COMMIT_DELAY_MS.
+                    // Back before that would only cancel the pick and keep the panel.
+                    Thread.sleep(SeekScrubber.COMMIT_DELAY_MS + 300)
                     androidx.test.espresso.Espresso.pressBack()
                     Thread.sleep(300) // Allow the bottom panel to finish sliding off screen.
                     onView(withContentDescription("Настройки воспроизведения"))

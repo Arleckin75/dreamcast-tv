@@ -15,11 +15,31 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.*
 
 class DreamApplication : Application(), coil.ImageLoaderFactory {
-    /** Posters load over the app's shared HTTP connections (SharedHttp). */
-    override fun newImageLoader(): coil.ImageLoader =
-        coil.ImageLoader.Builder(this)
+    /**
+     * Posters load over the app's shared HTTP connections (SharedHttp). The poster CDN sends a
+     * one-year max-age, so Coil's default header handling already keeps them on disk.
+     * Low-RAM TVs decode posters as RGB_565 (opaque JPEGs, half the memory) and keep a smaller
+     * memory cache; the disk cache has a fixed budget instead of a share of free space.
+     */
+    override fun newImageLoader(): coil.ImageLoader {
+        val lowRam =
+            getSystemService(android.app.ActivityManager::class.java)?.isLowRamDevice == true
+        return coil.ImageLoader.Builder(this)
             .okHttpClient { com.dreamcast.nativeapp.data.SharedHttp.base }
+            .allowRgb565(lowRam)
+            .memoryCache {
+                coil.memory.MemoryCache.Builder(this)
+                    .maxSizePercent(if (lowRam) 0.15 else 0.25)
+                    .build()
+            }
+            .diskCache {
+                coil.disk.DiskCache.Builder()
+                    .directory(cacheDir.resolve("image_cache"))
+                    .maxSizeBytes(POSTER_DISK_CACHE_BYTES)
+                    .build()
+            }
             .build()
+    }
 
     internal val episodeCheckMutex = kotlinx.coroutines.sync.Mutex()
     private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -88,6 +108,9 @@ class DreamApplication : Application(), coil.ImageLoaderFactory {
             )
     }
 }
+
+/** Posters are ~50–150 KB each: room for a few thousand covers on small TV storage. */
+private const val POSTER_DISK_CACHE_BYTES = 192L * 1024 * 1024
 
 object EpisodeScheduler {
     fun checkSoon(context: Context) {

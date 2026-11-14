@@ -140,14 +140,34 @@ class SeekPreviewTest {
     }
 
     @Test
+    fun `sprites around a position are the current one and its neighbours`() {
+        fun cue(start: Long, image: String) =
+            ThumbnailCue(start, start + 10_000, "https://x.test/$image.webp", 0, 0, 160, 90)
+        val track =
+            ThumbnailTrack(
+                listOf(cue(0, "a"), cue(10_000, "a"), cue(20_000, "b"), cue(30_000, "b"), cue(40_000, "c"))
+            )
+        fun images(position: Long) = track.spritesAround(position).map { it.imageUrl.substringAfterLast('/') }
+        assertEquals(listOf("b.webp", "c.webp", "a.webp"), images(25_000))
+        assertEquals(listOf("a.webp", "b.webp"), images(5_000))
+        assertEquals(listOf("c.webp", "b.webp"), images(45_000))
+        assertTrue(ThumbnailTrack(emptyList()).spritesAround(0).isEmpty())
+    }
+
+    @Test
     fun `crop returns the cue region or the whole sprite`() {
         val sprite = Bitmap.createBitmap(800, 450, Bitmap.Config.RGB_565)
         val cue = ThumbnailCue(0, 10_000, "https://x.test/a.webp", 160, 90, 160, 90)
-        val frame = ThumbnailLoader.crop(sprite, cue)!!
-        assertEquals(160, frame.width)
-        assertEquals(90, frame.height)
-        assertSame(sprite, ThumbnailLoader.crop(sprite, cue.copy(width = 0, height = 0)))
-        assertEquals(40, ThumbnailLoader.crop(sprite, cue.copy(x = 760))!!.width)
+        val frame = ThumbnailLoader.crop(sprite, cue) as SpriteFrameDrawable
+        assertEquals(160, frame.intrinsicWidth)
+        assertEquals(90, frame.intrinsicHeight)
+        // Frames share the cached sprite instead of copying its pixels.
+        assertSame(sprite, frame.sprite)
+        assertEquals(android.graphics.Rect(160, 90, 320, 180), frame.source)
+        val whole = ThumbnailLoader.crop(sprite, cue.copy(width = 0, height = 0))!!
+        assertEquals(800, whole.intrinsicWidth)
+        assertEquals(450, whole.intrinsicHeight)
+        assertEquals(40, ThumbnailLoader.crop(sprite, cue.copy(x = 760))!!.intrinsicWidth)
         assertNull(ThumbnailLoader.crop(sprite, cue.copy(x = 800)))
     }
 }

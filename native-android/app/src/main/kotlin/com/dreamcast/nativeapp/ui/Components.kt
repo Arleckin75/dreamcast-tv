@@ -3,7 +3,7 @@ package com.dreamcast.nativeapp.ui
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -16,12 +16,18 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.font.FontWeight
@@ -29,6 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.constrainWidth
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Button as TvButton
@@ -190,6 +197,10 @@ internal fun Poster(
     restoreFocus: Boolean = false,
     onFocused: () -> Unit = {},
     landscape: Boolean = false,
+    progress: Float? = null,
+    isNew: Boolean = false,
+    /** An extra line under the card, inside its focus frame (e.g. the episode to continue). */
+    caption: String? = null,
     onClick: () -> Unit,
 ) {
     val artwork = rememberPosterArtwork(release.posterUrl)
@@ -201,6 +212,7 @@ internal fun Poster(
             animationSpec = tween(140),
             label = "posterFocus",
         )
+    val focusColor = MaterialTheme.colorScheme.onSurface
     LaunchedEffect(Unit) { if (restoreFocus) requester.requestFocus() }
     Column(
         Modifier.fillMaxWidth()
@@ -223,42 +235,121 @@ internal fun Poster(
                 scaleX = scale
                 scaleY = scale
             }
-            .border(
-                if (focused) 3.dp else 1.dp,
-                if (focused) MaterialTheme.colorScheme.onSurface else Color.Transparent,
-                RoundedCornerShape(12.dp),
-            )
-            .clip(RoundedCornerShape(12.dp))
+            .focusFrame(focused, focusColor, 12.dp)
             .padding(5.dp)
     ) {
-        AsyncImage(
-            release.posterUrl,
-            release.title,
-            modifier =
-                Modifier.fillMaxWidth()
-                    .aspectRatio(if (landscape) 16f / 9f else 0.70f)
-                    .clip(RoundedCornerShape(8.dp)),
-            contentScale = ContentScale.Crop,
-            onSuccess = { artwork.loaded(it.result.drawable) },
-            onError = { artwork.failed() },
-        )
-        Text(
-            release.title,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            style = MaterialTheme.typography.titleSmall,
-            modifier = Modifier.height(44.dp).padding(top = 6.dp),
-        )
-        Text(
+        Box(
+            Modifier.fillMaxWidth()
+                .aspectRatio(if (landscape) 16f / 9f else 0.70f)
+                .clip(RoundedCornerShape(8.dp))
+        ) {
+            AsyncImage(
+                release.posterUrl,
+                release.title,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+                onSuccess = { artwork.loaded(it.result.drawable) },
+                onError = { artwork.failed() },
+            )
+            if (isNew)
+                Text(
+                    "Новая серия",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    modifier =
+                        Modifier.align(Alignment.TopStart)
+                            .padding(6.dp)
+                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(50))
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                )
+            progress?.let { value ->
+                // Watched part of the episode in progress, along the bottom of the cover.
+                Box(
+                    Modifier.align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .background(Color.Black.copy(alpha = 0.55f))
+                ) {
+                    Box(
+                        Modifier.fillMaxHeight()
+                            .fillMaxWidth(value.coerceIn(0f, 1f))
+                            .background(MaterialTheme.colorScheme.primary)
+                    )
+                }
+            }
+        }
+        PosterTitle(release.title, focused)
+        val details =
             listOfNotNull(
                     release.type.takeIf(String::isNotEmpty),
                     release.year.takeIf { it > 0 }?.toString(),
                     release.currentEpisodes.takeIf { it > 0 }?.let { "$it сер." },
                 )
-                .joinToString(" • "),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            style = MaterialTheme.typography.bodySmall,
-        )
+                .joinToString(" • ")
+        // Watch history keeps only the title and cover; no empty line under them.
+        if (details.isNotEmpty())
+            Text(
+                details,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        caption?.let {
+            Text(it, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
+        }
     }
 }
+
+/**
+ * The card title in a two-line slot, so the cards in a row stay aligned. A title longer than two
+ * lines ends with an ellipsis; while the card has focus it becomes one line that scrolls, so the
+ * whole title can be read without the card changing size.
+ */
+@Composable
+private fun PosterTitle(title: String, focused: Boolean) {
+    val style = MaterialTheme.typography.titleSmall
+    var overflows by remember(title) { mutableStateOf(false) }
+    val slot = with(LocalDensity.current) { (style.lineHeight * 2).toDp() }
+    Box(Modifier.padding(top = 6.dp).fillMaxWidth().heightIn(min = slot)) {
+        if (focused && overflows)
+            Text(
+                title,
+                maxLines = 1,
+                style = style,
+                modifier =
+                    Modifier.basicMarquee(
+                        iterations = Int.MAX_VALUE,
+                        initialDelayMillis = 700,
+                        repeatDelayMillis = 1500,
+                    ),
+            )
+        else
+            Text(
+                title,
+                minLines = 2,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                style = style,
+                onTextLayout = { if (!focused) overflows = it.hasVisualOverflow },
+            )
+    }
+}
+
+/**
+ * The focus frame of image cards (posters, the home banner): drawn only while [focused], so the
+ * other cards need no border or clip layer.
+ */
+internal fun Modifier.focusFrame(focused: Boolean, color: Color, radius: Dp): Modifier =
+    drawWithContent {
+        drawContent()
+        if (focused) {
+            val stroke = 3.dp.toPx()
+            drawRoundRect(
+                color,
+                topLeft = Offset(stroke / 2, stroke / 2),
+                size = Size(size.width - stroke, size.height - stroke),
+                cornerRadius = CornerRadius(radius.toPx() - stroke / 2),
+                style = Stroke(stroke),
+            )
+        }
+    }

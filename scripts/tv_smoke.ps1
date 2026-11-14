@@ -145,7 +145,8 @@ if ($Player) {
 Keys 'back' @('BACK'); Shot 'release_again'
 Keys 'back' @('BACK'); Shot 'home_again'
 
-Keys 'catalog' @('DOWN', 'DOWN', 'DOWN', 'OK'); Shot 'catalog' $LoadSeconds
+# "Все релизы" sits right under the banner; one more Down would enter the poster rows.
+Keys 'catalog' @('DOWN', 'OK'); Shot 'catalog' $LoadSeconds
 Keys 'catalog' @('DOWN', 'DOWN', 'RIGHT', 'RIGHT'); Shot 'catalog_scrolled'
 Keys 'catalog' @('OK'); Shot 'catalog_release' $LoadSeconds
 Keys 'catalog' @('BACK'); Shot 'catalog_again'

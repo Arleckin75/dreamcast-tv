@@ -175,12 +175,18 @@ private fun DreamAppContent(model: AppViewModel, activity: MainActivity) {
                     }
                 }
                 BackHandler(model.routes.size > 1) { model.back() }
-                Column(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 20.dp)) {
+                // 48 dp at the sides (about 5 % of the width, the TV safe area); a smaller top
+                // margin keeps the menu from floating in empty space.
+                Column(
+                    Modifier.fillMaxSize()
+                        .padding(start = 48.dp, end = 48.dp, top = 18.dp, bottom = 20.dp)
+                ) {
                     TopNavigation(model)
                     Spacer(Modifier.height(22.dp))
                     if (
+                        // The release page shows its own large title.
                         contentRoute.name !in
-                            listOf("home", "catalog", "search", "library", "schedule")
+                            listOf("home", "catalog", "search", "library", "schedule", "detail")
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -309,6 +315,7 @@ private fun TopNavigation(model: AppViewModel) {
             Triple("settings", "Настройки", R.drawable.ic_nav_settings),
         )
     Row(
+        // Ends at the content's right edge, in line with the cards below.
         Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),

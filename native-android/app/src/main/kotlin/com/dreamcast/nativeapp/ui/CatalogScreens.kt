@@ -5,6 +5,7 @@ import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -42,6 +43,12 @@ internal fun Catalog(model: AppViewModel) {
     var yearDialog by remember { mutableStateOf(false) }
     var genreDialog by remember { mutableStateOf(false) }
     val selected = genres.split(',').filter(String::isNotBlank).toSet()
+    // Releases per genre, counted in the background and cached for a day; empty until known.
+    val allGenres = options.value?.value?.genres.orEmpty()
+    val genreCounts =
+        resource(allGenres.map { it.id }) {
+            if (allGenres.isEmpty()) emptyMap() else model.repository.genreCounts(allGenres).value
+        }.value.orEmpty()
     val names =
         options.value
             ?.value
@@ -102,7 +109,10 @@ internal fun Catalog(model: AppViewModel) {
                             Modifier.weight(1f).heightIn(max = 320.dp),
                             contentPadding = PaddingValues(vertical = 6.dp),
                         ) {
-                            items(data.genres, key = { it.id }) { genre ->
+                            // Genres without releases are hidden unless already chosen.
+                            val shown =
+                                data.genres.filter { (genreCounts[it.id] ?: 1) > 0 || it.id in draft }
+                            items(shown, key = { it.id }) { genre ->
                                 Row(
                                     Modifier.fillMaxWidth()
                                         .clickable {
@@ -120,7 +130,10 @@ internal fun Catalog(model: AppViewModel) {
                                                 if (checked) draft + genre.id else draft - genre.id
                                         },
                                     )
-                                    Text(genre.name)
+                                    Text(
+                                        genreCounts[genre.id]?.let { "${genre.name} ($it)" }
+                                            ?: genre.name
+                                    )
                                 }
                             }
                         }
@@ -288,6 +301,7 @@ private fun ReleaseFeed(model: AppViewModel, filter: CatalogFilter, query: Strin
             ) {
                 Text("Найдено: $total", modifier = Modifier.padding(vertical = 8.dp))
             }
+            val marks = rememberPosterMarks(model.ui)
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(160.dp),
                 state = grid,
@@ -296,11 +310,18 @@ private fun ReleaseFeed(model: AppViewModel, filter: CatalogFilter, query: Strin
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 items(displayed, key = { it.id }) { release ->
-                    Poster(release, focused == release.id, { focused = release.id }) {
+                    Poster(
+                        release,
+                        focused == release.id,
+                        { focused = release.id },
+                        progress = marks.progress(release.id),
+                        isNew = marks.isNew(release.id),
+                    ) {
                         model.navigate(Route("detail", release))
                     }
                 }
-                item {
+                // Own row and stable key: appending a page moves the footer, not recreates it.
+                item(key = "catalog-footer", span = { GridItemSpan(maxLineSpan) }) {
                     if (loading) CircularProgressIndicator()
                     else if (data.error != null) Action("Повторить") { retry++ }
                     else if (hasMore) Action("Загрузить ещё") { feed.requestNextPage() }
@@ -324,13 +345,20 @@ internal fun Library(model: AppViewModel) {
             model.ui.bookmarks.filter { status.isEmpty() || it.status.name == status }
         }
     if (entries.isEmpty()) Text("В этой категории пока нет релизов")
+    val marks = rememberPosterMarks(model.ui)
     LazyVerticalGrid(
         columns = GridCells.Adaptive(160.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         items(entries, key = { it.release.id }) { item ->
-            Poster(item.release) { model.navigate(Route("detail", item.release)) }
+            Poster(
+                item.release,
+                progress = marks.progress(item.release.id),
+                isNew = marks.isNew(item.release.id),
+            ) {
+                model.navigate(Route("detail", item.release))
+            }
         }
     }
 }

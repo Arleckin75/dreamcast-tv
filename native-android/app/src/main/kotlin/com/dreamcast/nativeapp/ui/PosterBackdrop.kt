@@ -18,6 +18,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.platform.LocalContext
+import coil.imageLoader
+import coil.request.CachePolicy
+import coil.request.ImageRequest
+import coil.request.SuccessResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -85,6 +90,7 @@ internal fun rememberPosterArtwork(url: String): PosterArtwork {
 @Composable
 internal fun PosterBackdrop(state: PosterBackdropState, base: Color, dark: Boolean) {
     var palette by remember(state) { mutableStateOf<PosterPalette?>(null) }
+    val context = LocalContext.current.applicationContext
     val selected = state.selected
     LaunchedEffect(selected) {
         when {
@@ -95,9 +101,13 @@ internal fun PosterBackdrop(state: PosterBackdropState, base: Color, dark: Boole
                 else if (selected.drawable != null) {
                     // Let fast D-pad repeats settle before touching image pixels.
                     delay(120)
+                    val source =
+                        if (isHardwareBitmap(selected.drawable))
+                            loadPaletteSample(context, selected.url) ?: selected.drawable
+                        else selected.drawable
                     palette =
                         withContext(Dispatchers.Default) {
-                            runCatching { extractPosterPalette(selected.drawable) }
+                            runCatching { extractPosterPalette(source) }
                                 .getOrNull()
                                 ?.also { palettes.put(selected.url, it) }
                         }
@@ -134,6 +144,30 @@ internal fun PosterBackdrop(state: PosterBackdropState, base: Color, dark: Boole
         }
     )
 }
+
+private fun isHardwareBitmap(drawable: Drawable): Boolean =
+    Build.VERSION.SDK_INT >= 26 &&
+        (drawable as? BitmapDrawable)?.bitmap?.config == Bitmap.Config.HARDWARE
+
+/**
+ * A small software copy of the poster for colour sampling. Pixels of a HARDWARE bitmap cannot be
+ * read directly, and copying the full poster costs far more than decoding a tiny sample from
+ * Coil's disk cache. No network access and no memory-cache entry; null when the poster is not in
+ * the disk cache, so the caller falls back to copying the shown image.
+ */
+private suspend fun loadPaletteSample(context: android.content.Context, url: String): Drawable? {
+    val request =
+        ImageRequest.Builder(context)
+            .data(url)
+            .size(PALETTE_SAMPLE)
+            .allowHardware(false)
+            .networkCachePolicy(CachePolicy.DISABLED)
+            .memoryCachePolicy(CachePolicy.DISABLED)
+            .build()
+    return (context.imageLoader.execute(request) as? SuccessResult)?.drawable
+}
+
+private const val PALETTE_SAMPLE = 48
 
 /** Reuse Coil's rendered image. Only a 48x48 sample is analysed; no second network request. */
 internal fun extractPosterPalette(drawable: Drawable): PosterPalette? {
