@@ -36,8 +36,9 @@ class BaselineProfileGenerator {
             // The release page (focus on "Серии"), then its episode list dialog.
             openRelease()
 
-            // "Все релизы" below the banner opens the catalog grid.
-            repeat(3) { key(KeyEvent.KEYCODE_DPAD_DOWN) }
+            // "Все релизы" right below the banner opens the catalog grid; the rows under it
+            // (continue watching, new episodes, schedule) are passed on the way back.
+            key(KeyEvent.KEYCODE_DPAD_DOWN)
             key(KeyEvent.KEYCODE_DPAD_CENTER)
             Thread.sleep(LOAD_MS)
             repeat(3) { key(KeyEvent.KEYCODE_DPAD_DOWN) }

@@ -175,12 +175,18 @@ private fun DreamAppContent(model: AppViewModel, activity: MainActivity) {
                     }
                 }
                 BackHandler(model.routes.size > 1) { model.back() }
-                Column(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 20.dp)) {
+                // TV safe area: about 5 % of the screen on each side (48 dp x 27 dp at 1080p),
+                // which overscanning TVs may crop.
+                Column(
+                    Modifier.fillMaxSize()
+                        .padding(start = 48.dp, end = 48.dp, top = 27.dp, bottom = 20.dp)
+                ) {
                     TopNavigation(model)
                     Spacer(Modifier.height(22.dp))
                     if (
+                        // The release page shows its own large title.
                         contentRoute.name !in
-                            listOf("home", "catalog", "search", "library", "schedule")
+                            listOf("home", "catalog", "search", "library", "schedule", "detail")
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -309,7 +315,8 @@ private fun TopNavigation(model: AppViewModel) {
             Triple("settings", "Настройки", R.drawable.ic_nav_settings),
         )
     Row(
-        Modifier.fillMaxWidth(),
+        // Keeps the icons out of the top-right corner, where TV systems may draw a clock.
+        Modifier.fillMaxWidth().padding(end = 72.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
     ) {

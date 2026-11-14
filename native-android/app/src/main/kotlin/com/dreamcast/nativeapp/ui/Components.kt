@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
@@ -32,6 +33,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.constrainWidth
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Button as TvButton
@@ -193,6 +195,8 @@ internal fun Poster(
     restoreFocus: Boolean = false,
     onFocused: () -> Unit = {},
     landscape: Boolean = false,
+    progress: Float? = null,
+    isNew: Boolean = false,
     onClick: () -> Unit,
 ) {
     val artwork = rememberPosterArtwork(release.posterUrl)
@@ -227,39 +231,57 @@ internal fun Poster(
                 scaleX = scale
                 scaleY = scale
             }
-            // Only the focused card draws a frame; the others need no extra border or clip layer.
-            .drawWithContent {
-                drawContent()
-                if (focused) {
-                    val stroke = 3.dp.toPx()
-                    drawRoundRect(
-                        focusColor,
-                        topLeft = Offset(stroke / 2, stroke / 2),
-                        size = Size(size.width - stroke, size.height - stroke),
-                        cornerRadius = CornerRadius(12.dp.toPx() - stroke / 2),
-                        style = Stroke(stroke),
+            .focusFrame(focused, focusColor, 12.dp)
+            .padding(5.dp)
+    ) {
+        Box(
+            Modifier.fillMaxWidth()
+                .aspectRatio(if (landscape) 16f / 9f else 0.70f)
+                .clip(RoundedCornerShape(8.dp))
+        ) {
+            AsyncImage(
+                release.posterUrl,
+                release.title,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+                onSuccess = { artwork.loaded(it.result.drawable) },
+                onError = { artwork.failed() },
+            )
+            if (isNew)
+                Text(
+                    "Новая серия",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    modifier =
+                        Modifier.align(Alignment.TopStart)
+                            .padding(6.dp)
+                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(50))
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                )
+            progress?.let { value ->
+                // Watched part of the episode in progress, along the bottom of the cover.
+                Box(
+                    Modifier.align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .background(Color.Black.copy(alpha = 0.55f))
+                ) {
+                    Box(
+                        Modifier.fillMaxHeight()
+                            .fillMaxWidth(value.coerceIn(0f, 1f))
+                            .background(MaterialTheme.colorScheme.primary)
                     )
                 }
             }
-            .padding(5.dp)
-    ) {
-        AsyncImage(
-            release.posterUrl,
-            release.title,
-            modifier =
-                Modifier.fillMaxWidth()
-                    .aspectRatio(if (landscape) 16f / 9f else 0.70f)
-                    .clip(RoundedCornerShape(8.dp)),
-            contentScale = ContentScale.Crop,
-            onSuccess = { artwork.loaded(it.result.drawable) },
-            onError = { artwork.failed() },
-        )
+        }
+        // Two lines for every title, so the cards in a row stay aligned.
         Text(
             release.title,
+            minLines = 2,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             style = MaterialTheme.typography.titleSmall,
-            modifier = Modifier.height(44.dp).padding(top = 6.dp),
+            modifier = Modifier.padding(top = 6.dp),
         )
         Text(
             listOfNotNull(
@@ -274,3 +296,22 @@ internal fun Poster(
         )
     }
 }
+
+/**
+ * The focus frame of image cards (posters, the home banner): drawn only while [focused], so the
+ * other cards need no border or clip layer.
+ */
+internal fun Modifier.focusFrame(focused: Boolean, color: Color, radius: Dp): Modifier =
+    drawWithContent {
+        drawContent()
+        if (focused) {
+            val stroke = 3.dp.toPx()
+            drawRoundRect(
+                color,
+                topLeft = Offset(stroke / 2, stroke / 2),
+                size = Size(size.width - stroke, size.height - stroke),
+                cornerRadius = CornerRadius(radius.toPx() - stroke / 2),
+                style = Stroke(stroke),
+            )
+        }
+    }

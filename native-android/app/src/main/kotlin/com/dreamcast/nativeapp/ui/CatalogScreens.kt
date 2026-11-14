@@ -301,6 +301,7 @@ private fun ReleaseFeed(model: AppViewModel, filter: CatalogFilter, query: Strin
             ) {
                 Text("Найдено: $total", modifier = Modifier.padding(vertical = 8.dp))
             }
+            val marks = rememberPosterMarks(model.ui)
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(160.dp),
                 state = grid,
@@ -309,7 +310,13 @@ private fun ReleaseFeed(model: AppViewModel, filter: CatalogFilter, query: Strin
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 items(displayed, key = { it.id }) { release ->
-                    Poster(release, focused == release.id, { focused = release.id }) {
+                    Poster(
+                        release,
+                        focused == release.id,
+                        { focused = release.id },
+                        progress = marks.progress(release.id),
+                        isNew = marks.isNew(release.id),
+                    ) {
                         model.navigate(Route("detail", release))
                     }
                 }
@@ -338,13 +345,20 @@ internal fun Library(model: AppViewModel) {
             model.ui.bookmarks.filter { status.isEmpty() || it.status.name == status }
         }
     if (entries.isEmpty()) Text("В этой категории пока нет релизов")
+    val marks = rememberPosterMarks(model.ui)
     LazyVerticalGrid(
         columns = GridCells.Adaptive(160.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         items(entries, key = { it.release.id }) { item ->
-            Poster(item.release) { model.navigate(Route("detail", item.release)) }
+            Poster(
+                item.release,
+                progress = marks.progress(item.release.id),
+                isNew = marks.isNew(item.release.id),
+            ) {
+                model.navigate(Route("detail", item.release))
+            }
         }
     }
 }

@@ -1,5 +1,6 @@
 package com.dreamcast.nativeapp.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -8,6 +9,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -15,6 +17,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
@@ -85,12 +89,7 @@ internal fun ReleaseDetail(model: AppViewModel, seed: Release) {
             loaded.error?.let { ErrorState(it) { retry++ } }
             // The list item has no description; skeleton lines until the page arrives.
             if (loaded.loading && release.description.isBlank()) DescriptionSkeleton()
-            else
-                Text(
-                    release.description.ifBlank { "Описание отсутствует" },
-                    fontSize = 18.sp,
-                    modifier = Modifier.focusable(),
-                )
+            else Description(release.description.ifBlank { "Описание отсутствует" })
         }
     }
     if (bookmarkDialog)
@@ -104,6 +103,33 @@ internal fun ReleaseDetail(model: AppViewModel, seed: Release) {
             }
             bookmarkDialog = false
         }
+}
+
+/**
+ * The release description: five lines with an ellipsis, the whole text while it has focus, so a
+ * long description never runs off the screen and Down from the buttons opens it.
+ */
+@Composable
+private fun Description(text: String) {
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(12.dp)
+    Text(
+        text,
+        fontSize = 18.sp,
+        maxLines = if (focused) Int.MAX_VALUE else 5,
+        overflow = TextOverflow.Ellipsis,
+        modifier =
+            Modifier.fillMaxWidth()
+                .onFocusChanged { focused = it.isFocused }
+                .focusable()
+                .background(
+                    if (focused) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+                    else Color.Transparent,
+                    shape,
+                )
+                .focusFrame(focused, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), 12.dp)
+                .padding(12.dp),
+    )
 }
 
 @Composable
@@ -209,6 +235,7 @@ internal fun Schedule(model: AppViewModel) {
     if (data.loading && data.value == null) ScheduleSkeleton()
     data.error?.let { ErrorState(it) { retry++ } }
     if (data.value?.stale == true) Stale()
+    val marks = rememberPosterMarks(model.ui)
     LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(16.dp)) {
         items(days, key = { it.title }) { day ->
             Column {
@@ -224,6 +251,8 @@ internal fun Schedule(model: AppViewModel) {
                                         day.title == days.getOrNull(firstDayIndex)?.title &&
                                         release.id == firstRelease?.id,
                                 onFocused = { initialFocus = false },
+                                progress = marks.progress(release.id),
+                                isNew = marks.isNew(release.id),
                             ) {
                                 model.navigate(Route("detail", release))
                             }
