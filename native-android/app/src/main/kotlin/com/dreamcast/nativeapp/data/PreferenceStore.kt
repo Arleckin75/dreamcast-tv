@@ -13,21 +13,13 @@ internal class PreferenceStore(private val preferences: SharedPreferences) {
         }
     }
 
+    /** A number stored as Long, or as text (the update check time and episode cursor are). */
     fun number(key: String, default: Long = 0): Long {
         if (!preferences.contains(key)) return default
-        try {
-            return preferences.getLong(key, default)
-        } catch (_: ClassCastException) {}
-        try {
-            return preferences.getInt(key, 0).toLong()
-        } catch (_: ClassCastException) {}
-        try {
-            return preferences.getFloat(key, 0f).toLong()
-        } catch (_: ClassCastException) {}
         return try {
-            preferences.getString(key, null)?.toLongOrNull() ?: default
+            preferences.getLong(key, default)
         } catch (_: ClassCastException) {
-            default
+            string(key).toLongOrNull() ?: default
         }
     }
 

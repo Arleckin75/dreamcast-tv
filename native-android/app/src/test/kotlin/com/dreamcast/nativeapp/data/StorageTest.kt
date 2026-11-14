@@ -50,28 +50,6 @@ class StorageTest {
     }
 
     @Test
-    fun `legacy Flutter preferences file is deleted on startup`() {
-        context
-            .getSharedPreferences(LEGACY_FLUTTER_PREFERENCES, Context.MODE_PRIVATE)
-            .edit()
-            .putString("flutter.search.history", "old")
-            .commit()
-        val file =
-            File(context.applicationInfo.dataDir, "shared_prefs/$LEGACY_FLUTTER_PREFERENCES.xml")
-        assertTrue(file.exists())
-
-        Storage(context).close()
-
-        assertFalse(file.exists())
-        assertTrue(
-            context
-                .getSharedPreferences(LEGACY_FLUTTER_PREFERENCES, Context.MODE_PRIVATE)
-                .all
-                .isEmpty()
-        )
-    }
-
-    @Test
     fun `settings and close do not create a database`() {
         val path = File(context.applicationInfo.dataDir, "app_flutter/dream_cast.sqlite")
         assertFalse(path.exists())
@@ -87,15 +65,11 @@ class StorageTest {
         preferences
             .edit()
             .putLong("long", 123)
-            .putInt("int", 42)
-            .putFloat("float", 4.5f)
             .putString("text", "720")
             .putBoolean("invalid", true)
             .putString("override", "initial")
             .commit()
         assertEquals(123L, storage.number("long"))
-        assertEquals(42L, storage.number("int"))
-        assertEquals(4L, storage.number("float"))
         assertEquals(720L, storage.number("text"))
         assertEquals(9L, storage.number("invalid", 9))
         assertEquals("fallback", storage.string("long", "fallback"))

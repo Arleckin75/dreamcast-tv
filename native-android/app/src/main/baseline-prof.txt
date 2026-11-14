@@ -21136,8 +21136,6 @@ HSPLcom/dreamcast/nativeapp/data/Storage$CacheRow;->getValue()Ljava/lang/String;
 Lcom/dreamcast/nativeapp/data/StorageDatabaseKt;
 HSPLcom/dreamcast/nativeapp/data/StorageDatabaseKt;-><clinit>()V
 HSPLcom/dreamcast/nativeapp/data/StorageDatabaseKt;->openStorageDatabase(Landroid/content/Context;)Landroid/database/sqlite/SQLiteDatabase;
-Lcom/dreamcast/nativeapp/data/StorageKt;
-HSPLcom/dreamcast/nativeapp/data/StorageKt;->deleteLegacyFlutterPreferences(Landroid/content/Context;)V
 Lcom/dreamcast/nativeapp/data/WatchHistoryStore;
 HSPLcom/dreamcast/nativeapp/data/WatchHistoryStore;-><clinit>()V
 HSPLcom/dreamcast/nativeapp/data/WatchHistoryStore;-><init>(Lkotlin/Lazy;Lcom/dreamcast/nativeapp/data/PreferenceStore;)V
