@@ -7,6 +7,7 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 
@@ -38,6 +39,43 @@ internal fun createPlayer(
         .setSeekForwardIncrementMs(SEEK_STEP_MS)
         .setMediaSourceFactory(source)
         .build()
+        .apply { setSeekParameters(seekParametersFor(output)) }
+
+/**
+ * The dav1d software decoder seeks to the nearest keyframe. Dream Cast streams have a keyframe
+ * only at the start of each 10 s segment, and an exact seek decodes everything from there to the
+ * target before showing a frame: on an ARMv7 TV with dav1d that took up to 3.5 s. The nearest keyframe
+ * is at most 5 s away, and seek previews are 10 s apart anyway. Hardware and system decoders
+ * catch up fast, so they keep exact seeks.
+ */
+@OptIn(UnstableApi::class)
+internal fun seekParametersFor(output: VideoOutput): SeekParameters =
+    if (output == VideoOutput.DAV1D) SeekParameters.CLOSEST_SYNC else SeekParameters.EXACT
+
+/**
+ * Keyframe positions (ms) of the playing HLS stream: the start of each segment. Empty for other
+ * streams. Media3 snaps an HLS seek only back to the start of the segment it lands in (the next
+ * segment counts only with #EXT-X-INDEPENDENT-SEGMENTS, which Dream Cast playlists lack), so
+ * the app picks the keyframe itself.
+ */
+@OptIn(UnstableApi::class)
+internal fun hlsKeyframesMs(player: androidx.media3.common.Player): List<Long> {
+    val manifest = player.currentManifest as? androidx.media3.exoplayer.hls.HlsManifest
+        ?: return emptyList()
+    // Round up: a position below the segment start would snap to the previous segment.
+    return manifest.mediaPlaylist.segments.map { (it.relativeStartTimeUs + 999) / 1000 }
+}
+
+/**
+ * The keyframe nearest to [targetMs] on the far side of [fromMs], so a seek always moves in its
+ * direction. [targetMs] itself when there are no keyframes there.
+ */
+internal fun keyframeSeekTarget(targetMs: Long, fromMs: Long, keyframesMs: List<Long>): Long {
+    val ahead = targetMs > fromMs
+    return keyframesMs
+        .filter { if (ahead) it > fromMs else it < fromMs }
+        .minByOrNull { kotlin.math.abs(it - targetMs) } ?: targetMs
+}
 
 /** Buffer limits for TVs with little RAM, where software AV1 already needs most of the heap. */
 internal object LowMemoryBuffer {

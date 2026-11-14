@@ -769,7 +769,7 @@ class PlayerActivity : ComponentActivity() {
         handler.removeCallbacks(commitScrubTask)
         val target = scrubber.commit() ?: return
         controls.hideScrub()
-        player?.seekTo(target)
+        player?.let { seekToward(it, target) }
         if (controls.visible) reveal()
     }
 
@@ -799,10 +799,19 @@ class PlayerActivity : ComponentActivity() {
         return true
     }
 
+    /** dav1d seeks land on a keyframe: decoding up to an exact position is slow on weak TVs. */
+    private fun seekToward(exo: ExoPlayer, target: Long) {
+        exo.seekTo(
+            if (output == VideoOutput.DAV1D)
+                keyframeSeekTarget(target, exo.currentPosition, hlsKeyframesMs(exo))
+            else target
+        )
+    }
+
     private fun seekBy(delta: Long) {
         player?.let { exo ->
             val end = exo.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
-            exo.seekTo((exo.currentPosition + delta).coerceIn(0, end))
+            seekToward(exo, (exo.currentPosition + delta).coerceIn(0, end))
         }
         controls.showSeekFeedback(delta)
         if (controls.visible) reveal()
