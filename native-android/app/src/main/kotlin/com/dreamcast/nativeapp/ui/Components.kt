@@ -197,6 +197,8 @@ internal fun Poster(
     landscape: Boolean = false,
     progress: Float? = null,
     isNew: Boolean = false,
+    /** An extra line under the card, inside its focus frame (e.g. the episode to continue). */
+    caption: String? = null,
     onClick: () -> Unit,
 ) {
     val artwork = rememberPosterArtwork(release.posterUrl)
@@ -283,17 +285,24 @@ internal fun Poster(
             style = MaterialTheme.typography.titleSmall,
             modifier = Modifier.padding(top = 6.dp),
         )
-        Text(
+        val details =
             listOfNotNull(
                     release.type.takeIf(String::isNotEmpty),
                     release.year.takeIf { it > 0 }?.toString(),
                     release.currentEpisodes.takeIf { it > 0 }?.let { "$it сер." },
                 )
-                .joinToString(" • "),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            style = MaterialTheme.typography.bodySmall,
-        )
+                .joinToString(" • ")
+        // Watch history keeps only the title and cover; no empty line under them.
+        if (details.isNotEmpty())
+            Text(
+                details,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        caption?.let {
+            Text(it, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
+        }
     }
 }
 

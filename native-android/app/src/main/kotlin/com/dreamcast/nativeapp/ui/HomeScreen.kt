@@ -120,32 +120,18 @@ internal fun Home(model: AppViewModel) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Продолжить просмотр", style = MaterialTheme.typography.titleLarge)
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(18.dp),
-                        contentPadding = PaddingValues(6.dp),
-                    ) {
-                        items(recent, key = { it.release.id }) { item ->
-                            Column(Modifier.width(220.dp)) {
-                                Poster(item.release, landscape = true) {
-                                    model.navigate(Route("episodes", item.release, item.episodeId))
-                                }
-                                LinearProgressIndicator(
-                                    progress = {
-                                        if (item.durationMs > 0)
-                                            (item.positionMs.toFloat() / item.durationMs).coerceIn(
-                                                0f,
-                                                1f,
-                                            )
-                                        else 0f
-                                    },
-                                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                                )
-                                Text(
-                                    "Серия ${item.ordinal}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    modifier = Modifier.padding(top = 6.dp),
-                                )
-                            }
+                    FittedRow(recent, perScreen = 4, key = { it.release.id }) { item ->
+                        // The caption sits inside the card, so scrolling to it shows it whole.
+                        Poster(
+                            item.release,
+                            landscape = true,
+                            progress =
+                                if (item.durationMs > 0)
+                                    (item.positionMs.toFloat() / item.durationMs).coerceIn(0f, 1f)
+                                else 0f,
+                            caption = "Серия ${item.ordinal}",
+                        ) {
+                            model.navigate(Route("episodes", item.release, item.episodeId))
                         }
                     }
                 }
@@ -201,21 +187,38 @@ private fun PosterRow(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(title, style = MaterialTheme.typography.titleLarge)
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = PaddingValues(6.dp),
-        ) {
-            items(releases, key = { it.id }) { release ->
-                Box(Modifier.width(150.dp)) {
-                    Poster(
-                        release,
-                        progress = marks.progress(release.id),
-                        isNew = marks.isNew(release.id),
-                    ) {
-                        onOpen(release)
-                    }
-                }
+        FittedRow(releases, perScreen = 5, key = { it.id }) { release ->
+            Poster(
+                release,
+                progress = marks.progress(release.id),
+                isNew = marks.isNew(release.id),
+            ) {
+                onOpen(release)
             }
+        }
+    }
+}
+
+/**
+ * A horizontal row whose cards are sized so exactly [perScreen] fit the screen width: the last
+ * visible card is never cut off at the edge, the rest come into view whole while scrolling.
+ */
+@Composable
+private fun <T> FittedRow(
+    items: List<T>,
+    perScreen: Int,
+    key: (T) -> Any,
+    content: @Composable (T) -> Unit,
+) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val gap = 16.dp
+        val edge = 6.dp
+        val width = (maxWidth - edge * 2 - gap * (perScreen - 1)) / perScreen
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(gap),
+            contentPadding = PaddingValues(edge),
+        ) {
+            items(items, key = key) { item -> Box(Modifier.width(width)) { content(item) } }
         }
     }
 }
