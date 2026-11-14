@@ -14,7 +14,7 @@ A run takes 10-20 minutes; the app opens and moves by itself on the TV.
 Regenerate after larger UI changes, not on every build.
 
 .EXAMPLE
-./scripts/baseline_profile.ps1 -Device 192.168.0.10:5555
+./scripts/baseline_profile.ps1 -Device <tv-ip>:5555
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Device

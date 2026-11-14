@@ -61,7 +61,7 @@ Workflow устанавливает фиксированные NDK/CMake и со
 Профиль создаётся на телевизоре с Android 13+ (Streamer подходит, Cosmos на Android 11 — нет):
 
 ```powershell
-./scripts/baseline_profile.ps1 -Device 192.168.0.10:5555
+./scripts/baseline_profile.ps1 -Device <IP-телевизора>:5555
 ```
 
 Скрипт собирает вариант `profiling` (release без R8, ID `com.dreamcast.app.profiling`,
@@ -72,12 +72,18 @@ Workflow устанавливает фиксированные NDK/CMake и со
 ## Проверка на телевизоре (смоук)
 
 ```powershell
-./scripts/tv_smoke.ps1 -Device 192.168.0.10:5555 [-Package com.dreamcast.app.kotlin] [-Player]
+./scripts/tv_smoke.ps1 -Device <IP-телевизора>:5555 [-Package com.dreamcast.app.kotlin] [-Player]
 ```
 
 Скрипт запускает приложение, проходит кнопками пульта главную, страницу релиза и окно
 «Серии», каталог и все разделы верхнего меню и сохраняет скриншот после каждого шага в
 `dist/tv-smoke-<время>/` (папка не попадает в git). В конце проверяет logcat на падения.
+
+Для замеров есть ещё два скрипта, оба только читают данные с телевизора:
+`scripts/read_tv_performance.ps1 -Serial <IP-телевизора>:5555` собирает события
+`DCTV_PERF` из logcat debug-сборки (первый кадр, загрузка главной, кэш и сеть) в CSV,
+`scripts/collect_tv_stability.ps1` периодически записывает память приложения
+(`dumpsys meminfo`).
 Перед каждым нажатием скрипт убеждается, что на экране Dream Cast, и останавливается,
 если это не так, — в другие приложения нажатия не уходят. Разделы меню он находит по
 подписям иконок через `uiautomator`. `-Player` дополнительно открывает первую серию и
