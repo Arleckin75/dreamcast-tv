@@ -18,7 +18,10 @@ import org.robolectric.annotation.Config
 class DreamcastSourceTest {
     private class FakeSource : DreamcastSource {
         var offline = false
-        var releaseFetches = 0
+        // Genre counts fetch in parallel on several threads.
+        private val releaseFetchCount = java.util.concurrent.atomic.AtomicInteger()
+        val releaseFetches: Int
+            get() = releaseFetchCount.get()
         var scriptFetches = 0
 
         override val streamHeaders = mapOf("X-Test" to "1")
@@ -26,7 +29,7 @@ class DreamcastSourceTest {
         override fun releases(query: String, filter: CatalogFilter, page: Int) =
             SourceRequest(
                 fetch = {
-                    releaseFetches++
+                    releaseFetchCount.incrementAndGet()
                     if (offline) throw IOException("offline")
                     "$query|$page"
                 },

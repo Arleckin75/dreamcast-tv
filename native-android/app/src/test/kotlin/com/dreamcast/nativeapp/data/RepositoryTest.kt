@@ -214,6 +214,34 @@ class RepositoryTest {
     }
 
     @Test
+    fun `genre counts load a few genres at a time and keep every count`() = runBlocking {
+        val active = java.util.concurrent.atomic.AtomicInteger()
+        val peak = java.util.concurrent.atomic.AtomicInteger()
+        server.dispatcher =
+            object : okhttp3.mockwebserver.Dispatcher() {
+                override fun dispatch(
+                    request: okhttp3.mockwebserver.RecordedRequest
+                ): MockResponse {
+                    val now = active.incrementAndGet()
+                    peak.accumulateAndGet(now, ::maxOf)
+                    try {
+                        Thread.sleep(300)
+                    } finally {
+                        active.decrementAndGet()
+                    }
+                    val genre = Regex("""genres%5B%5D=(\w+)""").find(request.body.readUtf8())!!.groupValues[1]
+                    return MockResponse().setBody("{\"releases\":[],\"count\":${genre.length}}")
+                }
+            }
+        val genres = listOf("a", "bb", "ccc", "dddd", "eeeee", "ffffff", "ggggggg").map { Genre(it, it) }
+        val counts = repository.genreCounts(genres).value
+        assertEquals(genres.associate { it.id to it.id.length }, counts)
+        assertEquals(genres.size, server.requestCount)
+        // Parallel, but never more than Repository.GENRE_COUNT_PARALLEL (3) at once.
+        assertTrue("peak ${peak.get()}", peak.get() in 2..3)
+    }
+
+    @Test
     fun `fresh catalog cache avoids network and filters have independent keys`() = runBlocking {
         repeat(2) { server.enqueue(MockResponse().setBody("{\"releases\":[],\"count\":0}")) }
         repository.releases(filter = CatalogFilter(2024))

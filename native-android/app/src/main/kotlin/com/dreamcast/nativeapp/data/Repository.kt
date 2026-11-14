@@ -3,6 +3,9 @@ package com.dreamcast.nativeapp.data
 import com.dreamcast.nativeapp.NativePerformance
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
 /**
@@ -162,13 +165,31 @@ class Repository(val storage: Storage, val source: DreamcastSource = DreamcastSi
             GENRE_COUNTS_TTL_MS,
             SourceRequest(
                 fetch = {
-                    val counts = org.json.JSONObject()
-                    for ((index, genre) in genres.withIndex()) {
-                        if (index > 0) kotlinx.coroutines.delay(GENRE_COUNT_PAUSE_MS)
-                        val request = source.releases("", CatalogFilter(genres = setOf(genre.id)), 1)
-                        counts.put(genre.id, request.parse(request.fetch()).total)
-                    }
-                    counts.toString()
+                    // A few genres at a time: the counts arrive faster, while each worker still
+                    // pauses between its requests so the site never sees a burst.
+                    val gate = kotlinx.coroutines.sync.Semaphore(GENRE_COUNT_PARALLEL)
+                    val counts =
+                        kotlinx.coroutines.coroutineScope {
+                            genres
+                                .mapIndexed { index, genre ->
+                                    async {
+                                        gate.withPermit {
+                                            if (index >= GENRE_COUNT_PARALLEL)
+                                                kotlinx.coroutines.delay(GENRE_COUNT_PAUSE_MS)
+                                            val request =
+                                                source.releases(
+                                                    "",
+                                                    CatalogFilter(genres = setOf(genre.id)),
+                                                    1,
+                                                )
+                                            genre.id to request.parse(request.fetch()).total
+                                        }
+                                    }
+                                }
+                                .awaitAll()
+                        }
+                    org.json.JSONObject().apply { counts.forEach { (id, total) -> put(id, total) } }
+                        .toString()
                 },
                 parse = { text ->
                     val json = org.json.JSONObject(text)
@@ -212,5 +233,7 @@ class Repository(val storage: Storage, val source: DreamcastSource = DreamcastSi
         const val GENRE_COUNTS_TTL_MS = 24 * 3600 * 1000L
         /** Spreads the per-genre requests out so the site sees no burst. */
         const val GENRE_COUNT_PAUSE_MS = 250L
+        /** Genre count requests in flight at once. */
+        const val GENRE_COUNT_PARALLEL = 3
     }
 }
