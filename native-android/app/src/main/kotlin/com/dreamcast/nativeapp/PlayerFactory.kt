@@ -4,22 +4,30 @@ import android.content.Context
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 
-/** Media source factory whose HTTP requests carry the source's [headers]. */
+/**
+ * Media source factory whose HTTP requests carry the source's [headers]. Segments load over the
+ * app's shared OkHttp connections (SharedHttp), the same pool as pages, posters and previews,
+ * with the timeouts DefaultHttpDataSource used (8 s).
+ */
 @OptIn(UnstableApi::class)
 internal fun mediaSourceFactory(context: Context, headers: Map<String, String>) =
     DefaultMediaSourceFactory(
         DefaultDataSource.Factory(
             context,
-            DefaultHttpDataSource.Factory().setDefaultRequestProperties(headers),
+            OkHttpDataSource.Factory(mediaHttpClient).setDefaultRequestProperties(headers),
         )
     )
+
+private val mediaHttpClient by lazy {
+    com.dreamcast.nativeapp.data.SharedHttp.client(connect = 8, read = 8)
+}
 
 /** ExoPlayer with the renderers for [output] that never exceeds renderer capabilities. */
 @OptIn(UnstableApi::class)
