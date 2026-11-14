@@ -143,11 +143,16 @@ class SeekPreviewTest {
     fun `crop returns the cue region or the whole sprite`() {
         val sprite = Bitmap.createBitmap(800, 450, Bitmap.Config.RGB_565)
         val cue = ThumbnailCue(0, 10_000, "https://x.test/a.webp", 160, 90, 160, 90)
-        val frame = ThumbnailLoader.crop(sprite, cue)!!
-        assertEquals(160, frame.width)
-        assertEquals(90, frame.height)
-        assertSame(sprite, ThumbnailLoader.crop(sprite, cue.copy(width = 0, height = 0)))
-        assertEquals(40, ThumbnailLoader.crop(sprite, cue.copy(x = 760))!!.width)
+        val frame = ThumbnailLoader.crop(sprite, cue) as SpriteFrameDrawable
+        assertEquals(160, frame.intrinsicWidth)
+        assertEquals(90, frame.intrinsicHeight)
+        // Frames share the cached sprite instead of copying its pixels.
+        assertSame(sprite, frame.sprite)
+        assertEquals(android.graphics.Rect(160, 90, 320, 180), frame.source)
+        val whole = ThumbnailLoader.crop(sprite, cue.copy(width = 0, height = 0))!!
+        assertEquals(800, whole.intrinsicWidth)
+        assertEquals(450, whole.intrinsicHeight)
+        assertEquals(40, ThumbnailLoader.crop(sprite, cue.copy(x = 760))!!.intrinsicWidth)
         assertNull(ThumbnailLoader.crop(sprite, cue.copy(x = 800)))
     }
 }

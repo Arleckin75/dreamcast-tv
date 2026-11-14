@@ -3,7 +3,6 @@ package com.dreamcast.nativeapp.ui
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -16,10 +15,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
@@ -201,6 +204,7 @@ internal fun Poster(
             animationSpec = tween(140),
             label = "posterFocus",
         )
+    val focusColor = MaterialTheme.colorScheme.onSurface
     LaunchedEffect(Unit) { if (restoreFocus) requester.requestFocus() }
     Column(
         Modifier.fillMaxWidth()
@@ -223,12 +227,20 @@ internal fun Poster(
                 scaleX = scale
                 scaleY = scale
             }
-            .border(
-                if (focused) 3.dp else 1.dp,
-                if (focused) MaterialTheme.colorScheme.onSurface else Color.Transparent,
-                RoundedCornerShape(12.dp),
-            )
-            .clip(RoundedCornerShape(12.dp))
+            // Only the focused card draws a frame; the others need no extra border or clip layer.
+            .drawWithContent {
+                drawContent()
+                if (focused) {
+                    val stroke = 3.dp.toPx()
+                    drawRoundRect(
+                        focusColor,
+                        topLeft = Offset(stroke / 2, stroke / 2),
+                        size = Size(size.width - stroke, size.height - stroke),
+                        cornerRadius = CornerRadius(12.dp.toPx() - stroke / 2),
+                        style = Stroke(stroke),
+                    )
+                }
+            }
             .padding(5.dp)
     ) {
         AsyncImage(

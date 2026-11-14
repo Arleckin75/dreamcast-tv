@@ -339,6 +339,8 @@ internal class PlayerControls(
                     val target = duration * timeline.progress / 1000
                     dragging = false
                     onInteraction()
+                    // update() skips unchanged state, so restore the label the drag replaced.
+                    if (shown) renderPlaybackState()
                     if (duration > 0) onSeek(target - position)
                 }
             }
@@ -419,8 +421,18 @@ internal class PlayerControls(
     }
 
     fun update(positionMs: Long, durationMs: Long, playing: Boolean, seekable: Boolean) {
-        position = positionMs.coerceAtLeast(0)
-        duration = durationMs.coerceAtLeast(0)
+        val nextPosition = positionMs.coerceAtLeast(0)
+        val nextDuration = durationMs.coerceAtLeast(0)
+        // The 500 ms tick keeps calling while paused: skip the identical frames.
+        if (
+            nextPosition == position &&
+                nextDuration == duration &&
+                playing == playbackPlaying &&
+                seekable == playbackSeekable
+        )
+            return
+        position = nextPosition
+        duration = nextDuration
         playbackPlaying = playing
         playbackSeekable = seekable
         if (shown) renderPlaybackState()
@@ -430,13 +442,13 @@ internal class PlayerControls(
      * Shows the scrub target [targetMs] on the timeline with its preview [frame] above it.
      * A null frame keeps the previous image while the next one loads, or shows only the time.
      */
-    fun showScrub(targetMs: Long, frame: Bitmap?, hasPreviews: Boolean) {
+    fun showScrub(targetMs: Long, frame: android.graphics.drawable.Drawable?, hasPreviews: Boolean) {
         scrubbing = true
         val fraction = if (duration > 0) targetMs.coerceIn(0, duration).toFloat() / duration else 0f
         timeline.progress = (fraction * 1000).toInt()
         positionLabel.text = formatTime(targetMs)
         previewTime.text = formatTime(targetMs)
-        if (frame != null) previewImage.setImageBitmap(frame)
+        if (frame != null) previewImage.setImageDrawable(frame)
         previewImage.visibility =
             if (hasPreviews && (frame != null || previewImage.drawable != null)) View.VISIBLE
             else View.GONE
@@ -447,9 +459,9 @@ internal class PlayerControls(
     }
 
     /** Replaces the preview image if scrubbing is still showing a target. */
-    fun setScrubFrame(frame: Bitmap) {
+    fun setScrubFrame(frame: android.graphics.drawable.Drawable) {
         if (!scrubbing) return
-        previewImage.setImageBitmap(frame)
+        previewImage.setImageDrawable(frame)
         previewImage.visibility = View.VISIBLE
     }
 

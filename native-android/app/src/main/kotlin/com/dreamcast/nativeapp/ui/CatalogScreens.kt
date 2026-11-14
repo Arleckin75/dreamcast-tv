@@ -5,6 +5,7 @@ import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -312,7 +313,8 @@ private fun ReleaseFeed(model: AppViewModel, filter: CatalogFilter, query: Strin
                         model.navigate(Route("detail", release))
                     }
                 }
-                item {
+                // Own row and stable key: appending a page moves the footer, not recreates it.
+                item(key = "catalog-footer", span = { GridItemSpan(maxLineSpan) }) {
                     if (loading) CircularProgressIndicator()
                     else if (data.error != null) Action("Повторить") { retry++ }
                     else if (hasMore) Action("Загрузить ещё") { feed.requestNextPage() }

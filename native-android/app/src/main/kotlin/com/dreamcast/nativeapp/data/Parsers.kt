@@ -10,6 +10,13 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 
 object SiteParser {
+    // Compiled once: the parsers run these for every card and stream.
+    private val PLAYERJS_CALL = Regex("""(?:new\s+)?Playerjs\s*\(\s*["']([^"']+)["']\s*\)""")
+    private val RELEASE_ID = Regex("/release/(\\d+)")
+    private val CSS_URL = Regex("""url\(['"]?([^'")]+)""")
+    private val LEADING_NUMBER = Regex("^\\s*(\\d+)")
+    private val TOTAL_EPISODES = Regex("из\\s+(\\d+)")
+
     fun options(source: String): CatalogOptions {
         val doc = Jsoup.parse(source)
         val years =
@@ -36,7 +43,7 @@ object SiteParser {
             doc.selectFirst("h3")?.text()?.takeIf { it.isNotBlank() }
                 ?: meta("og:title").ifBlank { doc.title() }
         val payload =
-            Regex("""(?:new\s+)?Playerjs\s*\(\s*["']([^"']+)["']\s*\)""")
+            PLAYERJS_CALL
                 .find(source)
                 ?.groupValues
                 ?.get(1) ?: error("Не найден PlayerJS payload")
@@ -97,7 +104,7 @@ object SiteParser {
     private fun scheduleCard(card: Element): Release? {
         val href = card.selectFirst("a[href*='/home/release/']")?.attr("href") ?: return null
         val id =
-            Regex("/release/(\\d+)").find(href)?.groupValues?.get(1)?.toIntOrNull() ?: return null
+            RELEASE_ID.find(href)?.groupValues?.get(1)?.toIntOrNull() ?: return null
         val metadata =
             card.select(".poster_info").associate {
                 it.selectFirst(".s-item")?.text().orEmpty().replace(":", "").trim() to
@@ -105,7 +112,7 @@ object SiteParser {
             }
         val episodes = metadata["Эпизодов"].orEmpty()
         val poster =
-            Regex("""url\(['"]?([^'")]+)""")
+            CSS_URL
                 .find(card.selectFirst(".poster-img")?.attr("style").orEmpty())
                 ?.groupValues
                 ?.get(1)
@@ -123,15 +130,22 @@ object SiteParser {
             season = metadata["Сезон"].orEmpty(),
             studio = metadata["Студия"].orEmpty(),
             currentEpisodes =
-                Regex("^\\s*(\\d+)").find(episodes)?.groupValues?.get(1)?.toIntOrNull() ?: 0,
+                LEADING_NUMBER.find(episodes)?.groupValues?.get(1)?.toIntOrNull() ?: 0,
             totalEpisodes =
-                Regex("из\\s+(\\d+)").find(episodes)?.groupValues?.get(1)?.toIntOrNull() ?: 0,
+                TOTAL_EPISODES.find(episodes)?.groupValues?.get(1)?.toIntOrNull() ?: 0,
         )
     }
 }
 
 /** Pure Kotlin decoder: never executes scripts returned by the site. */
 object PlayerJs {
+    // Compiled once: the parsers run these for every card and stream.
+    private val PACKED_ARGS = Regex("""\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*""")
+    private val PADDING = Regex("=+")
+    private val URL_FIELD = Regex("""(?:["']u["']|(?<![A-Za-z0-9_])u)\s*:\s*\\?\s*["']([^"']+)["']""")
+    private val STREAM_URL = Regex("https?://[^\\s]+")
+    private val QUALITY = Regex("(?<!\\d)(2160|1080|720|480|360|240|144)p?(?!\\d)")
+
     private const val alphabet = "ABCDEFGHIJKLMabcdefghijklmNOPQRSTUVWXYZnopqrstuvwxyz"
     private const val saltAlphabet = alphabet + "0123456789+/="
     private const val standard = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
@@ -207,7 +221,7 @@ object PlayerJs {
         if (marker < 0) return source
         val (payload, end) = quoted(source, source.indexOf('\'', marker))
         val args =
-            Regex("""\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*""").find(source, end)
+            PACKED_ARGS.find(source, end)
                 ?: error("Некорректные параметры PlayerJS")
         val radix = args.groupValues[1].toInt()
         val count = args.groupValues[2].toInt()
@@ -245,7 +259,7 @@ object PlayerJs {
         fun candidates(source: String): JSONObject? {
             val inputs =
                 listOf(source) +
-                    Regex("=+")
+                    PADDING
                         .findAll(source)
                         .map { source.take(it.range.last + 1) }
                         .filter { it.length >= 8 }
@@ -275,7 +289,7 @@ object PlayerJs {
             }
         val unpacked = unpack(script)
         val code =
-            Regex("""(?:["']u["']|(?<![A-Za-z0-9_])u)\s*:\s*\\?\s*["']([^"']+)["']""")
+            URL_FIELD
                 .find(unpacked)
                 ?.groupValues
                 ?.get(1) ?: error("Не найдены ключи декодирования PlayerJS")
@@ -321,7 +335,7 @@ object PlayerJs {
         runCatching { imageUrl(value) }.getOrNull()?.takeIf { it.startsWith("https://") }.orEmpty()
 
     fun streams(episode: Episode): List<VideoStream> =
-        Regex("https?://[^\\s]+")
+        STREAM_URL
             .findAll(episode.file)
             .mapNotNull { match ->
                 runCatching {
@@ -336,7 +350,7 @@ object PlayerJs {
                                 else -> "unknown"
                             }
                         val quality =
-                            Regex("(?<!\\d)(2160|1080|720|480|360|240|144)p?(?!\\d)")
+                            QUALITY
                                 .find(url)
                                 ?.groupValues
                                 ?.get(1)
