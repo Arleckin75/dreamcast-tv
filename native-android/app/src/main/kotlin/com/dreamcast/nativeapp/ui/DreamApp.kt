@@ -315,8 +315,8 @@ private fun TopNavigation(model: AppViewModel) {
             Triple("settings", "Настройки", R.drawable.ic_nav_settings),
         )
     Row(
-        // Keeps the icons out of the top-right corner, where TV systems may draw a clock.
-        Modifier.fillMaxWidth().padding(end = 72.dp),
+        // Ends at the content's right edge, in line with the cards below.
+        Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
     ) {
