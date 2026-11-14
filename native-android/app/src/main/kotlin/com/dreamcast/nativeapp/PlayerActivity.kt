@@ -60,7 +60,7 @@ class PlayerActivity : ComponentActivity() {
     private var resumePosition = 0L
     private var ready = false
     private val softwareFrameMonitor = SoftwareFrameMonitor()
-    private var softwareAutoMaxHeight = 720
+    private var softwareAutoMaxHeight = SOFTWARE_AUTO_START_HEIGHT
     private var completed = false
     private var activityStarted = false
     private var lastSaved: ProgressSnapshot? = null
@@ -104,15 +104,10 @@ class PlayerActivity : ComponentActivity() {
                     return super.dispatchKeyEvent(event)
                 }
             }
-        video =
-            PlayerView(this).apply {
-                keepScreenOn = true
-                setShowSubtitleButton(true)
-                setShowNextButton(false)
-                setShowPreviousButton(false)
-            }
+        // A placeholder until playback starts: configureVideoView() replaces it with the view
+        // for the chosen decoder, and the window's keep-screen-on flag follows playback.
+        video = PlayerView(this).apply { useController = false }
         root.addView(video, FrameLayout.LayoutParams(-1, -1))
-        video.useController = false
         controls =
             PlayerControls(
                 this,
@@ -131,7 +126,6 @@ class PlayerActivity : ComponentActivity() {
                 },
                 onNext = ::nextEpisode,
                 nextTitle = null,
-                onQuality = {},
                 onInteraction = ::reveal,
                 settingsItems = {
                     buildList {
@@ -250,7 +244,7 @@ class PlayerActivity : ComponentActivity() {
         player?.release()
         player = null
         softwareFrameMonitor.reset()
-        softwareAutoMaxHeight = 720
+        softwareAutoMaxHeight = SOFTWARE_AUTO_START_HEIGHT
         controls.showLoading("Проверка видеопотока…")
         playbackJob = lifecycleScope.launch {
             try {
@@ -544,7 +538,7 @@ class PlayerActivity : ComponentActivity() {
         ) { index ->
             selectedQuality = heights[index]
             softwareFrameMonitor.reset()
-            softwareAutoMaxHeight = 720
+            softwareAutoMaxHeight = SOFTWARE_AUTO_START_HEIGHT
             player?.let(::applyQualityLimit)
         }
     }

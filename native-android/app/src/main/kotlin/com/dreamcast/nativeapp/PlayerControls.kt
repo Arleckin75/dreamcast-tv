@@ -21,7 +21,6 @@ internal class PlayerControls(
     onRetry: () -> Unit,
     onNext: () -> Unit,
     nextTitle: String?,
-    private val onQuality: (Int) -> Unit,
     private val onInteraction: () -> Unit,
     private val settingsItems: () -> List<Pair<String, () -> Unit>> = { emptyList() },
     onCaptions: (() -> Unit)? = null,
@@ -211,7 +210,6 @@ internal class PlayerControls(
     private var scrubbing = false
     private var scrubFraction = 0f
     private var dialog: AlertDialog? = null
-    private var activeQuality = 720
     private var duration = 0L
     private var position = 0L
     private var playbackPlaying = false
@@ -376,17 +374,12 @@ internal class PlayerControls(
         feedback.postDelayed(hideFeedback, 800)
     }
 
-    fun setQuality(height: Int) {
-        activeQuality = height
-    }
-
     private fun showSettings() {
         if (modalVisible) return
         onInteraction()
-        val custom = settingsItems()
-        val items =
-            if (custom.isNotEmpty()) custom
-            else listOf("Качество · ${activeQuality}p" to { showQualityDialog() })
+        // The activity supplies the items (quality, speed, decoding, stream).
+        val items = settingsItems()
+        if (items.isEmpty()) return
         dialog =
             showPlayerMenu(
                 context,
@@ -399,24 +392,6 @@ internal class PlayerControls(
                 },
             ) { index ->
                 items[index].second()
-            }
-    }
-
-    private fun showQualityDialog() {
-        val heights = listOf(480, 720, 1080)
-        dialog =
-            showPlayerMenu(
-                context,
-                "Качество",
-                heights.map { "${it}p" },
-                heights.indexOf(activeQuality),
-                onDismiss = {
-                    dialog = null
-                    settings.requestFocus()
-                    onInteraction()
-                },
-            ) { index ->
-                if (heights[index] != activeQuality) onQuality(heights[index])
             }
     }
 

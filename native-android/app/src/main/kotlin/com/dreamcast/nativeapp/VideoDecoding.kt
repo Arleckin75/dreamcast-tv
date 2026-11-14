@@ -77,6 +77,12 @@ fun decoderOutput(mode: DecoderMode, hardware: Boolean, dav1d: Boolean): VideoOu
 data class VideoChoice(val mode: DecoderMode, val format: Format?, val output: VideoOutput)
 
 /**
+ * The highest height dav1d starts with in Auto. Software AV1 above 720p is too slow for the
+ * weak TVs that need it; the player lowers this further after sustained frame drops.
+ */
+const val SOFTWARE_AUTO_START_HEIGHT = 720
+
+/**
  * Picks the video format and renderer for [formats]. [maxHeight] is the user's quality
  * limit (0 = Auto); dav1d prefers at most 720p in Auto. [hardware] and [software] are the
  * capability checks, so the policy itself is independent of the device.
@@ -93,7 +99,7 @@ fun chooseVideo(
         .sortedByDescending { it.height }
     val hardwareFormat = ordered.firstOrNull(hardware)
     val softwareFormat = ordered.filter(software).let { candidates ->
-        candidates.firstOrNull { it.height <= (maxHeight.takeIf { h -> h > 0 } ?: 720) }
+        candidates.firstOrNull { it.height <= (maxHeight.takeIf { h -> h > 0 } ?: SOFTWARE_AUTO_START_HEIGHT) }
             ?: candidates.lastOrNull()
     }
     val effective = if ((mode == DecoderMode.HARDWARE && hardwareFormat == null) ||
