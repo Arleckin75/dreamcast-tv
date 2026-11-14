@@ -26,6 +26,15 @@ class PlayerKeysTest {
     }
 
     @Test
+    fun `quality menu lists only the stream's heights after Auto`() {
+        // Dream Cast HLS: 1080, 720 and 480 variants plus an audio-only one without a height.
+        assertEquals(listOf(0, 480, 720, 1080), qualityChoices(listOf(1080, 720, 480, -1)))
+        assertEquals(listOf(0, 720, 1080), qualityChoices(listOf(1080, 1080, 720)))
+        assertEquals(listOf(0), qualityChoices(emptyList()))
+        assertEquals(listOf(0, 1080, 2160), qualityChoices(listOf(2160, 1080)))
+    }
+
+    @Test
     fun `saved player state survives a bundle round trip`() {
         val state = PlayerSavedState("e7", 42_000, "dash", 720, 1.5f, "SOFTWARE")
         val bundle = Bundle().also(state::writeTo)

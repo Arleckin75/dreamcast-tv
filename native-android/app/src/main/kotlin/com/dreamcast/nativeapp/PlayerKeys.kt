@@ -34,6 +34,11 @@ internal val DPAD_KEYS =
 /** Seek step for D-pad left/right and the rewind and fast-forward keys. */
 internal const val SEEK_STEP_MS = 10_000L
 
-internal val QUALITY_HEIGHTS = listOf(0, 480, 720, 1080, 2160)
+/**
+ * Quality menu entries: 0 ("Авто") and then the distinct [heights] of the stream's video
+ * variants, lowest first. Nothing the stream does not have, so no 2160p without a 4K variant.
+ */
+internal fun qualityChoices(heights: List<Int>): List<Int> =
+    listOf(0) + heights.filter { it > 0 }.distinct().sorted()
 
 internal val PLAYBACK_SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)

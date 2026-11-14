@@ -524,7 +524,15 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun chooseQuality() {
-        val heights = QUALITY_HEIGHTS
+        // Only heights the stream really has and the current decoder path can play.
+        val playable = formats.filter {
+            when (output) {
+                VideoOutput.DAV1D -> capabilities.software(it)
+                VideoOutput.HARDWARE -> capabilities.hardware(it)
+                VideoOutput.SYSTEM -> true
+            }
+        }
+        val heights = qualityChoices((playable.ifEmpty { formats }).map { it.height })
         showPlayerMenu(
             this,
             "Качество",
