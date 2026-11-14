@@ -175,11 +175,11 @@ private fun DreamAppContent(model: AppViewModel, activity: MainActivity) {
                     }
                 }
                 BackHandler(model.routes.size > 1) { model.back() }
-                // TV safe area: about 5 % of the screen on each side (48 dp x 27 dp at 1080p),
-                // which overscanning TVs may crop.
+                // 48 dp at the sides (about 5 % of the width, the TV safe area); a smaller top
+                // margin keeps the menu from floating in empty space.
                 Column(
                     Modifier.fillMaxSize()
-                        .padding(start = 48.dp, end = 48.dp, top = 27.dp, bottom = 20.dp)
+                        .padding(start = 48.dp, end = 48.dp, top = 18.dp, bottom = 20.dp)
                 ) {
                     TopNavigation(model)
                     Spacer(Modifier.height(22.dp))
