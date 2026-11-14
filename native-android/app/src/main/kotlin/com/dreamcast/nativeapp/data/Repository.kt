@@ -151,6 +151,32 @@ class Repository(val storage: Storage, val source: DreamcastSource = DreamcastSi
     ): Cached<CatalogOptions> =
         cached("dreamcast:catalog:options", 86400000L, source.catalogOptions(), onStale = onStale)
 
+    /**
+     * Number of catalog releases per genre id. The site has no such list, so this asks the
+     * catalog once per genre, one request at a time with a pause between them, and keeps the
+     * result for a day. A failed refresh keeps the previous counts.
+     */
+    suspend fun genreCounts(genres: List<Genre>): Cached<Map<String, Int>> =
+        cached(
+            "dreamcast:catalog:genre-counts",
+            GENRE_COUNTS_TTL_MS,
+            SourceRequest(
+                fetch = {
+                    val counts = org.json.JSONObject()
+                    for ((index, genre) in genres.withIndex()) {
+                        if (index > 0) kotlinx.coroutines.delay(GENRE_COUNT_PAUSE_MS)
+                        val request = source.releases("", CatalogFilter(genres = setOf(genre.id)), 1)
+                        counts.put(genre.id, request.parse(request.fetch()).total)
+                    }
+                    counts.toString()
+                },
+                parse = { text ->
+                    val json = org.json.JSONObject(text)
+                    json.keys().asSequence().associateWith { json.getInt(it) }
+                },
+            ),
+        )
+
     suspend fun detail(
         release: Release,
         refresh: Boolean = false,
@@ -181,4 +207,10 @@ class Repository(val storage: Storage, val source: DreamcastSource = DreamcastSi
         onStale: ((Cached<List<ScheduleDay>>) -> Unit)? = null
     ): Cached<List<ScheduleDay>> =
         cached("dreamcast:schedule", 30 * 60000L, source.schedule(), onStale = onStale)
+
+    private companion object {
+        const val GENRE_COUNTS_TTL_MS = 24 * 3600 * 1000L
+        /** Spreads the per-genre requests out so the site sees no burst. */
+        const val GENRE_COUNT_PAUSE_MS = 250L
+    }
 }

@@ -97,6 +97,16 @@ class DreamcastSourceTest {
     }
 
     @Test
+    fun `genre counts ask the catalog once per genre and are cached`() = runBlocking {
+        val genres = listOf(Genre("space", "Космос"), Genre("yuri", "Юри"))
+        val counts = repository.genreCounts(genres).value
+        assertEquals(mapOf("space" to 1, "yuri" to 1), counts)
+        assertEquals(2, source.releaseFetches)
+        assertEquals(counts, repository.genreCounts(genres).value)
+        assertEquals(2, source.releaseFetches)
+    }
+
+    @Test
     fun `auxiliary downloads go through the repository cache`() = runBlocking {
         repository.episodes(repository.detail(Release(1, "")).value)
         repository.episodes(repository.detail(Release(2, "")).value)

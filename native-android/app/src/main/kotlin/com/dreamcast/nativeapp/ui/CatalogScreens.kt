@@ -42,6 +42,12 @@ internal fun Catalog(model: AppViewModel) {
     var yearDialog by remember { mutableStateOf(false) }
     var genreDialog by remember { mutableStateOf(false) }
     val selected = genres.split(',').filter(String::isNotBlank).toSet()
+    // Releases per genre, counted in the background and cached for a day; empty until known.
+    val allGenres = options.value?.value?.genres.orEmpty()
+    val genreCounts =
+        resource(allGenres.map { it.id }) {
+            if (allGenres.isEmpty()) emptyMap() else model.repository.genreCounts(allGenres).value
+        }.value.orEmpty()
     val names =
         options.value
             ?.value
@@ -102,7 +108,10 @@ internal fun Catalog(model: AppViewModel) {
                             Modifier.weight(1f).heightIn(max = 320.dp),
                             contentPadding = PaddingValues(vertical = 6.dp),
                         ) {
-                            items(data.genres, key = { it.id }) { genre ->
+                            // Genres without releases are hidden unless already chosen.
+                            val shown =
+                                data.genres.filter { (genreCounts[it.id] ?: 1) > 0 || it.id in draft }
+                            items(shown, key = { it.id }) { genre ->
                                 Row(
                                     Modifier.fillMaxWidth()
                                         .clickable {
@@ -120,7 +129,10 @@ internal fun Catalog(model: AppViewModel) {
                                                 if (checked) draft + genre.id else draft - genre.id
                                         },
                                     )
-                                    Text(genre.name)
+                                    Text(
+                                        genreCounts[genre.id]?.let { "${genre.name} ($it)" }
+                                            ?: genre.name
+                                    )
                                 }
                             }
                         }
