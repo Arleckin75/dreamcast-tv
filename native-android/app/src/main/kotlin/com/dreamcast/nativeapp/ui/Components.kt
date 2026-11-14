@@ -3,6 +3,7 @@ package com.dreamcast.nativeapp.ui
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -26,6 +27,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.font.FontWeight
@@ -276,15 +278,7 @@ internal fun Poster(
                 }
             }
         }
-        // Two lines for every title, so the cards in a row stay aligned.
-        Text(
-            release.title,
-            minLines = 2,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            style = MaterialTheme.typography.titleSmall,
-            modifier = Modifier.padding(top = 6.dp),
-        )
+        PosterTitle(release.title, focused)
         val details =
             listOfNotNull(
                     release.type.takeIf(String::isNotEmpty),
@@ -303,6 +297,41 @@ internal fun Poster(
         caption?.let {
             Text(it, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
         }
+    }
+}
+
+/**
+ * The card title in a two-line slot, so the cards in a row stay aligned. A title longer than two
+ * lines ends with an ellipsis; while the card has focus it becomes one line that scrolls, so the
+ * whole title can be read without the card changing size.
+ */
+@Composable
+private fun PosterTitle(title: String, focused: Boolean) {
+    val style = MaterialTheme.typography.titleSmall
+    var overflows by remember(title) { mutableStateOf(false) }
+    val slot = with(LocalDensity.current) { (style.lineHeight * 2).toDp() }
+    Box(Modifier.padding(top = 6.dp).fillMaxWidth().heightIn(min = slot)) {
+        if (focused && overflows)
+            Text(
+                title,
+                maxLines = 1,
+                style = style,
+                modifier =
+                    Modifier.basicMarquee(
+                        iterations = Int.MAX_VALUE,
+                        initialDelayMillis = 700,
+                        repeatDelayMillis = 1500,
+                    ),
+            )
+        else
+            Text(
+                title,
+                minLines = 2,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                style = style,
+                onTextLayout = { if (!focused) overflows = it.hasVisualOverflow },
+            )
     }
 }
 
