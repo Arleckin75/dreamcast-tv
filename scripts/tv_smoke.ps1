@@ -16,7 +16,7 @@ position in that build's history, so use it with a test build rather than the on
 watch with. Screenshots stay on this computer.
 
 .EXAMPLE
-./scripts/tv_smoke.ps1 -Device 192.168.0.10:5555 -Package com.dreamcast.app.kotlin -Player
+./scripts/tv_smoke.ps1 -Device <tv-ip>:5555 -Package com.dreamcast.app.kotlin -Player
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Device,

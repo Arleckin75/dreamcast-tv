@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)][string]$Serial,
-    [string]$Package = 'com.dreamcast.app.diagnostic',
+    [string]$Package = 'com.dreamcast.app',
     [ValidateRange(15, 7200)][int]$Seconds = 600,
     [ValidateRange(5, 60)][int]$IntervalSeconds = 15,
     [string]$OutputDirectory = '.tools/tv-stability',
