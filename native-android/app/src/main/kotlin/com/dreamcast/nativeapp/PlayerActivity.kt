@@ -15,7 +15,6 @@ import androidx.activity.OnBackPressedCallback
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Format
-import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -69,24 +68,18 @@ class PlayerActivity : ComponentActivity() {
     private val failedStreams = mutableSetOf<String>()
     private var completionCountdown: EpisodeCompletionCountdown? = null
     private val handler = Handler(Looper.getMainLooper())
-    private val scrubber = SeekScrubber()
-    private val thumbnails by lazy { ThumbnailLoader(app.repository.streamHeaders) }
-    private var thumbnailTrack: ThumbnailTrack? = null
-    private var thumbnailJob: Job? = null
-    private var frameJob: Job? = null
-    private var frameSprite = ""
-    private var prefetchJob: Job? = null
-    private var prefetchSprites = emptyList<String>()
-    private var swallowKeyUp = KeyEvent.KEYCODE_UNKNOWN
-    private val commitScrubTask = Runnable { commitScrub() }
-    private val saveTick =
-        object : Runnable {
-            override fun run() {
-                if (!activityStarted && !inPip()) return
-                save(force = false)
-                checkSoftwareFrames()
-                if (player?.isPlaying == true) handler.postDelayed(this, 5000)
-            }
+    private lateinit var seekPreview: SeekPreview
+    private lateinit var controlsTimer: ControlsTimer
+    private val menus by lazy { PlayerMenus(this, ::reveal) }
+    private val saveTimer =
+        PlaybackTicker(
+            handler,
+            PROGRESS_SAVE_INTERVAL_MS,
+            active = { activityStarted || inPip() },
+            playing = { player?.isPlaying == true },
+        ) {
+            save(force = false)
+            checkSoftwareFrames()
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -95,7 +88,7 @@ class PlayerActivity : ComponentActivity() {
         root =
             object : FrameLayout(this) {
                 override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-                    if (handleScrubKey(event)) return true
+                    if (seekPreview.handleKey(event)) return true
                     if (
                         event.action == KeyEvent.ACTION_DOWN &&
                             event.keyCode != KeyEvent.KEYCODE_BACK &&
@@ -145,6 +138,27 @@ class PlayerActivity : ComponentActivity() {
                     }
                 },
             )
+        seekPreview =
+            SeekPreview(
+                lifecycleScope,
+                handler,
+                controls,
+                streamHeaders = { app.repository.streamHeaders },
+                player = { player },
+                ready = { ready },
+                seekTo = ::seekToward,
+                seekBy = ::seekBy,
+                reveal = ::reveal,
+            )
+        controlsTimer =
+            ControlsTimer(
+                handler,
+                controls,
+                player = { player },
+                onScreen = { activityStarted && !inPip() },
+                hasWindowFocus = ::hasWindowFocus,
+                onReveal = { seekPreview.prefetch() },
+            )
         video.setOnClickListener {
             reveal()
             controls.show(true)
@@ -154,7 +168,7 @@ class PlayerActivity : ComponentActivity() {
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
                     // Back first leaves scrubbing without seeking.
-                    if (cancelScrub()) return
+                    if (seekPreview.cancel()) return
                     if (controls.visible) controls.hide() else finish()
                 }
             },
@@ -205,7 +219,7 @@ class PlayerActivity : ComponentActivity() {
                     save()
                     ready = false
                     episode = found
-                    loadThumbnails(found)
+                    seekPreview.load(found)
                     streams = app.repository.streams(found)
                     require(streams.isNotEmpty()) { "Потоки видео не найдены" }
                     app.progressWriter.awaitPending()
@@ -393,7 +407,7 @@ class PlayerActivity : ComponentActivity() {
                         save()
                         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     }
-                    scheduleSave()
+                    saveTimer.schedule()
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
@@ -442,14 +456,7 @@ class PlayerActivity : ComponentActivity() {
         val format = player?.videoFormat ?: currentVideoFormat
         val hw = format != null && !hardwareFailed && capabilities.hardware(format)
         val sw = format != null && capabilities.software(format)
-        showPlayerMenu(this, "Декодирование",
-            listOf("Авто", if (hw) "Аппаратное" else "Аппаратное — недоступно для этого видео",
-                if (sw) "Программное AV1 — dav1d" else "Программное AV1 — недоступно для этого видео"),
-            decoderMode.ordinal, onDismiss = ::reveal,
-            enabledItem = { it == 0 || (it == 1 && hw) || (it == 2 && sw) },
-        ) { index ->
-            if ((index == 1 && !hw) || (index == 2 && !sw)) return@showPlayerMenu
-            val mode = DecoderMode.entries[index]
+        menus.decoder(decoderMode, hw, sw) { mode ->
             app.storage.put("player.decoder_mode", mode.name)
             // The decoder this choice would run; when it is the one already running (Auto already
             // on the hardware decoder, say), keep playing: restarting a hardware decoder for
@@ -461,7 +468,7 @@ class PlayerActivity : ComponentActivity() {
                 unchangedChoice(next.output, output, failed = player?.playerError != null)) {
                 decoderMode = mode
                 android.util.Log.i("DCTV_DECODER", "requested=$mode output=$output restart=false")
-                return@showPlayerMenu
+                return@decoder
             }
             decoderMode = mode
             // A different decoder: reopen the player screen at the same position, the way an
@@ -519,13 +526,8 @@ class PlayerActivity : ComponentActivity() {
                 }
             if (isFinishing || release.id != shown.id) return@launch
             val menu = seasonEndMenu(shown, episodes.size, status)
-            showPlayerMenu(
-                this@PlayerActivity,
-                menu.title,
-                menu.actions.map { it.label },
-                onCancel = { finish() },
-            ) { index ->
-                when (menu.actions[index]) {
+            menus.seasonEnd(menu, onClose = { finish() }) { action ->
+                when (action) {
                     SeasonEndAction.REWATCH -> {
                         playbackJob?.cancel()
                         playbackSerial++
@@ -542,20 +544,14 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun chooseStream() {
-        showPlayerMenu(
-            this,
-            "Поток видео",
-            streams.map { it.type.uppercase() + " • ${it.quality}p" },
-            streams.indexOf(activeStream),
-            onDismiss = ::reveal,
-        ) { index ->
+        menus.stream(streams, activeStream) { stream ->
             // The stream already playing: nothing to do. After an error it is a retry.
             if (player != null &&
-                unchangedChoice(streams[index], activeStream, failed = player?.playerError != null))
-                return@showPlayerMenu
+                unchangedChoice(stream, activeStream, failed = player?.playerError != null))
+                return@stream
             save()
             retryCount = 0
-            play(streams[index], player?.playWhenReady ?: true)
+            play(stream, player?.playWhenReady ?: true)
         }
     }
 
@@ -569,16 +565,10 @@ class PlayerActivity : ComponentActivity() {
             }
         }
         val heights = qualityChoices((playable.ifEmpty { formats }).map { it.height })
-        showPlayerMenu(
-            this,
-            "Качество",
-            heights.map { if (it == 0) "Авто" else "${it}p" },
-            heights.indexOf(selectedQuality),
-            onDismiss = ::reveal,
-        ) { index ->
+        menus.quality(heights, selectedQuality) { height ->
             // Re-picking the current quality would reset the dav1d quality logic for nothing.
-            if (unchangedChoice(heights[index], selectedQuality, failed = false)) return@showPlayerMenu
-            selectedQuality = heights[index]
+            if (unchangedChoice(height, selectedQuality, failed = false)) return@quality
+            selectedQuality = height
             softwareFrameMonitor.reset()
             softwareQuality.restoreLearned()
             player?.let(::applyQualityLimit)
@@ -586,16 +576,9 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun chooseSpeed() {
-        val speeds = PLAYBACK_SPEEDS
-        showPlayerMenu(
-            this,
-            "Скорость",
-            speeds.map { "${it}×" },
-            speeds.indexOf(selectedSpeed),
-            onDismiss = ::reveal,
-        ) { index ->
-            if (unchangedChoice(speeds[index], selectedSpeed, failed = false)) return@showPlayerMenu
-            selectedSpeed = speeds[index]
+        menus.speed(selectedSpeed) { speed ->
+            if (unchangedChoice(speed, selectedSpeed, failed = false)) return@speed
+            selectedSpeed = speed
             player?.setPlaybackSpeed(selectedSpeed)
         }
     }
@@ -667,27 +650,20 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun tracks() {
-        if (player == null) return
-        showPlayerMenu(this, "Звук и субтитры", listOf("Звук", "Субтитры"), onDismiss = ::reveal) {
-            index ->
-            val exo = player ?: return@showPlayerMenu
-            showTrackMenu(this, exo, if (index == 0) C.TRACK_TYPE_AUDIO else C.TRACK_TYPE_TEXT, ::reveal)
-        }
+        if (player != null) menus.tracks { player }
     }
 
     private fun failure(message: String) {
         if (isFinishing) return
-        showPlayerMenu(
-            this,
-            "Ошибка воспроизведения\n$message",
-            listOf("Повторить", "Другой поток"),
-            onCancel = { finish() },
-        ) { index ->
-            if (index == 0) {
+        menus.failure(
+            message,
+            onRetry = {
                 retryCount = 0
                 episode?.let { load(it.id, null, refresh = true) }
-            } else chooseStream()
-        }
+            },
+            onOtherStream = ::chooseStream,
+            onClose = { finish() },
+        )
     }
 
     private fun pip() {
@@ -722,7 +698,7 @@ class PlayerActivity : ComponentActivity() {
         save()
         player?.pause()
         resumeOnStart = false
-        handler.removeCallbacks(saveTick)
+        saveTimer.stop()
         android.util.Log.i("DCTV_NATIVE_PLAYER", "pip closed")
         finish()
     }
@@ -749,14 +725,13 @@ class PlayerActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         activityStarted = false
-        cancelScrub()
-        handler.removeCallbacks(controlTick)
-        handler.removeCallbacks(hideControls)
+        seekPreview.cancel()
+        controlsTimer.stop()
         if (!inPip()) {
             resumeOnStart = player?.playWhenReady ?: resumeOnStart
             player?.pause()
             video.onPause()
-            handler.removeCallbacks(saveTick)
+            saveTimer.stop()
         }
     }
 
@@ -767,142 +742,13 @@ class PlayerActivity : ComponentActivity() {
         activityStarted = true
         video.onResume()
         if (resumeOnStart) player?.play()
-        scheduleSave()
+        saveTimer.schedule()
         if (controls.visible) reveal()
     }
 
-    private fun scheduleSave() {
-        handler.removeCallbacks(saveTick)
-        if ((activityStarted || inPip()) && player?.isPlaying == true)
-            handler.postDelayed(saveTick, 5000)
-    }
+    private fun reveal() = controlsTimer.reveal()
 
-    private val hideControls = Runnable {
-        if (hasWindowFocus() && !controls.modalVisible && player?.isPlaying == true) controls.hide()
-    }
-    private val controlTick =
-        object : Runnable {
-            override fun run() {
-                if (!activityStarted || !controls.visible || inPip()) return
-                player?.let {
-                    controls.update(
-                        it.currentPosition,
-                        it.duration,
-                        it.isPlaying,
-                        it.isCurrentMediaItemSeekable,
-                    )
-                }
-                handler.postDelayed(this, 500)
-            }
-        }
-
-    private fun reveal() {
-        if (!activityStarted || inPip()) return
-        controls.show()
-        prefetchPreviews()
-        handler.removeCallbacks(controlTick)
-        handler.post(controlTick)
-        handler.removeCallbacks(hideControls)
-        handler.postDelayed(hideControls, 5000)
-    }
-
-    /** Loads [target]'s preview track in the background; scrubbing works without it. */
-    private fun loadThumbnails(target: Episode) {
-        cancelScrub()
-        thumbnailJob?.cancel()
-        thumbnailTrack = null
-        if (target.thumbnails.isBlank()) return
-        thumbnailJob = lifecycleScope.launch {
-            thumbnailTrack = thumbnails.track(target.thumbnails)
-            prefetchPreviews()
-        }
-    }
-
-    /**
-     * Loads the preview sprites around the playback position in the background, so the first
-     * left/right press shows a frame instead of waiting for its sprite.
-     */
-    private fun prefetchPreviews(positionMs: Long? = null) {
-        val track = thumbnailTrack ?: return
-        val position = positionMs ?: player?.currentPosition ?: return
-        val cues = track.spritesAround(position)
-        val sprites = cues.map { it.imageUrl }
-        if (prefetchJob?.isActive == true && sprites == prefetchSprites) return
-        prefetchJob?.cancel()
-        prefetchSprites = sprites
-        prefetchJob = lifecycleScope.launch { cues.forEach { thumbnails.frame(it) } }
-    }
-
-    /**
-     * Moves the seek target one step in [direction] and shows its preview; the seek happens on
-     * OK or [SeekScrubber.COMMIT_DELAY_MS] after the last press. Without a known duration it
-     * falls back to an immediate seek.
-     */
-    private fun scrub(direction: Int, repeatCount: Int) {
-        val exo = player ?: return
-        val duration = exo.duration
-        if (!ready || duration <= 0 || !exo.isCurrentMediaItemSeekable) {
-            seekBy(direction * SEEK_STEP_MS)
-            return
-        }
-        val target = scrubber.step(direction, exo.currentPosition, duration, repeatCount)
-        controls.show()
-        reveal()
-        showScrubFrame(target)
-        handler.removeCallbacks(commitScrubTask)
-        handler.postDelayed(commitScrubTask, SeekScrubber.COMMIT_DELAY_MS)
-    }
-
-    private fun showScrubFrame(target: Long) {
-        val track = thumbnailTrack
-        val cue = track?.frameAt(target)
-        val frame = cue?.let(thumbnails::cachedFrame)
-        controls.showScrub(target, frame, hasPreviews = track != null)
-        if (cue == null || frame != null) return
-        // Keep one download per sprite while the target moves within it.
-        if (frameJob?.isActive == true && frameSprite == cue.imageUrl) return
-        frameJob?.cancel()
-        frameSprite = cue.imageUrl
-        frameJob = lifecycleScope.launch {
-            thumbnails.frame(cue)
-            val current = scrubber.target?.let(track::frameAt) ?: return@launch
-            thumbnails.cachedFrame(current)?.let(controls::setScrubFrame)
-        }
-    }
-
-    private fun commitScrub() {
-        handler.removeCallbacks(commitScrubTask)
-        val target = scrubber.commit() ?: return
-        controls.hideScrub()
-        player?.let { seekToward(it, target) }
-        if (controls.visible) reveal()
-    }
-
-    /** Leaves scrubbing without seeking; true when it was active. */
-    private fun cancelScrub(): Boolean {
-        handler.removeCallbacks(commitScrubTask)
-        if (!scrubber.active) return false
-        scrubber.cancel()
-        controls.hideScrub()
-        return true
-    }
-
-    /** While scrubbing, OK seeks now; the key up is consumed too. Back is in the back callback. */
-    private fun handleScrubKey(event: KeyEvent): Boolean {
-        if (event.action == KeyEvent.ACTION_UP && event.keyCode == swallowKeyUp) {
-            swallowKeyUp = KeyEvent.KEYCODE_UNKNOWN
-            return true
-        }
-        if (event.action != KeyEvent.ACTION_DOWN || !scrubber.active) return false
-        when (event.keyCode) {
-            KeyEvent.KEYCODE_DPAD_CENTER,
-            KeyEvent.KEYCODE_ENTER,
-            KeyEvent.KEYCODE_NUMPAD_ENTER -> commitScrub()
-            else -> return false
-        }
-        swallowKeyUp = event.keyCode
-        return true
-    }
+    private fun scrub(direction: Int, repeatCount: Int) = seekPreview.step(direction, repeatCount)
 
     /** dav1d seeks land on a keyframe: decoding up to an exact position is slow on weak TVs. */
     private fun seekToward(exo: ExoPlayer, target: Long) {
@@ -911,7 +757,7 @@ class PlayerActivity : ComponentActivity() {
                 keyframeSeekTarget(target, exo.currentPosition, hlsKeyframesMs(exo))
             else target
         exo.seekTo(position)
-        prefetchPreviews(position)
+        seekPreview.prefetch(position)
     }
 
     private fun seekBy(delta: Long) {
@@ -945,7 +791,7 @@ class PlayerActivity : ComponentActivity() {
         playbackJob?.cancel()
         playbackSerial++
         completionCountdown?.dismiss()
-        thumbnails.clear()
+        seekPreview.dispose()
         video.player = null
         player?.release()
         player = null
@@ -953,6 +799,8 @@ class PlayerActivity : ComponentActivity() {
     }
 }
 
+/** How often a playing episode saves its position and checks dav1d frame drops. */
+private const val PROGRESS_SAVE_INTERVAL_MS = 5000L
 private const val DAV1D_DEVICE_KEY = "player.dav1d_auto_device"
 private const val DAV1D_HEIGHT_KEY = "player.dav1d_auto_height"
 private const val DAV1D_FAILURES_KEY = "player.dav1d_failures"

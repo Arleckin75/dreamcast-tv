@@ -103,7 +103,7 @@ class UiRefreshRegressionTest {
         val show = Release(79, "Show")
         val episode = Episode("one", 79, 1, "Episode", "")
         app.progressWriter.save(ProgressSnapshot(show, episode, 12345, 100000, false))
-        model.refreshPlayerProgress(app)
+        model.refreshPlayerProgress()
         await { model.ui.progressByRelease[79]?.get("one")?.positionMs == 12345L }
         assertEquals("rose", model.ui.accent)
         assertEquals("one", model.ui.continueWatching.single().episodeId)

@@ -10,15 +10,33 @@ import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.FormBody
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 
-/** HTTP client for dreamerscast.com with the browser headers and retries the site needs. */
+/**
+ * HTTP client for dreamerscast.com with the browser headers and retries the site needs.
+ *
+ * Requests go only to the host of [baseUrl]: an address from anywhere else (a release opened
+ * from another app's intent, say) is refused before anything is sent.
+ *
+ * Each of the [ATTEMPTS] attempts has its own time budget, set on [client]; [totalTimeoutMs]
+ * covers all of them and the pauses in between.
+ */
 class SiteClient(
     val baseUrl: String = BASE_URL,
-    private val client: OkHttpClient = SharedHttp.client(connect = 45, read = 45, call = 12),
+    private val client: OkHttpClient =
+        SharedHttp.client(
+            connect = CONNECT_TIMEOUT_S,
+            read = READ_TIMEOUT_S,
+            call = ATTEMPT_TIMEOUT_S,
+        ),
+    private val totalTimeoutMs: Long = TOTAL_TIMEOUT_MS,
 ) {
+    private val site =
+        requireNotNull(baseUrl.toHttpUrlOrNull()) { "Недопустимый адрес сайта: $baseUrl" }
+
     private class HttpFailure(val status: Int) : IOException("Ошибка сервера: $status")
 
     val headers =
@@ -32,12 +50,12 @@ class SiteClient(
         )
 
     private suspend fun execute(request: Request): String =
-        withTimeoutOrNull(20_000) { executeAttempts(request) }
+        withTimeoutOrNull(totalTimeoutMs) { executeAttempts(request) }
             ?: throw IOException("Превышено время ожидания сервера")
 
     private suspend fun executeAttempts(request: Request): String {
         var last: Exception? = null
-        repeat(3) { attempt ->
+        repeat(ATTEMPTS) { attempt ->
             try {
                 return suspendCancellableCoroutine { continuation ->
                     val call = client.newCall(request)
@@ -70,16 +88,26 @@ class SiteClient(
                 if (error is HttpFailure && error.status !in setOf(408, 429, 500, 502, 503, 504))
                     throw error
                 last = error
-                if (attempt < 2) delay(350L shl attempt)
+                if (attempt < ATTEMPTS - 1) delay(RETRY_PAUSE_MS shl attempt)
             }
         }
         throw last ?: IOException("Сеть недоступна")
     }
 
-    private fun request(url: String) =
-        Request.Builder()
-            .url(if (url.startsWith("http")) url else baseUrl.trimEnd('/') + url)
-            .apply { headers.forEach { (key, value) -> header(key, value) } }
+    private fun request(url: String): Request.Builder {
+        val target =
+            (if (url.startsWith("http")) url else baseUrl.trimEnd('/') + url).toHttpUrlOrNull()
+        if (
+            target == null ||
+                target.scheme != site.scheme ||
+                target.host != site.host ||
+                target.port != site.port
+        )
+            throw IOException("Недопустимый адрес: $url")
+        return Request.Builder().url(target).apply {
+            headers.forEach { (key, value) -> header(key, value) }
+        }
+    }
 
     suspend fun html(url: String) = execute(request(url).get().build())
 
@@ -97,5 +125,20 @@ class SiteClient(
         filter.year?.let { form.add("dateissue[]", it.toString()) }
         filter.genres.sorted().forEach { form.add("genres[]", it) }
         return execute(request("/").post(form.build()).build())
+    }
+
+    private companion object {
+        const val ATTEMPTS = 3
+        const val CONNECT_TIMEOUT_S = 5L
+        const val READ_TIMEOUT_S = 10L
+
+        /** One attempt, from connecting to the last byte of the response. */
+        const val ATTEMPT_TIMEOUT_S = 12L
+
+        /** Pause before the second attempt; doubled before the third. */
+        const val RETRY_PAUSE_MS = 350L
+
+        /** Three full attempts and both pauses fit: 3 x 12 s + 0.35 s + 0.7 s. */
+        const val TOTAL_TIMEOUT_MS = 40_000L
     }
 }

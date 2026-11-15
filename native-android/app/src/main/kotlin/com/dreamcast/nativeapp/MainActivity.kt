@@ -131,13 +131,9 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
         }
     }
 
-    fun refreshPlayerProgress(context: android.content.Context) {
-        val appContext = context.applicationContext
+    fun refreshPlayerProgress() {
         viewModelScope.launch {
             application.progressWriter.awaitPending()
-            withContext(Dispatchers.IO) {
-                    localDataMutex.withLock { storage.syncSoftwareProgress(appContext) }
-                }
             changed(UiSection.PROGRESS)
         }
     }
@@ -281,7 +277,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         // The player saves progress in the background; show it once the saves have finished,
         // so returning from the player updates the episode list and "Continue watching".
-        model.refreshPlayerProgress(this)
+        model.refreshPlayerProgress()
         // Continue an update install after the user allowed it in system settings.
         model.updates.onResume()
     }

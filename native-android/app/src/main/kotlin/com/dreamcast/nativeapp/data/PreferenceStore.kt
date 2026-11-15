@@ -33,6 +33,12 @@ internal class PreferenceStore(private val preferences: SharedPreferences) {
 
     fun remove(key: String) = edit { remove(key) }
 
+    /** Removes every key starting with [prefix] in one commit; nothing is written if none exist. */
+    fun removeWithPrefix(prefix: String) {
+        val keys = preferences.all.keys.filter { it.startsWith(prefix) }
+        if (keys.isNotEmpty()) edit { keys.forEach { remove(it) } }
+    }
+
     /** Applies several changes in one asynchronous commit. */
     fun edit(block: SharedPreferences.Editor.() -> Unit) {
         preferences.edit().apply(block).apply()

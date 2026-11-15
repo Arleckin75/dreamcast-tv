@@ -1,14 +1,10 @@
 package com.dreamcast.nativeapp.data
 
-import android.content.Context
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 
 /** Playback positions and watch history in SQLite. */
-internal class WatchHistoryStore(
-    database: Lazy<SQLiteDatabase>,
-    private val preferences: PreferenceStore,
-) {
+internal class WatchHistoryStore(database: Lazy<SQLiteDatabase>) {
     private val database by database
 
     fun progress(releaseId: Int, episodeId: String): WatchProgress? {
@@ -36,29 +32,6 @@ internal class WatchHistoryStore(
                         it.getLong(2) * 1000,
                     )
             }
-    }
-
-    /** Imports positions the software (VLC) player saved after the last native update. */
-    fun syncSoftwareProgress(context: Context) {
-        val softwareProgress =
-            context.getSharedPreferences("dream_cast_vlc_progress", Context.MODE_PRIVATE)
-        val values = softwareProgress.all
-        for ((timestampKey, value) in values) {
-            if (!timestampKey.endsWith(":updatedAt") || value !is Long) continue
-            val key = timestampKey.removeSuffix(":updatedAt")
-            val position = values[key] as? Long ?: continue
-            if (value <= preferences.number("$UPDATED_AT_PREFIX$key")) continue
-            val releaseId = key.substringBefore(':').toIntOrNull() ?: continue
-            val entry = progress(releaseId, key.substringAfter(':')) ?: continue
-            if (value > preferences.number("$UPDATED_AT_PREFIX$key", entry.updatedAt)) {
-                saveProgress(
-                    entry.release,
-                    Episode(entry.episodeId, entry.release.id, entry.ordinal, entry.episodeTitle, ""),
-                    position,
-                    entry.durationMs,
-                )
-            }
-        }
     }
 
     /** The latest unfinished episode of each release, newest first. */
@@ -140,13 +113,11 @@ internal class WatchHistoryStore(
                 ),
             )
         }
-        preferences.put("$UPDATED_AT_PREFIX${release.id}:${episode.id}", System.currentTimeMillis())
     }
 
     private companion object {
         const val ENTRY_COLUMNS =
             "episode_id,release_title,episode_title,poster_url,episode_ordinal,position_ms,duration_ms,is_watched,updated_at"
-        const val UPDATED_AT_PREFIX = "progress.updatedAt."
         const val WATCHED_FRACTION = 0.9
     }
 }

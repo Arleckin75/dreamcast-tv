@@ -90,6 +90,9 @@ class DreamApplication : Application(), coil.ImageLoaderFactory {
             backgroundScope.async {
                 if (storage.profile().isBlank()) storage.saveProfile("TV")
                 storage.put("settings.onboarding_completed", true)
+                // Leftovers of the removed VLC player and of its progress import.
+                storage.removeLegacyProgressKeys()
+                removeVlcProgressFile()
             }
         WorkManager.getInstance(this).cancelUniqueWork("dream_cast_episode_notification_periodic")
         WorkManager.getInstance(this).cancelUniqueWork("dream_cast_episode_notification_once")
@@ -107,6 +110,14 @@ class DreamApplication : Application(), coil.ImageLoaderFactory {
                     .build(),
             )
     }
+}
+
+/** Deletes the progress file of the VLC player removed in 0.9.3, if it is still there. */
+private fun Context.removeVlcProgressFile() {
+    val name = "dream_cast_vlc_progress"
+    if (!java.io.File(applicationInfo.dataDir, "shared_prefs/$name.xml").exists()) return
+    if (android.os.Build.VERSION.SDK_INT >= 24) deleteSharedPreferences(name)
+    else getSharedPreferences(name, Context.MODE_PRIVATE).edit().clear().apply()
 }
 
 /** Posters are ~50–150 KB each: room for a few thousand covers on small TV storage. */
