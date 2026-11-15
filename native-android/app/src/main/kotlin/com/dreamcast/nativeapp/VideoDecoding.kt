@@ -11,6 +11,7 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
+import androidx.media3.exoplayer.video.MediaCodecVideoRenderer
 import androidx.media3.exoplayer.video.VideoRendererEventListener
 
 enum class DecoderMode(val label: String) {
@@ -60,10 +61,55 @@ class UnifiedRenderersFactory(context: Context, private val output: VideoOutput)
             // Queue enough frames to absorb decode-time spikes; preserve dav1d's automatic thread count.
             out.add(Libdav1dVideoRenderer(allowedVideoJoiningTimeMs, eventHandler, eventListener,
                 50, Libdav1dVideoRenderer.THREAD_COUNT_DECODER_DEFAULT, 0, 12, 12, false))
-        } else super.buildVideoRenderers(context, extensionRendererMode, mediaCodecSelector,
-            enableDecoderFallback, eventHandler, eventListener, allowedVideoJoiningTimeMs, out)
+        } else out.add(
+            BitstreamColorVideoRenderer(
+                MediaCodecVideoRenderer.Builder(context)
+                    .setCodecAdapterFactory(codecAdapterFactory)
+                    .setMediaCodecSelector(mediaCodecSelector)
+                    .setAllowedJoiningTimeMs(allowedVideoJoiningTimeMs)
+                    .setEnableDecoderFallback(enableDecoderFallback)
+                    .setEventHandler(eventHandler)
+                    .setEventListener(eventListener)
+                    .setMaxDroppedFramesToNotify(MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY)
+            )
+        )
     }
 }
+
+/**
+ * A MediaCodec video renderer that leaves the colour of SDR AV1 to the bitstream. ExoPlayer
+ * normally copies the stream's colour info (BT.709, limited range, SDR) into the codec's
+ * KEY_COLOR_* settings; on a Candy Google TV the hardware AV1 decoder then shows the picture
+ * with a yellow cast, while the same stream through dav1d, and through mpv on the same hardware
+ * decoder (FFmpeg does not set these keys), looks right. The bitstream carries the same values,
+ * so other decoders are unaffected; HDR keeps its colour info.
+ */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+private class BitstreamColorVideoRenderer(builder: MediaCodecVideoRenderer.Builder) :
+    MediaCodecVideoRenderer(builder) {
+    override fun getMediaFormat(
+        format: Format,
+        codecMimeType: String,
+        codecMaxValues: MediaCodecVideoRenderer.CodecMaxValues,
+        codecOperatingRate: Float,
+        deviceNeedsNoPostProcessWorkaround: Boolean,
+        tunnelingAudioSessionId: Int,
+    ): android.media.MediaFormat =
+        super.getMediaFormat(
+            if (leaveColorToBitstream(format)) format.buildUpon().setColorInfo(null).build()
+            else format,
+            codecMimeType, codecMaxValues, codecOperatingRate,
+            deviceNeedsNoPostProcessWorkaround, tunnelingAudioSessionId,
+        )
+}
+
+/** SDR AV1 (or AV1 without a transfer) takes its colour from the bitstream, not KEY_COLOR_*. */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+internal fun leaveColorToBitstream(format: Format): Boolean =
+    format.sampleMimeType == MimeTypes.VIDEO_AV1 &&
+        format.colorInfo?.colorTransfer.let {
+            it == null || it == Format.NO_VALUE || it == C.COLOR_TRANSFER_SDR
+        }
 
 /** Deterministic policy, independent of Android's codec enumeration. */
 fun decoderOutput(mode: DecoderMode, hardware: Boolean, dav1d: Boolean): VideoOutput = when {
@@ -133,6 +179,25 @@ fun lowerSoftwareHeight(
 /** The next height dav1d can decode above the automatic [limit]; null when there is none. */
 fun higherSoftwareHeight(formats: List<Format>, limit: Int, software: (Format) -> Boolean): Int? =
     formats.filter { software(it) && it.height > limit }.minOfOrNull { it.height }
+
+/**
+ * The decoding item of the player menu. In Auto it also names the decoder actually running,
+ * so "Аппаратное" is not chosen in the hope of a change when Auto already uses it.
+ */
+fun decoderMenuLabel(mode: DecoderMode, output: VideoOutput?): String =
+    if (mode != DecoderMode.AUTO || output == null) mode.label
+    else "${mode.label} (${when (output) {
+        VideoOutput.HARDWARE -> "аппаратное"
+        VideoOutput.DAV1D -> "dav1d"
+        VideoOutput.SYSTEM -> "системное"
+    }})"
+
+/**
+ * Pause between releasing a video decoder and creating a different one. Some TV firmware
+ * (seen on a Candy Google TV) hangs the whole system when a hardware decoder is torn down and
+ * a new one is started at once.
+ */
+const val DECODER_SWITCH_PAUSE_MS = 1_000L
 
 fun canFallbackToDav1d(mode: DecoderMode, output: VideoOutput, attempted: Boolean,
     videoError: Boolean, supported: Boolean): Boolean =

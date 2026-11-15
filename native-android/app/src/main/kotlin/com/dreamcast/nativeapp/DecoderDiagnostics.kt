@@ -27,7 +27,7 @@ internal class DecoderDiagnostics(
     ) {
         if (!isCurrent()) return
         onFormat(format)
-        Log.i(TAG, "format=${format.width}x${format.height} fps=${format.frameRate} bitrate=${format.bitrate}")
+        Log.i(TAG, "format=${format.width}x${format.height} fps=${format.frameRate} bitrate=${format.bitrate} color=${format.colorInfo}")
     }
 
     override fun onDroppedVideoFrames(
