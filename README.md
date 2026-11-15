@@ -134,7 +134,7 @@ Jetpack Compose / TV Material. Приложение и его сборка ра�
 | Карточка тайтла | Библиотека тайтла |
 | --- | --- |
 | [![Карточка тайтла](docs/screenshots/05-title-detail.png)](docs/screenshots/05-title-detail.png)<br>**Описание.** Обложка, названия, год, студия, рейтинг и жанры. Отсюда доступны серии, добавление в библиотеку и подписка на обновления. Длинное описание раскрывается кнопкой «вниз». | [![Статус тайтла в библиотеке](docs/screenshots/06-library-status-dialog.png)](docs/screenshots/06-library-status-dialog.png)<br>**Статус просмотра.** Добавление тайтла в нужную категорию библиотеки или удаление из неё. |
-| [![Выбор потока перед запуском](docs/screenshots/33-playback-stream-choice.png)](docs/screenshots/33-playback-stream-choice.png)<br>**Запуск серии.** Выбор доступного потока HLS или DASH. Выбор можно запомнить по умолчанию. | |
+| [![Выбор потока перед запуском](docs/screenshots/33-playback-stream-choice.png)](docs/screenshots/33-playback-stream-choice.png)<br>**Запуск серии.** По умолчанию серия сразу запускается в HLS. Если в настройках выбрать «Выбирать вручную», перед запуском появляется это окно с HLS и DASH. | |
 
 ### Поиск и личные разделы
 

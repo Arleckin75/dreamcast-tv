@@ -2,6 +2,13 @@ package com.dreamcast.nativeapp
 
 import com.dreamcast.nativeapp.data.*
 
+/**
+ * Stream played when the viewer has not chosen one: HLS and DASH carry the same video, and
+ * the player switches to the other one on errors, so there is no need to ask every time.
+ * "none" (ask before every episode) remains available in the settings.
+ */
+const val DEFAULT_STREAM_TECHNOLOGY = "hls"
+
 /** Prepared off the UI thread; composables only consume these in-memory values. */
 data class UiNotification(
     val key: String,
@@ -16,7 +23,7 @@ data class UiSnapshot(
     val theme: String = "dark",
     val accent: String = "system",
     val dynamicColor: Boolean = true,
-    val streamTechnology: String = "none",
+    val streamTechnology: String = DEFAULT_STREAM_TECHNOLOGY,
     val profile: String = "",
     val retentionHours: Long = 8,
     val bookmarks: List<Bookmark> = emptyList(),
@@ -70,7 +77,7 @@ internal fun Storage.readUiSnapshot(
                 theme = string("settings.theme_mode", "dark"),
                 accent = string("settings.accent", "system"),
                 dynamicColor = boolean("settings.dynamic_color", true),
-                streamTechnology = string("player.preferred_stream_technology", "none"),
+                streamTechnology = string("player.preferred_stream_technology", DEFAULT_STREAM_TECHNOLOGY),
             )
     if (UiSection.PROFILE in sections) result = result.copy(profile = profile())
     if (UiSection.CACHE in sections) result = result.copy(retentionHours = retentionHours())

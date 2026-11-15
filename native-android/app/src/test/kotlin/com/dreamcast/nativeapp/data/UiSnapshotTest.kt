@@ -86,6 +86,13 @@ class UiSnapshotTest {
     }
 
     @Test
+    fun `stream defaults to HLS and keeps a saved choice`() {
+        assertEquals("hls", storage.readUiSnapshot().streamTechnology)
+        storage.put("player.preferred_stream_technology", "none")
+        assertEquals("none", storage.readUiSnapshot().streamTechnology)
+    }
+
+    @Test
     fun `settings refresh does not open database or replace unrelated collections`() {
         val show = Release(31, "Show")
         storage.saveProgress(show, Episode("one", 31, 1, "Episode", ""), 100, 1000)
