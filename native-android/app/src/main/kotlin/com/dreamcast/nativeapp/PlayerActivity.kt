@@ -25,6 +25,7 @@ import com.dreamcast.nativeapp.data.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -134,7 +135,10 @@ class PlayerActivity : ComponentActivity() {
                                 ::chooseQuality
                         )
                         add("Скорость · ${selectedSpeed}×" to ::chooseSpeed)
-                        add("Декодирование · ${decoderMode.label}" to ::chooseDecoder)
+                        add(
+                            "Декодирование · ${decoderMenuLabel(decoderMode, output.takeIf { player != null })}" to
+                                ::chooseDecoder
+                        )
                         add(
                             "Поток · ${activeStream?.type?.uppercase().orEmpty()}" to ::chooseStream
                         )
@@ -228,7 +232,11 @@ class PlayerActivity : ComponentActivity() {
             }
     }
 
-    private fun play(stream: VideoStream, playWhenReady: Boolean = true) {
+    /**
+     * Starts [stream]. [decoderChanged]: a different video decoder replaces the one just
+     * released, so wait [DECODER_SWITCH_PAUSE_MS] before creating it.
+     */
+    private fun play(stream: VideoStream, playWhenReady: Boolean = true, decoderChanged: Boolean = false) {
         playbackJob?.cancel()
         val serial = ++playbackSerial
         save()
@@ -251,6 +259,10 @@ class PlayerActivity : ComponentActivity() {
                 val source = mediaSourceFactory(this@PlayerActivity, app.repository.streamHeaders)
                 formats = videoFormats(this@PlayerActivity, source, MediaItem.fromUri(stream.url))
                 if (serial != playbackSerial) return@launch
+                if (decoderChanged) {
+                    delay(DECODER_SWITCH_PAUSE_MS)
+                    if (serial != playbackSerial) return@launch
+                }
                 val choice = chooseVideo(formats, selectedQuality, decoderMode,
                     hardware = { !hardwareFailed && capabilities.hardware(it) },
                     software = capabilities::software, softwareAutoHeight = softwareQuality.limit)
@@ -399,7 +411,7 @@ class PlayerActivity : ComponentActivity() {
                             android.widget.Toast.makeText(this@PlayerActivity,
                                 "Ошибка аппаратного декодера. Переключение на dav1d",
                                 android.widget.Toast.LENGTH_LONG).show()
-                            play(stream, exo.playWhenReady)
+                            play(stream, exo.playWhenReady, decoderChanged = true)
                         }
                         PlaybackRecovery.ReloadPage -> {
                             resumePosition = exo.currentPosition.coerceAtLeast(0)
@@ -436,9 +448,23 @@ class PlayerActivity : ComponentActivity() {
             enabledItem = { it == 0 || (it == 1 && hw) || (it == 2 && sw) },
         ) { index ->
             if ((index == 1 && !hw) || (index == 2 && !sw)) return@showPlayerMenu
-            decoderMode = DecoderMode.entries[index]
-            app.storage.put("player.decoder_mode", decoderMode.name)
-            activeStream?.let { play(it, player?.playWhenReady ?: resumeOnStart) }
+            val mode = DecoderMode.entries[index]
+            app.storage.put("player.decoder_mode", mode.name)
+            // The decoder this choice would run; when it is the one already running (Auto already
+            // on the hardware decoder, say), keep playing: restarting a hardware decoder for
+            // nothing hangs some TVs.
+            val next = chooseVideo(formats, selectedQuality, mode,
+                hardware = { !hardwareFailed && capabilities.hardware(it) },
+                software = capabilities::software, softwareAutoHeight = softwareQuality.limit)
+            if (player != null && formats.isNotEmpty() && next.output == output) {
+                decoderMode = mode
+                android.util.Log.i("DCTV_DECODER", "requested=$mode output=$output restart=false")
+                return@showPlayerMenu
+            }
+            decoderMode = mode
+            activeStream?.let {
+                play(it, player?.playWhenReady ?: resumeOnStart, decoderChanged = next.output != output)
+            }
         }
     }
 

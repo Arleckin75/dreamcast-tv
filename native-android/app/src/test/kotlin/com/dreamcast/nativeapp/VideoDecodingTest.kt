@@ -38,6 +38,35 @@ class VideoDecodingTest {
     private val none: (Format) -> Boolean = { false }
     private val all: (Format) -> Boolean = { true }
 
+    @Test fun sdrAv1ColourIsLeftToTheBitstream() {
+        fun color(transfer: Int) = androidx.media3.common.ColorInfo.Builder()
+            .setColorSpace(androidx.media3.common.C.COLOR_SPACE_BT709)
+            .setColorRange(androidx.media3.common.C.COLOR_RANGE_LIMITED)
+            .setColorTransfer(transfer).build()
+        fun format(mime: String, transfer: Int?) = Format.Builder().setSampleMimeType(mime)
+            .apply { if (transfer != null) setColorInfo(color(transfer)) }.build()
+        assertTrue(leaveColorToBitstream(format(MimeTypes.VIDEO_AV1, androidx.media3.common.C.COLOR_TRANSFER_SDR)))
+        assertTrue(leaveColorToBitstream(format(MimeTypes.VIDEO_AV1, null)))
+        // HDR keeps its colour info; other codecs are untouched.
+        assertFalse(leaveColorToBitstream(format(MimeTypes.VIDEO_AV1, androidx.media3.common.C.COLOR_TRANSFER_ST2084)))
+        assertFalse(leaveColorToBitstream(format(MimeTypes.VIDEO_H264, androidx.media3.common.C.COLOR_TRANSFER_SDR)))
+    }
+
+    @Test fun menuNamesTheDecoderRunningInAuto() {
+        assertEquals("Авто (аппаратное)", decoderMenuLabel(DecoderMode.AUTO, VideoOutput.HARDWARE))
+        assertEquals("Авто (dav1d)", decoderMenuLabel(DecoderMode.AUTO, VideoOutput.DAV1D))
+        assertEquals("Авто", decoderMenuLabel(DecoderMode.AUTO, null))
+        assertEquals("Аппаратное", decoderMenuLabel(DecoderMode.HARDWARE, VideoOutput.HARDWARE))
+    }
+
+    @Test fun autoAndHardwareRunTheSameDecoderWhenHardwareWorks() {
+        val auto = chooseVideo(ladder, 0, DecoderMode.AUTO, all, all)
+        val hardware = chooseVideo(ladder, 0, DecoderMode.HARDWARE, all, all)
+        // Same output: switching between them must not restart the decoder.
+        assertEquals(auto.output, hardware.output)
+        assertEquals(VideoOutput.HARDWARE, auto.output)
+    }
+
     @Test fun dav1dStartsAtTheLearnedHeight() {
         val low = chooseVideo(ladder, 0, DecoderMode.AUTO, none, all, softwareAutoHeight = 480)
         assertEquals(480, low.format!!.height)
