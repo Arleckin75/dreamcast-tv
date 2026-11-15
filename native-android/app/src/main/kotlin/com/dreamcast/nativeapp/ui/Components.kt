@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -196,7 +197,6 @@ internal fun Poster(
     release: Release,
     restoreFocus: Boolean = false,
     onFocused: () -> Unit = {},
-    landscape: Boolean = false,
     progress: Float? = null,
     isNew: Boolean = false,
     /** An extra line under the card, inside its focus frame (e.g. the episode to continue). */
@@ -240,7 +240,7 @@ internal fun Poster(
     ) {
         Box(
             Modifier.fillMaxWidth()
-                .aspectRatio(if (landscape) 16f / 9f else 0.70f)
+                .aspectRatio(0.70f)
                 .clip(RoundedCornerShape(8.dp))
         ) {
             AsyncImage(
@@ -353,3 +353,27 @@ internal fun Modifier.focusFrame(focused: Boolean, color: Color, radius: Dp): Mo
             )
         }
     }
+
+/**
+ * A horizontal row whose cards are sized so exactly [perScreen] fit the screen width: the last
+ * visible card is never cut off at the edge, the rest come into view whole while scrolling.
+ */
+@Composable
+internal fun <T> FittedRow(
+    items: List<T>,
+    perScreen: Int,
+    key: (T) -> Any,
+    content: @Composable (T) -> Unit,
+) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val gap = 16.dp
+        val edge = 6.dp
+        val width = (maxWidth - edge * 2 - gap * (perScreen - 1)) / perScreen
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(gap),
+            contentPadding = PaddingValues(edge),
+        ) {
+            items(items, key = key) { item -> Box(Modifier.width(width)) { content(item) } }
+        }
+    }
+}

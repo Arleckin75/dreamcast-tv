@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -130,14 +129,13 @@ internal fun Home(model: AppViewModel) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Продолжить просмотр", style = MaterialTheme.typography.titleLarge)
-                    FittedRow(recent, perScreen = 4, key = { it.release.id }) { item ->
+                    FittedRow(recent, perScreen = 5, key = { it.release.id }) { item ->
                         val card = "recent/${item.release.id}"
                         // The caption sits inside the card, so scrolling to it shows it whole.
                         Poster(
                             item.release,
                             restoreFocus = focusedCard == card,
                             onFocused = { focusedCard = card },
-                            landscape = true,
                             progress =
                                 if (item.durationMs > 0)
                                     (item.positionMs.toFloat() / item.durationMs).coerceIn(0f, 1f)
@@ -234,30 +232,6 @@ private fun PosterRow(
             ) {
                 onOpen(release)
             }
-        }
-    }
-}
-
-/**
- * A horizontal row whose cards are sized so exactly [perScreen] fit the screen width: the last
- * visible card is never cut off at the edge, the rest come into view whole while scrolling.
- */
-@Composable
-private fun <T> FittedRow(
-    items: List<T>,
-    perScreen: Int,
-    key: (T) -> Any,
-    content: @Composable (T) -> Unit,
-) {
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val gap = 16.dp
-        val edge = 6.dp
-        val width = (maxWidth - edge * 2 - gap * (perScreen - 1)) / perScreen
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(gap),
-            contentPadding = PaddingValues(edge),
-        ) {
-            items(items, key = key) { item -> Box(Modifier.width(width)) { content(item) } }
         }
     }
 }

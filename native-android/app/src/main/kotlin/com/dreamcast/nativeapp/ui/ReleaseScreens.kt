@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -245,27 +244,24 @@ internal fun Schedule(model: AppViewModel) {
             Column {
                 Text(day.title, style = MaterialTheme.typography.titleLarge)
                 if (day.releases.isEmpty()) Text("Нет релизов")
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    items(day.releases, key = { it.id }) { release ->
-                        val card = "${day.title}/${release.id}"
-                        Box(Modifier.width(170.dp)) {
-                            Poster(
-                                release,
-                                restoreFocus =
-                                    focusedCard == card ||
-                                        initialFocus &&
-                                            day.title == days.getOrNull(firstDayIndex)?.title &&
-                                            release.id == firstRelease?.id,
-                                onFocused = {
-                                    initialFocus = false
-                                    focusedCard = card
-                                },
-                                progress = marks.progress(release.id),
-                                isNew = marks.isNew(release.id),
-                            ) {
-                                model.navigate(Route("detail", release))
-                            }
-                        }
+                // Five cards fit the width exactly, as on the home screen: none is cut at the edge.
+                FittedRow(day.releases, perScreen = 5, key = { it.id }) { release ->
+                    val card = "${day.title}/${release.id}"
+                    Poster(
+                        release,
+                        restoreFocus =
+                            focusedCard == card ||
+                                initialFocus &&
+                                    day.title == days.getOrNull(firstDayIndex)?.title &&
+                                    release.id == firstRelease?.id,
+                        onFocused = {
+                            initialFocus = false
+                            focusedCard = card
+                        },
+                        progress = marks.progress(release.id),
+                        isNew = marks.isNew(release.id),
+                    ) {
+                        model.navigate(Route("detail", release))
                     }
                 }
             }
