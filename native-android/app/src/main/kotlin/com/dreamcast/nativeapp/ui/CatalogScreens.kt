@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -42,6 +43,8 @@ internal fun Catalog(model: AppViewModel) {
     val options = resource(retry) { publish -> model.repository.options(onStale = publish) }
     var yearDialog by remember { mutableStateOf(false) }
     var genreDialog by remember { mutableStateOf(false) }
+    // A poster had focus last: returning from its release puts focus back on it, not on "Год".
+    var cardFocused by rememberSaveable { mutableStateOf(false) }
     val selected = genres.split(',').filter(String::isNotBlank).toSet()
     // Releases per genre, counted in the background and cached for a day; empty until known.
     val allGenres = options.value?.value?.genres.orEmpty()
@@ -57,13 +60,14 @@ internal fun Catalog(model: AppViewModel) {
             ?.joinToString(", ") { it.name }
             .orEmpty()
     Row(
+        Modifier.onFocusChanged { if (it.hasFocus) cardFocused = false },
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Action(
             "Год: ${if(year==0)"любой" else year}",
             enabled = options.value != null,
-            autofocus = true,
+            autofocus = !cardFocused,
         ) {
             yearDialog = true
         }
@@ -82,7 +86,7 @@ internal fun Catalog(model: AppViewModel) {
     options.error?.let { ErrorState("Не удалось загрузить фильтры: $it") { retry++ } }
     if (options.value?.stale == true) Stale()
     Spacer(Modifier.height(12.dp))
-    ReleaseFeed(model, CatalogFilter(year.takeIf { it != 0 }, selected), "")
+    ReleaseFeed(model, CatalogFilter(year.takeIf { it != 0 }, selected), "") { cardFocused = true }
     if (yearDialog)
         options.value?.value?.let { data ->
             ChoiceDialog(
@@ -159,6 +163,9 @@ internal fun Catalog(model: AppViewModel) {
 internal fun Search(model: AppViewModel) {
     val inputFocus = remember { FocusRequester() }
     val resultsFocus = remember { FocusRequester() }
+    // A result had focus last: returning from its release keeps focus there instead of
+    // reopening the keyboard in the search field.
+    var resultFocused by rememberSaveable { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
     val view = LocalView.current
     val moveToResults: (androidx.compose.ui.input.key.KeyEvent) -> Boolean = { event ->
@@ -172,7 +179,7 @@ internal fun Search(model: AppViewModel) {
     }
     LaunchedEffect(Unit) {
         withFrameNanos {}
-        inputFocus.requestFocus()
+        if (!resultFocused) inputFocus.requestFocus()
     }
     var query by rememberSaveable { mutableStateOf("") }
     var submitted by rememberSaveable { mutableStateOf("") }
@@ -190,7 +197,10 @@ internal fun Search(model: AppViewModel) {
         OutlinedTextField(
             query,
             { query = it },
-            modifier = Modifier.weight(1f).focusRequester(inputFocus),
+            modifier =
+                Modifier.weight(1f).focusRequester(inputFocus).onFocusChanged {
+                    if (it.hasFocus) resultFocused = false
+                },
             label = { Text("Название") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -229,12 +239,18 @@ internal fun Search(model: AppViewModel) {
                     }
                 }
             }
-        } else ReleaseFeed(model, CatalogFilter(), submitted)
+        } else ReleaseFeed(model, CatalogFilter(), submitted) { resultFocused = true }
     }
 }
 
 @Composable
-private fun ReleaseFeed(model: AppViewModel, filter: CatalogFilter, query: String) {
+private fun ReleaseFeed(
+    model: AppViewModel,
+    filter: CatalogFilter,
+    query: String,
+    /** A poster got focus; the screen then skips its own start focus when it comes back. */
+    onCardFocused: () -> Unit = {},
+) {
     val key = "${filter.cacheKey}:$query"
     val feed = remember(key) { model.feed(key) }
     var page by feed::page
@@ -313,7 +329,10 @@ private fun ReleaseFeed(model: AppViewModel, filter: CatalogFilter, query: Strin
                     Poster(
                         release,
                         focused == release.id,
-                        { focused = release.id },
+                        {
+                            focused = release.id
+                            onCardFocused()
+                        },
                         progress = marks.progress(release.id),
                         isNew = marks.isNew(release.id),
                     ) {
@@ -335,6 +354,8 @@ private fun ReleaseFeed(model: AppViewModel, filter: CatalogFilter, query: Strin
 @Composable
 internal fun Library(model: AppViewModel) {
     var status by rememberSaveable { mutableStateOf("") }
+    // The last focused poster, restored when returning from its release.
+    var focused by rememberSaveable { mutableIntStateOf(-1) }
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Action("Все") { status = "" }
         LibraryStatus.entries.forEach { item -> Action(item.label) { status = item.name } }
@@ -354,6 +375,8 @@ internal fun Library(model: AppViewModel) {
         items(entries, key = { it.release.id }) { item ->
             Poster(
                 item.release,
+                restoreFocus = focused == item.release.id,
+                onFocused = { focused = item.release.id },
                 progress = marks.progress(item.release.id),
                 isNew = marks.isNew(item.release.id),
             ) {

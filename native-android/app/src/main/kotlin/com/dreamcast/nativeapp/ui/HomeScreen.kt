@@ -76,7 +76,9 @@ internal fun Home(model: AppViewModel) {
         }
     val listState = rememberLazyListState()
     var bannerFocused by remember { mutableStateOf(false) }
-    var initialBannerFocus by remember { mutableStateOf(true) }
+    // What had focus last, so returning from a release puts it back there: "" is the banner,
+    // ALL_RELEASES the catalog button, "<row>/<release id>" a card in a row.
+    var focusedCard by rememberSaveable { mutableStateOf("") }
     LaunchedEffect(bannerFocused) {
         if (bannerFocused) {
             // Let the focused child request visibility, then reveal its entire banner.
@@ -95,10 +97,10 @@ internal fun Home(model: AppViewModel) {
                     featured,
                     index = featuredIndex,
                     count = releases.size,
-                    autofocus = initialBannerFocus,
+                    autofocus = focusedCard.isEmpty(),
                     onBannerFocusChange = {
                         bannerFocused = it
-                        if (it) initialBannerFocus = false
+                        if (it) focusedCard = ""
                     },
                     onPrevious = {
                         if (featuredIndex > 0) featuredId = releases[featuredIndex - 1].id
@@ -115,15 +117,26 @@ internal fun Home(model: AppViewModel) {
         if (data.value?.stale == true) item { Stale() }
         // Right under the banner: Down from the banner always reaches the catalog first.
         if (releases.isNotEmpty())
-            item { Action("Все релизы  ›") { model.selectSection("catalog") } }
+            item {
+                Action(
+                    "Все релизы  ›",
+                    Modifier.onFocusChanged { if (it.hasFocus) focusedCard = ALL_RELEASES },
+                    autofocus = focusedCard == ALL_RELEASES,
+                ) {
+                    model.selectSection("catalog")
+                }
+            }
         if (recent.isNotEmpty())
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Продолжить просмотр", style = MaterialTheme.typography.titleLarge)
                     FittedRow(recent, perScreen = 4, key = { it.release.id }) { item ->
+                        val card = "recent/${item.release.id}"
                         // The caption sits inside the card, so scrolling to it shows it whole.
                         Poster(
                             item.release,
+                            restoreFocus = focusedCard == card,
+                            onFocused = { focusedCard = card },
                             landscape = true,
                             progress =
                                 if (item.durationMs > 0)
@@ -137,18 +150,35 @@ internal fun Home(model: AppViewModel) {
                 }
             }
         if (fresh.isNotEmpty())
-            item { PosterRow("Новые серии", fresh, marks) { model.navigate(Route("detail", it)) } }
+            item {
+                PosterRow("Новые серии", fresh, marks, focusedCard, { focusedCard = it }) {
+                    model.navigate(Route("detail", it))
+                }
+            }
         if (watching.isNotEmpty())
-            item { PosterRow("Смотрю", watching, marks) { model.navigate(Route("detail", it)) } }
+            item {
+                PosterRow("Смотрю", watching, marks, focusedCard, { focusedCard = it }) {
+                    model.navigate(Route("detail", it))
+                }
+            }
         nextDay?.let { (day, today) ->
             item {
-                PosterRow(if (today) "Сегодня по расписанию" else "Расписание · ${day.title}", day.releases, marks) {
+                PosterRow(
+                    if (today) "Сегодня по расписанию" else "Расписание · ${day.title}",
+                    day.releases,
+                    marks,
+                    focusedCard,
+                    { focusedCard = it },
+                ) {
                     model.navigate(Route("detail", it))
                 }
             }
         }
     }
 }
+
+/** [focusedCard] value of the "Все релизы" button. */
+private const val ALL_RELEASES = "all-releases"
 
 private val WEEKDAYS =
     mapOf(
@@ -177,19 +207,28 @@ internal fun nearestScheduleDay(days: List<ScheduleDay>, today: java.time.DayOfW
     return null
 }
 
-/** A titled row of portrait posters on the home screen. */
+/**
+ * A titled row of portrait posters on the home screen. [focusedCard] is the home screen's last
+ * focused element; a card reports itself as "<title>/<release id>" and takes focus back when
+ * the screen returns.
+ */
 @Composable
 private fun PosterRow(
     title: String,
     releases: List<Release>,
     marks: PosterMarks,
+    focusedCard: String,
+    onCardFocused: (String) -> Unit,
     onOpen: (Release) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(title, style = MaterialTheme.typography.titleLarge)
         FittedRow(releases, perScreen = 5, key = { it.id }) { release ->
+            val card = "$title/${release.id}"
             Poster(
                 release,
+                restoreFocus = focusedCard == card,
+                onFocused = { onCardFocused(card) },
                 progress = marks.progress(release.id),
                 isNew = marks.isNew(release.id),
             ) {
