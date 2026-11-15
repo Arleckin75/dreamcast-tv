@@ -60,7 +60,7 @@ class PlayerActivity : ComponentActivity() {
     private var resumePosition = 0L
     private var ready = false
     private val softwareFrameMonitor = SoftwareFrameMonitor()
-    private var softwareAutoMaxHeight = SOFTWARE_AUTO_START_HEIGHT
+    private val softwareQuality by lazy { loadSoftwareQuality() }
     private var completed = false
     private var activityStarted = false
     private var lastSaved: ProgressSnapshot? = null
@@ -244,7 +244,7 @@ class PlayerActivity : ComponentActivity() {
         player?.release()
         player = null
         softwareFrameMonitor.reset()
-        softwareAutoMaxHeight = SOFTWARE_AUTO_START_HEIGHT
+        softwareQuality.newEpisode("${release.id}/${episode?.id}")
         controls.showLoading("Проверка видеопотока…")
         playbackJob = lifecycleScope.launch {
             try {
@@ -253,7 +253,7 @@ class PlayerActivity : ComponentActivity() {
                 if (serial != playbackSerial) return@launch
                 val choice = chooseVideo(formats, selectedQuality, decoderMode,
                     hardware = { !hardwareFailed && capabilities.hardware(it) },
-                    software = capabilities::software)
+                    software = capabilities::software, softwareAutoHeight = softwareQuality.limit)
                 decoderMode = choice.mode
                 currentVideoFormat = choice.format
                 output = choice.output
@@ -293,7 +293,11 @@ class PlayerActivity : ComponentActivity() {
                 exo,
                 isCurrent = { player === exo },
                 requested = { "requested=$decoderMode output=$output" },
-                onFormat = { currentVideoFormat = it },
+                onFormat = {
+                    // A new resolution starts a new measurement: 30 s at 480p say nothing about 720p.
+                    if (it.height != currentVideoFormat?.height) softwareFrameMonitor.reset()
+                    currentVideoFormat = it
+                },
                 onDecoder = { videoDecoderName = it },
             )
         )
@@ -538,7 +542,7 @@ class PlayerActivity : ComponentActivity() {
         ) { index ->
             selectedQuality = heights[index]
             softwareFrameMonitor.reset()
-            softwareAutoMaxHeight = SOFTWARE_AUTO_START_HEIGHT
+            softwareQuality.restoreLearned()
             player?.let(::applyQualityLimit)
         }
     }
@@ -562,7 +566,7 @@ class PlayerActivity : ComponentActivity() {
             exo.trackSelectionParameters
                 .buildUpon()
                 .apply {
-                    val maxHeight = videoHeightLimit(output, selectedQuality, softwareAutoMaxHeight)
+                    val maxHeight = videoHeightLimit(output, selectedQuality, softwareQuality.limit)
                     if (maxHeight == 0) clearVideoSizeConstraints()
                     else setMaxVideoSize(Int.MAX_VALUE, maxHeight)
                     currentVideoFormat?.sampleMimeType?.let { setPreferredVideoMimeTypes(it) }
@@ -578,16 +582,49 @@ class PlayerActivity : ComponentActivity() {
         }
         val counters = exo.videoDecoderCounters ?: return
         counters.ensureUpdated()
-        if (!softwareFrameMonitor.sample(android.os.SystemClock.elapsedRealtime(),
-                counters.renderedOutputBufferCount, counters.droppedBufferCount)) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        val signal = softwareFrameMonitor.sample(now, counters.renderedOutputBufferCount,
+            counters.droppedBufferCount, trial = softwareQuality.trying)
+        if (signal == SoftwareFrameMonitor.Signal.NONE) return
         val height = exo.videoFormat?.height ?: return
-        val lower = lowerSoftwareHeight(formats, height, softwareAutoMaxHeight,
-            capabilities::software) ?: return
-        softwareAutoMaxHeight = lower
-        applyQualityLimit(exo)
-        android.util.Log.i("DCTV_DECODER", "softwareAutoMaxHeight=$lower reason=sustained_frame_drops")
-        android.widget.Toast.makeText(this, "Авто: ${lower}p для плавного воспроизведения",
-            android.widget.Toast.LENGTH_SHORT).show()
+        if (signal == SoftwareFrameMonitor.Signal.OVERLOADED) {
+            val lower = softwareQuality.overloaded(
+                lowerSoftwareHeight(formats, height, softwareQuality.limit, capabilities::software))
+                ?: return
+            applyQualityLimit(exo)
+            android.util.Log.i("DCTV_DECODER", "softwareAutoMaxHeight=$lower reason=sustained_frame_drops")
+            android.widget.Toast.makeText(this, "Авто: ${lower}p для плавного воспроизведения",
+                android.widget.Toast.LENGTH_SHORT).show()
+        } else {
+            val higher = softwareQuality.smooth(height,
+                higherSoftwareHeight(formats, softwareQuality.limit, capabilities::software))
+            if (higher == null) {
+                android.util.Log.i("DCTV_DECODER", "smooth height=$height limit=${softwareQuality.limit}")
+                return
+            }
+            softwareFrameMonitor.reset()
+            applyQualityLimit(exo)
+            android.util.Log.i("DCTV_DECODER", "softwareAutoMaxHeight=$higher reason=probe_up")
+        }
+    }
+
+    /** The learned dav1d limit; values restored from another device (backup) are ignored. */
+    private fun loadSoftwareQuality(): SoftwareAutoQuality {
+        val storage = app.storage
+        val device = "${android.os.Build.MANUFACTURER}/${android.os.Build.DEVICE}"
+        val known = storage.string(DAV1D_DEVICE_KEY) == device
+        return SoftwareAutoQuality(
+            if (known) SoftwareAutoQuality.State(
+                height = storage.number(DAV1D_HEIGHT_KEY, SOFTWARE_AUTO_START_HEIGHT.toLong()).toInt(),
+                failures = storage.number(DAV1D_FAILURES_KEY).toInt(),
+                waitEpisodes = storage.number(DAV1D_WAIT_KEY).toInt(),
+            ) else SoftwareAutoQuality.State(SOFTWARE_AUTO_START_HEIGHT),
+        ) { state ->
+            storage.put(DAV1D_DEVICE_KEY, device)
+            storage.put(DAV1D_HEIGHT_KEY, state.height.toLong())
+            storage.put(DAV1D_FAILURES_KEY, state.failures.toLong())
+            storage.put(DAV1D_WAIT_KEY, state.waitEpisodes.toLong())
+        }
     }
 
     private fun tracks() {
@@ -862,3 +899,8 @@ class PlayerActivity : ComponentActivity() {
         super.onDestroy()
     }
 }
+
+private const val DAV1D_DEVICE_KEY = "player.dav1d_auto_device"
+private const val DAV1D_HEIGHT_KEY = "player.dav1d_auto_height"
+private const val DAV1D_FAILURES_KEY = "player.dav1d_failures"
+private const val DAV1D_WAIT_KEY = "player.dav1d_wait_episodes"

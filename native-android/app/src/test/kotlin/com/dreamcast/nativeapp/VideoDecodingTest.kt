@@ -38,6 +38,20 @@ class VideoDecodingTest {
     private val none: (Format) -> Boolean = { false }
     private val all: (Format) -> Boolean = { true }
 
+    @Test fun dav1dStartsAtTheLearnedHeight() {
+        val low = chooseVideo(ladder, 0, DecoderMode.AUTO, none, all, softwareAutoHeight = 480)
+        assertEquals(480, low.format!!.height)
+        val high = chooseVideo(ladder, 0, DecoderMode.AUTO, none, all, softwareAutoHeight = 1080)
+        assertEquals(1080, high.format!!.height)
+    }
+
+    @Test fun nextHigherSoftwareHeight() {
+        assertEquals(720, higherSoftwareHeight(ladder, 480, all))
+        assertEquals(1080, higherSoftwareHeight(ladder, 720, all))
+        assertNull(higherSoftwareHeight(ladder, 1080, all))
+        assertNull(higherSoftwareHeight(ladder, 720, none))
+    }
+
     @Test fun autoPicksHighestHardwareFormat() {
         val choice = chooseVideo(ladder, 0, DecoderMode.AUTO, hardware = all, software = all)
         assertEquals(1080, choice.format!!.height)
