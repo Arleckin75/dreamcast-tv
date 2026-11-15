@@ -77,15 +77,15 @@ fun decoderOutput(mode: DecoderMode, hardware: Boolean, dav1d: Boolean): VideoOu
 data class VideoChoice(val mode: DecoderMode, val format: Format?, val output: VideoOutput)
 
 /**
- * The highest height dav1d starts with in Auto. Software AV1 above 720p is too slow for the
- * weak TVs that need it; the player lowers this further after sustained frame drops.
+ * The height dav1d starts with in Auto on a device that has not played anything yet. Each
+ * device then learns its own limit from frame drops (see [SoftwareAutoQuality]).
  */
 const val SOFTWARE_AUTO_START_HEIGHT = 720
 
 /**
  * Picks the video format and renderer for [formats]. [maxHeight] is the user's quality
- * limit (0 = Auto); dav1d prefers at most 720p in Auto. [hardware] and [software] are the
- * capability checks, so the policy itself is independent of the device.
+ * limit (0 = Auto); in Auto dav1d prefers at most [softwareAutoHeight]. [hardware] and
+ * [software] are the capability checks, so the policy itself is independent of the device.
  */
 fun chooseVideo(
     formats: List<Format>,
@@ -93,13 +93,14 @@ fun chooseVideo(
     mode: DecoderMode,
     hardware: (Format) -> Boolean,
     software: (Format) -> Boolean,
+    softwareAutoHeight: Int = SOFTWARE_AUTO_START_HEIGHT,
 ): VideoChoice {
     val ordered = formats.filter { maxHeight == 0 || it.height <= maxHeight }
         .ifEmpty { formats }
         .sortedByDescending { it.height }
     val hardwareFormat = ordered.firstOrNull(hardware)
     val softwareFormat = ordered.filter(software).let { candidates ->
-        candidates.firstOrNull { it.height <= (maxHeight.takeIf { h -> h > 0 } ?: SOFTWARE_AUTO_START_HEIGHT) }
+        candidates.firstOrNull { it.height <= (maxHeight.takeIf { h -> h > 0 } ?: softwareAutoHeight) }
             ?: candidates.lastOrNull()
     }
     val effective = if ((mode == DecoderMode.HARDWARE && hardwareFormat == null) ||
@@ -128,6 +129,10 @@ fun lowerSoftwareHeight(
     formats
         .filter { software(it) && it.height in 1 until currentHeight && it.height < limit }
         .maxOfOrNull { it.height }
+
+/** The next height dav1d can decode above the automatic [limit]; null when there is none. */
+fun higherSoftwareHeight(formats: List<Format>, limit: Int, software: (Format) -> Boolean): Int? =
+    formats.filter { software(it) && it.height > limit }.minOfOrNull { it.height }
 
 fun canFallbackToDav1d(mode: DecoderMode, output: VideoOutput, attempted: Boolean,
     videoError: Boolean, supported: Boolean): Boolean =

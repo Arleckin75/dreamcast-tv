@@ -44,6 +44,8 @@ class Storage(
 
     fun put(key: String, value: Boolean) = preferences.put(key, value)
 
+    fun put(key: String, value: Long) = preferences.put(key, value)
+
     fun remove(key: String) = preferences.remove(key)
 
     fun recordSnapshot(): Map<String, Any?> = preferences.snapshot()

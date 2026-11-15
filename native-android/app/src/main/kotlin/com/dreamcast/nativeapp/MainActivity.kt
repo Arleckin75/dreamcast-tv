@@ -210,7 +210,7 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
                 require(streams.isNotEmpty()) { "Для серии не найдены потоки" }
                 val technology =
                     preferredTechnology
-                        ?: storage.string("player.preferred_stream_technology", "none")
+                        ?: storage.string("player.preferred_stream_technology", DEFAULT_STREAM_TECHNOLOGY)
                 if (technology == "none") pendingStreams = (playbackRelease to episode) to streams
                 else
                     activity.launchPlayback(

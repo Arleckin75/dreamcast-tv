@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -13,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -227,7 +227,10 @@ internal fun Schedule(model: AppViewModel) {
     val firstDayIndex = days.indexOfFirst { it.releases.isNotEmpty() }
     val firstRelease = days.getOrNull(firstDayIndex)?.releases?.firstOrNull()
     val listState = rememberLazyListState()
-    var initialFocus by remember { mutableStateOf(true) }
+    // The first visit focuses the first release of the first day with releases; after that the
+    // last focused poster ("<day>/<release id>") gets focus back when returning from a release.
+    var initialFocus by rememberSaveable { mutableStateOf(true) }
+    var focusedCard by rememberSaveable { mutableStateOf("") }
     LaunchedEffect(firstDayIndex, initialFocus) {
         if (initialFocus && firstDayIndex >= 0) listState.scrollToItem(firstDayIndex)
     }
@@ -241,22 +244,24 @@ internal fun Schedule(model: AppViewModel) {
             Column {
                 Text(day.title, style = MaterialTheme.typography.titleLarge)
                 if (day.releases.isEmpty()) Text("Нет релизов")
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    items(day.releases, key = { it.id }) { release ->
-                        Box(Modifier.width(170.dp)) {
-                            Poster(
-                                release,
-                                restoreFocus =
-                                    initialFocus &&
-                                        day.title == days.getOrNull(firstDayIndex)?.title &&
-                                        release.id == firstRelease?.id,
-                                onFocused = { initialFocus = false },
-                                progress = marks.progress(release.id),
-                                isNew = marks.isNew(release.id),
-                            ) {
-                                model.navigate(Route("detail", release))
-                            }
-                        }
+                // Five cards fit the width exactly, as on the home screen: none is cut at the edge.
+                FittedRow(day.releases, perScreen = 5, key = { it.id }) { release ->
+                    val card = "${day.title}/${release.id}"
+                    Poster(
+                        release,
+                        restoreFocus =
+                            focusedCard == card ||
+                                initialFocus &&
+                                    day.title == days.getOrNull(firstDayIndex)?.title &&
+                                    release.id == firstRelease?.id,
+                        onFocused = {
+                            initialFocus = false
+                            focusedCard = card
+                        },
+                        progress = marks.progress(release.id),
+                        isNew = marks.isNew(release.id),
+                    ) {
+                        model.navigate(Route("detail", release))
                     }
                 }
             }
