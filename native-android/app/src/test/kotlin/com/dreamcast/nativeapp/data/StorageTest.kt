@@ -120,16 +120,18 @@ class StorageTest {
     }
 
     @Test
-    fun `manual restart overrides older VLC progress even in the same second`() {
-        val release = Release(1, "Релиз")
-        val episode = Episode("one", 1, 1, "Серия", "")
-        val vlc = context.getSharedPreferences("dream_cast_vlc_progress", Context.MODE_PRIVATE)
-        vlc.edit()
-            .putLong("1:one", 50000)
-            .putLong("1:one:updatedAt", System.currentTimeMillis() - 10)
+    fun `saving progress writes no preferences and legacy timestamps are removed`() {
+        val preferences = context.getSharedPreferences("dream_cast_native", Context.MODE_PRIVATE)
+        preferences.edit()
+            .putLong("progress.updatedAt.1:one", 5)
+            .putLong("progress.updatedAt.2:two", 6)
+            .putString("settings.theme_mode", "light")
             .commit()
-        storage.saveProgress(release, episode, 0, 100000)
-        storage.syncSoftwareProgress(context)
+        storage.removeLegacyProgressKeys()
+        assertTrue(preferences.all.keys.none { it.startsWith("progress.") })
+        assertEquals("light", preferences.getString("settings.theme_mode", ""))
+        storage.saveProgress(Release(1, "Релиз"), Episode("one", 1, 1, "Серия", ""), 0, 100000)
+        assertTrue(preferences.all.keys.none { it.startsWith("progress.") })
         assertEquals(0L, storage.progress(1, "one")!!.positionMs)
     }
 

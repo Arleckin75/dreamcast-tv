@@ -26,7 +26,7 @@ class Storage(
     private val library = LibraryStore(preferences)
     private val profiles = ProfileStore(database)
     private val cacheStore = CacheStore(database, preferences, maxCacheEntries, maxCacheBytes)
-    private val history = WatchHistoryStore(database, preferences)
+    private val history = WatchHistoryStore(database)
 
     fun close() {
         if (database.isInitialized()) database.value.close()
@@ -47,6 +47,12 @@ class Storage(
     fun put(key: String, value: Long) = preferences.put(key, value)
 
     fun remove(key: String) = preferences.remove(key)
+
+    /**
+     * Removes the per-episode "progress.updatedAt." timestamps older versions wrote on every
+     * progress save. Only the import from the removed VLC player read them.
+     */
+    fun removeLegacyProgressKeys() = preferences.removeWithPrefix("progress.updatedAt.")
 
     fun recordSnapshot(): Map<String, Any?> = preferences.snapshot()
 
@@ -98,8 +104,6 @@ class Storage(
     // Watch history
 
     fun progress(releaseId: Int, episodeId: String) = history.progress(releaseId, episodeId)
-
-    fun syncSoftwareProgress(context: Context) = history.syncSoftwareProgress(context)
 
     fun continueProgress(limit: Int = 10) = history.continueProgress(limit)
 

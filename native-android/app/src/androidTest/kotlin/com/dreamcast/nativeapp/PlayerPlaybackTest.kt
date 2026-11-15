@@ -118,12 +118,12 @@ class PlayerPlaybackTest {
                     }
                     openSettings()
                     kotlinx.coroutines.runBlocking { app.progressWriter.awaitPending() }
-                    val pausedTimestamp = app.storage.number("progress.updatedAt.990001:990001-1")
+                    val pausedTimestamp = app.storage.progress(990001, "990001-1")!!.updatedAt
                     Thread.sleep(5500)
                     assertEquals(
                         "Paused playback must not rewrite unchanged progress",
                         pausedTimestamp,
-                        app.storage.number("progress.updatedAt.990001:990001-1"),
+                        app.storage.progress(990001, "990001-1")!!.updatedAt,
                     )
                     onView(withText(startsWith("Качество ·"))).perform(click())
                     // The audio-only fixture has no video variants, so the menu offers only Auto.
@@ -213,7 +213,6 @@ class PlayerPlaybackTest {
                     db.delete("watch_entries", "release_id=?", arrayOf("990001"))
                     db.delete("playback_positions", "release_id=?", arrayOf("990001"))
                 }
-            app.storage.remove("progress.updatedAt.990001:990001-1")
             server.shutdown()
         }
     }
