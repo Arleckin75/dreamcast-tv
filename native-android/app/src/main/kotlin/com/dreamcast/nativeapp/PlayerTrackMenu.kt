@@ -56,6 +56,8 @@ internal fun showTrackMenu(context: Context, player: Player, type: Int, onDismis
         selected,
         onDismiss = onDismiss,
     ) { index ->
+        // The current audio or subtitle choice again: keep the track selection as it is.
+        if (unchangedChoice(index, selected, failed = false)) return@showPlayerMenu
         player.trackSelectionParameters =
             player.trackSelectionParameters
                 .buildUpon()

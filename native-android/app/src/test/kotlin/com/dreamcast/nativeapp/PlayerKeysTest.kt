@@ -46,4 +46,12 @@ class PlayerKeysTest {
     fun `empty bundle restores defaults`() {
         assertEquals(PlayerSavedState(null), PlayerSavedState.from(Bundle()))
     }
+
+    @Test fun repeatingTheRunningChoiceIsIgnored() {
+        assertTrue(unchangedChoice("hls", "hls", failed = false))
+        assertTrue(unchangedChoice(0, 0, failed = false))
+        assertFalse(unchangedChoice("dash", "hls", failed = false))
+        // After an error the same choice is a retry.
+        assertFalse(unchangedChoice("hls", "hls", failed = true))
+    }
 }

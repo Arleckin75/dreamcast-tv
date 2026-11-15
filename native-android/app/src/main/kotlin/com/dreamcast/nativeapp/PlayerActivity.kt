@@ -284,9 +284,10 @@ class PlayerActivity : ComponentActivity() {
         video.player = null
         video.onPause()
         root.removeView(video)
-        video = if (output == VideoOutput.DAV1D)
-            layoutInflater.inflate(R.layout.dav1d_player, root, false) as PlayerView
-        else PlayerView(this).apply { useController = false }
+        video = layoutInflater.inflate(
+            if (output == VideoOutput.DAV1D) R.layout.dav1d_player else R.layout.hardware_player,
+            root, false,
+        ) as PlayerView
         root.addView(video, 0, FrameLayout.LayoutParams(-1, -1))
         video.setOnClickListener { reveal(); controls.show(true) }
         if (activityStarted) video.onResume()
@@ -456,15 +457,20 @@ class PlayerActivity : ComponentActivity() {
             val next = chooseVideo(formats, selectedQuality, mode,
                 hardware = { !hardwareFailed && capabilities.hardware(it) },
                 software = capabilities::software, softwareAutoHeight = softwareQuality.limit)
-            if (player != null && formats.isNotEmpty() && next.output == output) {
+            if (player != null && formats.isNotEmpty() &&
+                unchangedChoice(next.output, output, failed = player?.playerError != null)) {
                 decoderMode = mode
                 android.util.Log.i("DCTV_DECODER", "requested=$mode output=$output restart=false")
                 return@showPlayerMenu
             }
             decoderMode = mode
-            activeStream?.let {
-                play(it, player?.playWhenReady ?: resumeOnStart, decoderChanged = next.output != output)
-            }
+            // A different decoder: reopen the player screen at the same position, the way an
+            // episode is opened from the list. Restarting the decoder inside the running screen
+            // hung a Candy Google TV (dav1d -> hardware) even after a pause; opening an episode
+            // with the hardware decoder works there. onSaveInstanceState keeps the episode,
+            // position, stream, quality, speed and this decoder mode.
+            android.util.Log.i("DCTV_DECODER", "requested=$mode output=$output restart=screen")
+            recreate()
         }
     }
 
@@ -543,6 +549,10 @@ class PlayerActivity : ComponentActivity() {
             streams.indexOf(activeStream),
             onDismiss = ::reveal,
         ) { index ->
+            // The stream already playing: nothing to do. After an error it is a retry.
+            if (player != null &&
+                unchangedChoice(streams[index], activeStream, failed = player?.playerError != null))
+                return@showPlayerMenu
             save()
             retryCount = 0
             play(streams[index], player?.playWhenReady ?: true)
@@ -566,6 +576,8 @@ class PlayerActivity : ComponentActivity() {
             heights.indexOf(selectedQuality),
             onDismiss = ::reveal,
         ) { index ->
+            // Re-picking the current quality would reset the dav1d quality logic for nothing.
+            if (unchangedChoice(heights[index], selectedQuality, failed = false)) return@showPlayerMenu
             selectedQuality = heights[index]
             softwareFrameMonitor.reset()
             softwareQuality.restoreLearned()
@@ -582,6 +594,7 @@ class PlayerActivity : ComponentActivity() {
             speeds.indexOf(selectedSpeed),
             onDismiss = ::reveal,
         ) { index ->
+            if (unchangedChoice(speeds[index], selectedSpeed, failed = false)) return@showPlayerMenu
             selectedSpeed = speeds[index]
             player?.setPlaybackSpeed(selectedSpeed)
         }
@@ -694,10 +707,24 @@ class PlayerActivity : ComponentActivity() {
     override fun onPictureInPictureModeChanged(inPip: Boolean, newConfig: Configuration) {
         super.onPictureInPictureModeChanged(inPip, newConfig)
         if (inPip) controls.hide(animate = false)
-        else {
+        else if (!lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
+            // The PiP window was closed, not expanded. onStop ran while still "in PiP" and kept
+            // playing, so the sound went on with no picture: stop and close the player.
+            closedFromPip()
+        } else {
             controls.show()
             reveal()
         }
+    }
+
+    /** Leaves playback after its PiP window was closed: save the position, pause, finish. */
+    private fun closedFromPip() {
+        save()
+        player?.pause()
+        resumeOnStart = false
+        handler.removeCallbacks(saveTick)
+        android.util.Log.i("DCTV_NATIVE_PLAYER", "pip closed")
+        finish()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
