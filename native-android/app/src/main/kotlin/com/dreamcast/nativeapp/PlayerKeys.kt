@@ -41,4 +41,13 @@ internal const val SEEK_STEP_MS = 10_000L
 internal fun qualityChoices(heights: List<Int>): List<Int> =
     listOf(0) + heights.filter { it > 0 }.distinct().sorted()
 
+/**
+ * True when a menu choice would only repeat what is already running: [chosen] equals [current]
+ * and playback has no error. Such a choice is ignored, so re-picking the current stream, quality,
+ * speed, track or decoder never restarts or resets anything. After an error the same choice is
+ * a retry and goes through.
+ */
+internal fun <T> unchangedChoice(chosen: T, current: T, failed: Boolean): Boolean =
+    chosen == current && !failed
+
 internal val PLAYBACK_SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
