@@ -24,6 +24,78 @@ class SiteClientTest {
     }
 
     @Test
+    fun `addresses on another host are refused without a request`() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        try {
+            val client = SiteClient(server.url("/").toString().trimEnd('/'))
+            val foreign =
+                listOf("https://example.com/home/release/1", "http://example.com:${server.port}/")
+            for (url in foreign) {
+                try {
+                    client.html(url)
+                    fail("Expected $url to be refused")
+                } catch (_: java.io.IOException) {}
+            }
+            server.enqueue(MockResponse().setBody("page"))
+            assertEquals("page", client.html(server.url("/home/release/1").toString()))
+            assertEquals(1, server.requestCount)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `an attempt that times out is retried within the total budget`() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        try {
+            repeat(2) {
+                server.enqueue(
+                    MockResponse().setSocketPolicy(okhttp3.mockwebserver.SocketPolicy.NO_RESPONSE)
+                )
+            }
+            server.enqueue(MockResponse().setBody("page"))
+            val quick =
+                okhttp3.OkHttpClient.Builder()
+                    .readTimeout(300, java.util.concurrent.TimeUnit.MILLISECONDS)
+                    .build()
+            val client = SiteClient(server.url("/").toString().trimEnd('/'), quick)
+            assertEquals("page", client.html("/"))
+            assertEquals(3, server.requestCount)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `the total budget ends a load that keeps timing out`() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        try {
+            repeat(3) {
+                server.enqueue(
+                    MockResponse().setSocketPolicy(okhttp3.mockwebserver.SocketPolicy.NO_RESPONSE)
+                )
+            }
+            val slow =
+                okhttp3.OkHttpClient.Builder()
+                    .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                    .build()
+            val client =
+                SiteClient(server.url("/").toString().trimEnd('/'), slow, totalTimeoutMs = 400)
+            val started = System.nanoTime()
+            try {
+                client.html("/")
+                fail("Expected a timeout")
+            } catch (_: java.io.IOException) {}
+            assertTrue((System.nanoTime() - started) / 1_000_000 < 3000)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
     fun `server filters use site identifiers and pagination`() = runBlocking {
         val server = MockWebServer()
         server.start()
