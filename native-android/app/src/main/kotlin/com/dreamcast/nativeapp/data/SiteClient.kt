@@ -19,14 +19,15 @@ import okhttp3.Response
  * HTTP client for dreamerscast.com with the browser headers and retries the site needs.
  *
  * Requests go only to the host of [baseUrl]: an address from anywhere else (a release opened
- * from another app's intent, say) is refused before anything is sent.
+ * from another app's intent, say) is refused before anything is sent. Redirects are rejected,
+ * including redirects within the site.
  *
  * Each of the [ATTEMPTS] attempts has its own time budget, set on [client]; [totalTimeoutMs]
  * covers all of them and the pauses in between.
  */
 class SiteClient(
     val baseUrl: String = BASE_URL,
-    private val client: OkHttpClient =
+    client: OkHttpClient =
         SharedHttp.client(
             connect = CONNECT_TIMEOUT_S,
             read = READ_TIMEOUT_S,
@@ -34,6 +35,9 @@ class SiteClient(
         ),
     private val totalTimeoutMs: Long = TOTAL_TIMEOUT_MS,
 ) {
+    private val client =
+        client.newBuilder().followRedirects(false).followSslRedirects(false).build()
+
     private val site =
         requireNotNull(baseUrl.toHttpUrlOrNull()) { "Недопустимый адрес сайта: $baseUrl" }
 

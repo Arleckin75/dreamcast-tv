@@ -8,6 +8,46 @@ import org.junit.Test
 
 class SiteClientTest {
     @Test
+    fun `redirects are rejected without following or retrying for GET and POST`() = runBlocking {
+        for (status in listOf(300, 301, 302, 303, 307, 308)) {
+            for (foreign in listOf(false, true)) {
+                for (post in listOf(false, true)) {
+                    val server = MockWebServer()
+                    val destination = MockWebServer()
+                    server.start()
+                    destination.start()
+                    try {
+                        val location =
+                            if (foreign) destination.url("/redirected").toString()
+                            else "/redirected"
+                        server.enqueue(
+                            MockResponse().setResponseCode(status).addHeader("Location", location)
+                        )
+                        // A followed redirect must fail immediately rather than wait for a response.
+                        server.enqueue(MockResponse().setBody("unexpected redirect"))
+                        destination.enqueue(MockResponse().setBody("unexpected redirect"))
+                        val base = server.url("/").toString().trimEnd('/')
+                        // Also enforce the policy when a caller supplies a redirect-enabled client.
+                        val client =
+                            if (post) SiteClient(base, okhttp3.OkHttpClient()) else SiteClient(base)
+                        try {
+                            if (post) client.releases() else client.html("/")
+                            fail("Expected redirect $status to be rejected (foreign=$foreign, post=$post)")
+                        } catch (error: java.io.IOException) {
+                            assertEquals("Ошибка сервера: $status", error.message)
+                        }
+                        assertEquals(1, server.requestCount)
+                        assertEquals(0, destination.requestCount)
+                    } finally {
+                        server.shutdown()
+                        destination.shutdown()
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     fun `permanent HTTP failures are not retried`() = runBlocking {
         val server = MockWebServer()
         server.start()
