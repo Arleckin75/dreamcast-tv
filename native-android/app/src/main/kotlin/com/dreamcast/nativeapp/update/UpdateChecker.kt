@@ -2,7 +2,11 @@ package com.dreamcast.nativeapp.update
 
 import com.dreamcast.nativeapp.data.Storage
 import java.io.IOException
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -43,7 +47,13 @@ class UpdateChecker(
         if (!autoCheckEnabled()) return null
         val last = storage.number(UpdateKeys.LAST_CHECK)
         if (now() - last in 0 until DAY_MS) return null
-        val release = runCatching { latest() }.getOrNull() ?: return null
+        val release = try {
+            latest()
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (_: Exception) {
+            null
+        } ?: return null
         storage.put(UpdateKeys.LAST_CHECK, now().toString())
         return release.takeIf {
             isNewerVersion(it.version, currentVersion) &&
@@ -63,11 +73,22 @@ class UpdateChecker(
                     .header("Accept", "application/vnd.github+json")
                     .header("User-Agent", "DreamCastTV/$currentVersion")
                     .build()
-            client.newCall(request).execute().use { response ->
-                if (response.code == 404) return@use null
-                if (!response.isSuccessful)
-                    throw IOException("GitHub ответил ошибкой ${response.code}")
-                parseLatestRelease(response.body.string())
+            suspendCancellableCoroutine { continuation ->
+                val call = client.newCall(request)
+                continuation.invokeOnCancellation { call.cancel() }
+                // Stay on IO until the response body is read and closed, including cancellation.
+                val release = try {
+                    call.execute().use { response ->
+                        if (response.code == 404) return@use null
+                        if (!response.isSuccessful)
+                            throw IOException("GitHub ответил ошибкой ${response.code}")
+                        parseLatestRelease(response.body.string())
+                    }
+                } catch (error: Exception) {
+                    continuation.resumeWithException(error)
+                    return@suspendCancellableCoroutine
+                }
+                continuation.resume(release)
             }
         }
 

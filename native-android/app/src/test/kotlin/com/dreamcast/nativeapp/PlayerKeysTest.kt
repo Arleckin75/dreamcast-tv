@@ -3,10 +3,12 @@ package com.dreamcast.nativeapp
 import android.app.Application
 import android.os.Bundle
 import android.view.KeyEvent
+import androidx.media3.exoplayer.ExoPlayer
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -40,6 +42,33 @@ class PlayerKeysTest {
         val bundle = Bundle().also(state::writeTo)
         assertEquals(state, PlayerSavedState.from(bundle))
         assertNull(PlayerSavedState.from(null))
+    }
+
+    @Test
+    fun `paused player state keeps its position and pause across recreation`() {
+        val state = PlayerSavedState(
+            "e7", 42_000, "dash", 720, 1.5f, "SOFTWARE", playWhenReady = false,
+        )
+        val restored = PlayerSavedState.from(Bundle().also(state::writeTo))!!
+        assertEquals(state, restored)
+        assertFalse(restored.playWhenReady)
+    }
+
+    @Test
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    fun `toggle pauses requested playback while the player is not yet playing`() {
+        val player = ExoPlayer.Builder(RuntimeEnvironment.getApplication()).build()
+        try {
+            player.play()
+            assertFalse(player.isPlaying)
+            assertTrue(player.playWhenReady)
+            player.togglePlayback()
+            assertFalse(player.playWhenReady)
+            player.togglePlayback()
+            assertTrue(player.playWhenReady)
+        } finally {
+            player.release()
+        }
     }
 
     @Test
