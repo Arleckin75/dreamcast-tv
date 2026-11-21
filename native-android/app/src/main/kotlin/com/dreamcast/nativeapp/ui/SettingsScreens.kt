@@ -231,6 +231,7 @@ internal fun Cache(model: AppViewModel) {
 @Composable
 internal fun Notifications(model: AppViewModel) {
     val entries = model.ui.notifications
+    var confirmClear by rememberSaveable { mutableStateOf(false) }
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Action("Прочитать все") {
             model.mutateLocal(UiSection.NOTIFICATIONS) {
@@ -245,10 +246,20 @@ internal fun Notifications(model: AppViewModel) {
                 }
             }
         }
-        Action("Очистить историю") {
-            model.mutateLocal(UiSection.NOTIFICATIONS) { entries.forEach { remove(it.key) } }
-        }
+        Action("Очистить историю") { if (entries.isNotEmpty()) confirmClear = true }
     }
+    // One OK on the wrong button used to wipe the history: ask first, with "Отмена" focused.
+    if (confirmClear)
+        ChoiceDialog(
+            "Очистить историю уведомлений?",
+            listOf("Отмена", "Очистить"),
+            onDismiss = { confirmClear = false },
+            header = { Text("Уведомлений: ${entries.size}. Вернуть их будет нельзя.") },
+        ) { index ->
+            confirmClear = false
+            if (index == 1)
+                model.mutateLocal(UiSection.NOTIFICATIONS) { entries.forEach { remove(it.key) } }
+        }
     Spacer(Modifier.height(16.dp))
     val shown = entries.filter { it.release != null }
     if (shown.isEmpty()) Text("Уведомлений пока нет")
