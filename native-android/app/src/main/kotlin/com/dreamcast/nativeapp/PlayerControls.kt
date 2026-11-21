@@ -121,7 +121,8 @@ internal class PlayerControls(
                     setSize(dp(12), dp(12))
                 }
             splitTrack = false
-            setPadding(dp(4), 0, dp(4), 0)
+            // Half the thumb width, so the thumb stays whole at 0% and 100%.
+            setPadding(dp(6), 0, dp(6), 0)
             setOnFocusChangeListener { _, focused ->
                 alpha = if (focused) 1f else 0.85f
                 if (focused) onInteraction()
