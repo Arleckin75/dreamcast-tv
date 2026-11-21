@@ -109,7 +109,7 @@ class PlayerActivity : ComponentActivity() {
                 android.graphics.Color.WHITE,
                 android.graphics.Color.BLACK,
                 onToggle = {
-                    player?.let { if (it.isPlaying) it.pause() else it.play() }
+                    player?.togglePlayback()
                     reveal()
                 },
                 onSeek = ::seekBy,
@@ -189,6 +189,7 @@ class PlayerActivity : ComponentActivity() {
         }
         root.requestFocus()
         val saved = PlayerSavedState.from(savedInstanceState)
+        resumeOnStart = saved?.playWhenReady ?: true
         resumePosition = saved?.positionMs ?: 0
         streamTypePreference = saved?.streamType
         selectedQuality = saved?.qualityHeight ?: 0
@@ -198,6 +199,7 @@ class PlayerActivity : ComponentActivity() {
         load(
             saved?.episodeId ?: intent.getStringExtra("episodeId")!!,
             if (saved == null) intent.getStringExtra("stream") else null,
+            playWhenReady = resumeOnStart,
         )
     }
 
@@ -206,6 +208,7 @@ class PlayerActivity : ComponentActivity() {
         forcedUrl: String? = intent.getStringExtra("stream"),
         refresh: Boolean = false,
         fromStart: Boolean = false,
+        playWhenReady: Boolean = true,
     ) {
         loadJob?.cancel()
         loadJob =
@@ -236,7 +239,8 @@ class PlayerActivity : ComponentActivity() {
                     play(
                         streams.firstOrNull { it.url == forcedUrl }
                             ?: streams.firstOrNull { it.type == preference }
-                            ?: streams.first()
+                            ?: streams.first(),
+                        playWhenReady = playWhenReady,
                     )
                 } catch (cancel: CancellationException) {
                     throw cancel
@@ -251,6 +255,7 @@ class PlayerActivity : ComponentActivity() {
      * released, so wait [DECODER_SWITCH_PAUSE_MS] before creating it.
      */
     private fun play(stream: VideoStream, playWhenReady: Boolean = true, decoderChanged: Boolean = false) {
+        resumeOnStart = playWhenReady
         playbackJob?.cancel()
         val serial = ++playbackSerial
         save()
@@ -712,6 +717,9 @@ class PlayerActivity : ComponentActivity() {
                 qualityHeight = selectedQuality,
                 playbackSpeed = selectedSpeed,
                 decoderMode = decoderMode.name,
+                playWhenReady =
+                    if (activityStarted || inPip()) player?.playWhenReady ?: resumeOnStart
+                    else resumeOnStart,
             )
             .writeTo(outState)
         super.onSaveInstanceState(outState)
@@ -773,7 +781,7 @@ class PlayerActivity : ComponentActivity() {
         val action =
             if (event.action == KeyEvent.ACTION_DOWN) remoteAction(event.keyCode) else null
         when (action) {
-            RemoteAction.TOGGLE -> player?.let { if (it.isPlaying) it.pause() else it.play() }
+            RemoteAction.TOGGLE -> player?.togglePlayback()
             RemoteAction.PAUSE -> player?.pause()
             RemoteAction.PLAY -> player?.play()
             RemoteAction.FORWARD -> scrub(1, event.repeatCount)

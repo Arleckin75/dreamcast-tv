@@ -2,6 +2,8 @@ package com.dreamcast.nativeapp.ui
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
@@ -14,6 +16,9 @@ import com.dreamcast.nativeapp.*
 import com.dreamcast.nativeapp.R
 import com.dreamcast.nativeapp.data.*
 import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -226,6 +231,7 @@ internal fun Cache(model: AppViewModel) {
 @Composable
 internal fun Notifications(model: AppViewModel) {
     val entries = model.ui.notifications
+    var confirmClear by rememberSaveable { mutableStateOf(false) }
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Action("Прочитать все") {
             model.mutateLocal(UiSection.NOTIFICATIONS) {
@@ -240,34 +246,70 @@ internal fun Notifications(model: AppViewModel) {
                 }
             }
         }
-        Action("Очистить историю") {
-            model.mutateLocal(UiSection.NOTIFICATIONS) { entries.forEach { remove(it.key) } }
-        }
+        Action("Очистить историю") { if (entries.isNotEmpty()) confirmClear = true }
     }
+    // One OK on the wrong button used to wipe the history: ask first, with "Отмена" focused.
+    if (confirmClear)
+        ChoiceDialog(
+            "Очистить историю уведомлений?",
+            listOf("Отмена", "Очистить"),
+            onDismiss = { confirmClear = false },
+            header = { Text("Уведомлений: ${entries.size}. Вернуть их будет нельзя.") },
+        ) { index ->
+            confirmClear = false
+            if (index == 1)
+                model.mutateLocal(UiSection.NOTIFICATIONS) { entries.forEach { remove(it.key) } }
+        }
     Spacer(Modifier.height(16.dp))
-    if (entries.isEmpty()) Text("Уведомлений пока нет")
-    LazyColumn(
-        contentPadding = PaddingValues(vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+    val shown = entries.filter { it.release != null }
+    if (shown.isEmpty()) Text("Уведомлений пока нет")
+    // The last focused card, restored when returning from its release.
+    var focused by rememberSaveable { mutableStateOf("") }
+    // Poster cards as in the library; an unread notification carries the "new episode" mark.
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(160.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        items(entries, key = { it.key }) { entry ->
-            entry.release?.let { release ->
-                Action(
-                    "${if(entry.unread)"● " else ""}${release.title} • ${entry.message}",
-                    Modifier.fillMaxWidth(),
-                ) {
-                    model.mutateLocal(UiSection.NOTIFICATIONS) {
-                        put(
-                            entry.key,
-                            org.json
-                                .JSONObject(entry.raw)
-                                .put("readAt", Instant.now().toString())
-                                .toString(),
-                        )
-                    }
-                    model.navigate(Route("detail", release))
+        items(shown, key = { it.key }) { entry ->
+            val release = entry.release!!
+            Poster(
+                release,
+                restoreFocus = focused == entry.key,
+                onFocused = { focused = entry.key },
+                isNew = entry.unread,
+                caption = notificationCaption(entry.message, entry.createdAt),
+            ) {
+                model.mutateLocal(UiSection.NOTIFICATIONS) {
+                    put(
+                        entry.key,
+                        org.json
+                            .JSONObject(entry.raw)
+                            .put("readAt", Instant.now().toString())
+                            .toString(),
+                    )
                 }
+                model.navigate(Route("detail", release))
             }
         }
     }
+}
+
+private val EPISODE_COUNT = Regex("""Доступно серий: (\d+) \(было (\d+)\)""")
+private val CAPTION_DATE = DateTimeFormatter.ofPattern("d MMM", Locale.forLanguageTag("ru"))
+
+/**
+ * One line under a notification card: "Серий: 6 → 7 · 21 нояб.". Other messages are kept as
+ * they are; the date is left out when [createdAt] is not an ISO instant.
+ */
+internal fun notificationCaption(
+    message: String,
+    createdAt: String,
+    zone: ZoneId = ZoneId.systemDefault(),
+): String {
+    val text =
+        EPISODE_COUNT.find(message)?.let { "Серий: ${it.groupValues[2]} → ${it.groupValues[1]}" }
+            ?: message
+    val date = runCatching { CAPTION_DATE.format(Instant.parse(createdAt).atZone(zone)) }.getOrNull()
+    return if (date == null) text else "$text · $date"
 }

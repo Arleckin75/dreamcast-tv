@@ -1,6 +1,12 @@
 package com.dreamcast.nativeapp
 
 import android.view.KeyEvent
+import androidx.media3.common.Player
+
+/** Toggle the viewer's intent even while the player is buffering or preparing. */
+internal fun Player.togglePlayback() {
+    if (playWhenReady) pause() else play()
+}
 
 /** Remote-control and media keys the player handles. */
 internal enum class RemoteAction {

@@ -10,6 +10,7 @@ internal data class PlayerSavedState(
     val qualityHeight: Int = 0,
     val playbackSpeed: Float = 1f,
     val decoderMode: String? = null,
+    val playWhenReady: Boolean = true,
 ) {
     fun writeTo(bundle: Bundle) {
         bundle.putLong("position", positionMs)
@@ -18,6 +19,7 @@ internal data class PlayerSavedState(
         bundle.putInt("qualityHeight", qualityHeight)
         bundle.putFloat("playbackSpeed", playbackSpeed)
         bundle.putString("decoderMode", decoderMode)
+        bundle.putBoolean("playWhenReady", playWhenReady)
     }
 
     companion object {
@@ -30,6 +32,7 @@ internal data class PlayerSavedState(
                     qualityHeight = it.getInt("qualityHeight"),
                     playbackSpeed = it.getFloat("playbackSpeed", 1f),
                     decoderMode = it.getString("decoderMode"),
+                    playWhenReady = it.getBoolean("playWhenReady", true),
                 )
             }
     }

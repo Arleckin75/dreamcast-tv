@@ -1,5 +1,6 @@
 package com.dreamcast.nativeapp.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
@@ -7,6 +8,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -29,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.dreamcast.nativeapp.*
 import com.dreamcast.nativeapp.data.*
+import kotlinx.coroutines.launch
 
 @Composable
 internal fun ReleaseDetail(model: AppViewModel, seed: Release) {
@@ -219,6 +223,7 @@ internal fun Episodes(model: AppViewModel, activity: MainActivity, release: Rele
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun Schedule(model: AppViewModel) {
     var retry by remember { mutableIntStateOf(0) }
@@ -239,9 +244,17 @@ internal fun Schedule(model: AppViewModel) {
     data.error?.let { ErrorState(it) { retry++ } }
     if (data.value?.stale == true) Stale()
     val marks = rememberPosterMarks(model.ui)
+    val scope = rememberCoroutineScope()
     LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(16.dp)) {
         items(days, key = { it.title }) { day ->
-            Column {
+            // Focus scrolls only far enough to show the poster, which leaves the day title above
+            // it off screen when moving up; bring the whole day into view instead.
+            val reveal = remember { BringIntoViewRequester() }
+            Column(
+                Modifier.bringIntoViewRequester(reveal).onFocusChanged {
+                    if (it.hasFocus) scope.launch { reveal.bringIntoView() }
+                }
+            ) {
                 Text(day.title, style = MaterialTheme.typography.titleLarge)
                 if (day.releases.isEmpty()) Text("Нет релизов")
                 // Five cards fit the width exactly, as on the home screen: none is cut at the edge.

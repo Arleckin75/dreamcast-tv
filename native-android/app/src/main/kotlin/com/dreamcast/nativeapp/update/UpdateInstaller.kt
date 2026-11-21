@@ -10,8 +10,11 @@ import androidx.core.net.toUri
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -66,17 +69,26 @@ class UpdateInstaller(
             }
         }
 
-    private fun <T> get(url: String, read: (okhttp3.Response) -> T): T =
-        client
-            .newCall(
+    private suspend fun <T> get(url: String, read: (okhttp3.Response) -> T): T =
+        suspendCancellableCoroutine { continuation ->
+            val call = client.newCall(
                 Request.Builder().url(url).header("User-Agent", "DreamCastTV").build()
             )
-            .execute()
-            .use { response ->
-                if (!response.isSuccessful)
-                    throw IOException("Не удалось скачать обновление: ошибка ${response.code}")
-                read(response)
+            continuation.invokeOnCancellation { call.cancel() }
+            // download() already runs on IO. Keep the response and file writes on this thread
+            // so cancellation closes the streams before download() deletes the partial APK.
+            val result = try {
+                call.execute().use { response ->
+                    if (!response.isSuccessful)
+                        throw IOException("Не удалось скачать обновление: ошибка ${response.code}")
+                    read(response)
+                }
+            } catch (error: Exception) {
+                continuation.resumeWithException(error)
+                return@suspendCancellableCoroutine
             }
+            continuation.resume(result)
+        }
 
     /** False on Android 8+ until the user allows this app to install packages. */
     fun canInstall(): Boolean =
