@@ -97,4 +97,10 @@ class ReleaseAddressTest {
             server.shutdown()
         }
     }
+
+    @Test
+    fun `genres already separated by spaces get no double space`() {
+        val spaced = page.replace("<a href=\"#\">Комедия</a>,<a href=\"#\">Фэнтези</a>", "Комедия, Фэнтези")
+        assertEquals("Комедия, Фэнтези", SiteParser.detail(spaced, Release(91, "")).release.genres)
+    }
 }

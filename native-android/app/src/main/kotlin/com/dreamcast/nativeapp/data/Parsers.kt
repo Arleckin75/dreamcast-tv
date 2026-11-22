@@ -75,7 +75,10 @@ object SiteParser {
                 year = seed.year.takeIf { it > 0 } ?: item("Год").toIntOrNull() ?: 0,
                 season = seed.season.ifBlank { item("Сезон") },
                 studio = seed.studio.ifBlank { item("Студия") },
-                genres = seed.genres.ifBlank { item("Жанр").replace(",", ", ") },
+                genres =
+                    seed.genres.ifBlank {
+                        item("Жанр").split(',').map(String::trim).filter(String::isNotEmpty).joinToString(", ")
+                    },
                 description =
                     seed.description.ifBlank {
                         doc.selectFirst(".postDesc")?.text()
