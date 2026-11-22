@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -81,9 +82,21 @@ internal fun AboutPanel(
 }
 
 @Composable
-internal fun AboutAction(label: String, icon: Int, onClick: () -> Unit) {
+internal fun AboutAction(
+    label: String,
+    icon: Int,
+    enabled: Boolean = true,
+    /** Take the focus when shown: the button the screen was left from. */
+    restoreFocus: Boolean = false,
+    onFocused: () -> Unit = {},
+    onClick: () -> Unit,
+) {
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { if (restoreFocus) focus.requestFocus() }
     GuiButton(
         onClick = onClick,
+        modifier = Modifier.focusRequester(focus).onFocusChanged { if (it.isFocused) onFocused() },
+        enabled = enabled,
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
     ) {
         Icon(
@@ -148,6 +161,8 @@ internal fun About() {
     val context = LocalContext.current
     var address by remember { mutableStateOf<String?>(null) }
     var licenseDocument by remember { mutableStateOf<OpenSourceLicense?>(null) }
+    // The screen opens on its first button; once anything had focus, it is left alone.
+    var started by rememberSaveable { mutableStateOf(false) }
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(18.dp),
         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
@@ -199,7 +214,12 @@ internal fun About() {
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    AboutAction("Текст лицензии GPLv3", R.drawable.ic_about_document) {
+                    AboutAction(
+                        "Текст лицензии GPLv3",
+                        R.drawable.ic_about_document,
+                        restoreFocus = !started,
+                        onFocused = { started = true },
+                    ) {
                         licenseDocument = applicationLicense
                     }
                     AboutAction("Оригинальные исходники", R.drawable.ic_about_code) {

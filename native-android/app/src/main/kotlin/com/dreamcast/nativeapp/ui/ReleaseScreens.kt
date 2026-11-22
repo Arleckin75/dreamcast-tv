@@ -124,6 +124,7 @@ internal fun ReleaseDetail(model: AppViewModel, seed: Release) {
             "Библиотека",
             LibraryStatus.entries.map { it.label } + "Убрать из библиотеки",
             { bookmarkDialog = false },
+            selected = status?.let { LibraryStatus.entries.indexOf(it) } ?: -1,
         ) { index ->
             model.mutateLocal(UiSection.BOOKMARKS) {
                 bookmark(release, LibraryStatus.entries.getOrNull(index))
@@ -168,17 +169,19 @@ private fun EpisodeAction(
     onClick: () -> Unit,
 ) {
     val focus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { if (autofocus) focus.requestFocus() }
+    // Keyed on autofocus: the start episode is known only once the progress has loaded.
+    LaunchedEffect(autofocus) { if (autofocus) focus.requestFocus() }
     GuiButton(
         onClick = onClick,
         modifier = modifier.focusRequester(focus).height(44.dp * 1.05f),
         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
     ) {
+        // 14 sp: smaller text is hard to read from the sofa.
         androidx.tv.material3.Text(
             text,
             modifier = Modifier.fillMaxWidth(),
-            fontSize = if (primary) 12.sp else 10.sp,
-            lineHeight = 12.sp,
+            fontSize = 14.sp,
+            lineHeight = 16.sp,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             textAlign =
@@ -202,13 +205,25 @@ internal fun Episodes(model: AppViewModel, activity: MainActivity, release: Rele
             resumeEpisode.isNotBlank() && data.value?.value?.any { it.id == resumeEpisode } == true
         ) {
             model.prepare(activity, release, resumeEpisode)
+            // "Continue watching" opens the episode straight away: the list is not needed after
+            // it, so leaving the player returns to the screen the card was on.
+            if (model.route.name == "episodes") model.back()
         }
     }
     val progress = model.ui.progressByRelease[release.id].orEmpty()
+    val episodes = data.value?.value.orEmpty()
+    // Focus starts on the episode to watch next, scrolled into view, not on the first one.
+    val start = remember(episodes, progress) { startEpisode(episodes, progress) }
+    val listState = rememberLazyListState()
+    LaunchedEffect(start) {
+        val index = episodes.indexOfFirst { it.id == start }
+        if (index > 0) listState.scrollToItem(index)
+    }
     if (data.loading && data.value == null) EpisodeListSkeleton()
     data.error?.let { ErrorState(it) { retry++ } }
     if (data.value?.stale == true) Stale()
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxWidth().heightIn(max = 330.dp),
         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -228,7 +243,7 @@ internal fun Episodes(model: AppViewModel, activity: MainActivity, release: Rele
                         else "",
                     Modifier.weight(1f),
                     primary = true,
-                    autofocus = episode.id == data.value?.value?.firstOrNull()?.id,
+                    autofocus = episode.id == start,
                 ) {
                     model.prepare(activity, release, episode.id)
                 }
@@ -246,13 +261,29 @@ internal fun Episodes(model: AppViewModel, activity: MainActivity, release: Rele
     }
 }
 
+/**
+ * The episode the list starts on: the one watched last if it is not finished, else the one after
+ * it; the first episode when nothing has been watched yet.
+ */
+internal fun startEpisode(episodes: List<Episode>, progress: Map<String, WatchProgress>): String? {
+    val last =
+        episodes.withIndex().filter { progress[it.value.id] != null }.maxByOrNull {
+            progress.getValue(it.value.id).updatedAt
+        } ?: return episodes.firstOrNull()?.id
+    if (progress.getValue(last.value.id).watched == false) return last.value.id
+    return (episodes.getOrNull(last.index + 1) ?: last.value).id
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun Schedule(model: AppViewModel) {
     var retry by remember { mutableIntStateOf(0) }
     val data = resource(retry) { publish -> model.repository.schedule(onStale = publish) }
     val days = data.value?.value.orEmpty()
-    val firstDayIndex = days.indexOfFirst { it.releases.isNotEmpty() }
+    // Start on today (or the next day with releases), as the home screen does.
+    val firstDayIndex =
+        nearestScheduleDay(days, java.time.LocalDate.now().dayOfWeek)?.let { days.indexOf(it.first) }
+            ?: days.indexOfFirst { it.releases.isNotEmpty() }
     val firstRelease = days.getOrNull(firstDayIndex)?.releases?.firstOrNull()
     val listState = rememberLazyListState()
     // The first visit focuses the first release of the first day with releases; after that the

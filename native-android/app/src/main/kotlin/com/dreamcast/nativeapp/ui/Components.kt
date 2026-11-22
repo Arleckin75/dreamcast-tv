@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -167,8 +168,12 @@ internal fun ChoiceDialog(
     items: List<String>,
     onDismiss: () -> Unit,
     header: (@Composable () -> Unit)? = null,
+    /** The current value: marked with ✓ and focused, as in the player menus. */
+    selected: Int = -1,
     onSelect: (Int) -> Unit,
 ) {
+    val current = selected.takeIf { it in items.indices }
+    val list = rememberLazyListState(initialFirstVisibleItemIndex = current ?: 0)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -177,11 +182,16 @@ internal fun ChoiceDialog(
                 header?.invoke()
                 LazyColumn(
                     Modifier.heightIn(max = 330.dp),
+                    state = list,
                     contentPadding = PaddingValues(vertical = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(items.size) { index ->
-                        Action(items[index], Modifier.fillMaxWidth(), autofocus = index == 0) {
+                        Action(
+                            if (index == current) "✓  ${items[index]}" else items[index],
+                            Modifier.fillMaxWidth(),
+                            autofocus = index == (current ?: 0),
+                        ) {
                             onSelect(index)
                         }
                     }
