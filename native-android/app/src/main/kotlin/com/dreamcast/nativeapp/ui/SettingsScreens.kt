@@ -188,9 +188,11 @@ internal fun Profile(model: AppViewModel) {
     var saved by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Локальный профиль")
-        // The name field is what this screen is for: it takes the focus when the screen opens.
+        // Without a profile the name field takes the focus (and opens the keyboard); with one,
+        // "Сохранить" does, so just looking at the profile does not open the keyboard.
         val field = remember { FocusRequester() }
-        LaunchedEffect(Unit) { field.requestFocus() }
+        val hasProfile = model.ui.profile.isNotBlank()
+        LaunchedEffect(Unit) { if (!hasProfile) field.requestFocus() }
         OutlinedTextField(
             name,
             {
@@ -204,7 +206,7 @@ internal fun Profile(model: AppViewModel) {
             singleLine = true,
             modifier = Modifier.focusRequester(field),
         )
-        Action("Сохранить", enabled = name.trim().isNotEmpty()) {
+        Action("Сохранить", enabled = name.trim().isNotEmpty(), autofocus = hasProfile) {
             val updatedName = name
             model.mutateLocal(
                 UiSection.PROFILE,

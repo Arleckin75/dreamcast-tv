@@ -121,6 +121,23 @@ class ReleaseAddressTest {
     }
 
     @Test
+    fun `a catalog address that resolves to another host is not kept`() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(MockResponse().setResponseCode(404))
+            server.enqueue(MockResponse().setBody(catalog(91, "//example.com/home/release/91-x")))
+            server.enqueue(MockResponse().setBody(page.replace(Regex("<link rel=\"canonical\"[^>]*>"), "")))
+            val source = DreamcastSiteSource(SiteClient(server.url("/").toString().trimEnd('/')))
+            val bare = Release(91, "Перерождение Дяди", url = server.url("/home/release/91").toString())
+            val request = source.detail(bare)
+            assertEquals(bare.url, request.parse(request.fetch()).release.url)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
     fun `a failed catalog search keeps the 404`() = runBlocking {
         val server = MockWebServer()
         server.start()

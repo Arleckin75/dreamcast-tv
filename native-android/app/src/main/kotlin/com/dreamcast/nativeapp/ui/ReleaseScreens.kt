@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.dreamcast.nativeapp.*
 import com.dreamcast.nativeapp.data.*
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @Composable
@@ -205,9 +206,11 @@ internal fun Episodes(model: AppViewModel, activity: MainActivity, release: Rele
             resumeEpisode.isNotBlank() && data.value?.value?.any { it.id == resumeEpisode } == true
         ) {
             model.prepare(activity, release, resumeEpisode)
-            // "Continue watching" opens the episode straight away: the list is not needed after
-            // it, so leaving the player returns to the screen the card was on.
-            if (model.route.name == "episodes") model.back()
+            // "Continue watching" opens the episode straight away: once it has started, the list
+            // is not needed, so leaving the player returns to the screen the card was on. If it
+            // could not start, the list stays for choosing another episode.
+            snapshotFlow { model.preparing }.first { !it }
+            if (model.playbackError == null && model.route.name == "episodes") model.back()
         }
     }
     val progress = model.ui.progressByRelease[release.id].orEmpty()

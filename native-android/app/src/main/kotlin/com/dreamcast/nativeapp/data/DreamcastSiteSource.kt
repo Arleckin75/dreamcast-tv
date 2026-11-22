@@ -72,8 +72,10 @@ class DreamcastSiteSource(val client: SiteClient = SiteClient()) : DreamcastSour
                 } else
                     SiteParser.detail(
                         it,
-                        found?.let { address -> release.copy(url = absoluteUrl(address) ?: release.url) }
-                            ?: release,
+                        // Only an address on the site itself is kept, as SiteClient fetched it.
+                        found
+                            ?.let { address -> absoluteUrl(address)?.takeIf { it.startsWith("$BASE_URL/") } }
+                            ?.let { release.copy(url = it) } ?: release,
                     )
             },
         )
