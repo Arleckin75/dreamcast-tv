@@ -3,11 +3,16 @@ on:
   workflow_dispatch:
   push:
     branches: [develop]
+    # README, release notes and screenshots do not change the APK.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
 permissions:
   contents: read
 concurrency:
   group: dreamcast-tv-debug-develop
-  cancel-in-progress: false
+  # A newer push supersedes the build of an older one.
+  cancel-in-progress: true
 jobs:
   verify:
     name: Check develop and build tooling

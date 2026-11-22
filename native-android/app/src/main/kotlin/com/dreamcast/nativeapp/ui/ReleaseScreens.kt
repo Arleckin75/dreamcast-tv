@@ -1,5 +1,7 @@
 package com.dreamcast.nativeapp.ui
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
@@ -21,7 +23,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
@@ -49,7 +56,23 @@ internal fun ReleaseDetail(model: AppViewModel, seed: Release) {
     val status = model.ui.bookmarksById[release.id]?.status
     val subscribed = release.id in model.ui.subscriptions
     if (loaded.value?.stale == true) Stale()
-    Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+    // The AniList banner, drawn across the whole screen by DreamApp. Looked up only when the
+    // setting asks for banners: otherwise nothing is sent to AniList.
+    val bannersOn = model.ui.releaseBanners
+    val banner by produceState<String?>(null, release.id, release.originalTitle, bannersOn) {
+        value = if (bannersOn) AniListBanners.find(model.storage, release) else null
+    }
+    val bannerSlot = LocalReleaseBanner.current
+    DisposableEffect(banner) {
+        bannerSlot?.value = banner
+        onDispose { bannerSlot?.value = null }
+    }
+    // The content keeps its place whether or not a banner arrives; the banner only fades in
+    // behind it, so nothing jumps under the focus.
+    Row(
+        Modifier.fillMaxSize(),
+        horizontalArrangement = Arrangement.spacedBy(24.dp),
+    ) {
         AsyncImage(
             release.posterUrl,
             release.title,
@@ -279,5 +302,47 @@ internal fun Schedule(model: AppViewModel) {
                 }
             }
         }
+    }
+}
+
+/** The banner URL the release screen wants shown behind the whole screen. */
+internal val LocalReleaseBanner = staticCompositionLocalOf<MutableState<String?>?> { null }
+
+/**
+ * A banner from edge to edge at the top of the screen, fading out below. It fades in once the
+ * image has loaded instead of popping up, and the content never moves for it.
+ */
+@Composable
+internal fun ReleaseBanner(url: String?) {
+    if (url == null) return
+    var loaded by remember(url) { mutableStateOf(false) }
+    val alpha by animateFloatAsState(if (loaded) 1f else 0f, tween(600), label = "banner")
+    // Surface stretches its children to the whole screen; a Box keeps the banner's own height.
+    Box(Modifier.fillMaxSize()) {
+        AsyncImage(
+            url,
+            null,
+            modifier =
+                Modifier.fillMaxWidth()
+                    .height(330.dp)
+                    .graphicsLayer(
+                        alpha = alpha,
+                        compositingStrategy = CompositingStrategy.Offscreen,
+                    )
+                    .drawWithContent {
+                        drawContent()
+                        // Pale enough for the title and buttons that sit on its middle.
+                        drawRect(
+                            Brush.verticalGradient(
+                                0f to Color.Black.copy(alpha = 0.7f),
+                                0.55f to Color.Black.copy(alpha = 0.35f),
+                                1f to Color.Transparent,
+                            ),
+                            blendMode = BlendMode.DstIn,
+                        )
+                    },
+            contentScale = ContentScale.Crop,
+            onSuccess = { loaded = true },
+        )
     }
 }
