@@ -16,6 +16,13 @@ class AniListBannersTest {
             .put("bannerImage", banner ?: JSONObject.NULL)
 
     @Test
+    fun `a title with no Latin letters takes no same-year show`() {
+        val candidates = listOf(media("Other Show", 2026, "other.jpg"))
+        assertNull(AniListBanners.pick(candidates, "進撃の巨人", 2026))
+        assertNull(AniListBanners.pick(candidates, "Ao no Hako", 2026, requirePrefix = "進撃"))
+    }
+
+    @Test
     fun `exact title in the same year wins over an earlier candidate`() {
         val candidates =
             listOf(media("Other Show", 2026, "other.jpg"), media("Ao no Hako", 2026, "ao.jpg"))

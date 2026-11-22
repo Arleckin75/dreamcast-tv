@@ -99,6 +99,56 @@ class ReleaseAddressTest {
     }
 
     @Test
+    fun `the address is found on a later catalog page and kept without a canonical link`() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        try {
+            val others = JSONArray()
+            repeat(16) { others.put(JSONObject().put("id", 1000 + it).put("url", "/home/release/${1000 + it}-x")) }
+            server.enqueue(MockResponse().setResponseCode(404))
+            server.enqueue(MockResponse().setBody(JSONObject().put("releases", others).put("count", 17).toString()))
+            server.enqueue(MockResponse().setBody(catalog(91, "/home/release/91-pererozhdenie-diadi")))
+            server.enqueue(MockResponse().setBody(page.replace(Regex("<link rel=\"canonical\"[^>]*>"), "")))
+            val source = DreamcastSiteSource(SiteClient(server.url("/").toString().trimEnd('/')))
+            val bare = Release(91, "Перерождение Дяди", url = server.url("/home/release/91").toString())
+            val request = source.detail(bare)
+            val detail = request.parse(request.fetch())
+            assertEquals("https://dreamerscast.com/home/release/91-pererozhdenie-diadi", detail.release.url)
+            assertEquals(4, server.requestCount)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `a failed catalog search keeps the 404`() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(MockResponse().setResponseCode(404))
+            server.enqueue(MockResponse().setBody("<!DOCTYPE html><html></html>"))
+            val source = DreamcastSiteSource(SiteClient(server.url("/").toString().trimEnd('/')))
+            val bare = Release(91, "Перерождение Дяди", url = server.url("/home/release/91").toString())
+            try {
+                source.detail(bare).fetch()
+                fail("Expected the 404 to stay")
+            } catch (e: java.io.IOException) {
+                assertEquals("Ошибка сервера: 404", e.message)
+            }
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `without a heading the page title gives no original title`() {
+        val noHeading =
+            page.replace("<div class=\"postItem\"><h3>Перерождение Дяди / Isekai Ojisan</h3></div>", "")
+                .replace("<head>", "<head><title>Перерождение Дяди / Isekai Ojisan — Dream Cast</title>")
+        assertEquals("", SiteParser.detail(noHeading, Release(91, "Перерождение Дяди")).release.originalTitle)
+    }
+
+    @Test
     fun `genres already separated by spaces get no double space`() {
         val spaced = page.replace("<a href=\"#\">Комедия</a>,<a href=\"#\">Фэнтези</a>", "Комедия, Фэнтези")
         assertEquals("Комедия, Фэнтези", SiteParser.detail(spaced, Release(91, "")).release.genres)
