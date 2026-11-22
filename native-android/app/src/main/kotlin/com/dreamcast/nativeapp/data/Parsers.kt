@@ -39,12 +39,13 @@ object SiteParser {
         val doc = Jsoup.parse(source)
         fun meta(key: String) =
             doc.selectFirst("meta[property='$key'],meta[name='$key']")?.attr("content").orEmpty()
-        val heading =
-            doc.selectFirst("h3")?.text()?.takeIf { it.isNotBlank() }
-                ?: meta("og:title").ifBlank { doc.title() }
+        val heading = doc.selectFirst("h3")?.text()?.takeIf { it.isNotBlank() }
         // The heading reads "Русское / Original"; a release opened from watch history or another
-        // app carries no original title or year, and the banner and details line need them.
-        val names = heading.split(" / ", limit = 2).map(String::trim)
+        // app carries no original title or year, and the banner and details line need them. The
+        // page title may end with the site name, so only the heading gives the original title.
+        val names =
+            heading?.split(" / ", limit = 2)?.map(String::trim)
+                ?: listOf(meta("og:title").ifBlank { doc.title() })
         val title = names.first()
         fun item(label: String): String =
             doc.select(".postItem")

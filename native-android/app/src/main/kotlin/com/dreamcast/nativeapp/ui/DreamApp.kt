@@ -262,7 +262,9 @@ private fun DreamAppContent(model: AppViewModel, activity: MainActivity) {
                         onDismissRequest = { model.playbackError = null },
                         title = { Text("Не удалось открыть серию") },
                         text = { Text(error) },
-                        confirmButton = {},
+                        confirmButton = {
+                            Action("Закрыть", autofocus = true) { model.playbackError = null }
+                        },
                     )
                 }
                 model.pendingStreams?.let { pending ->

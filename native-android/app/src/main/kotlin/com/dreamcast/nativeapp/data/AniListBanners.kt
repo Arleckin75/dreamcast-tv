@@ -147,6 +147,9 @@ object AniListBanners {
         // A search by a shortened title also finds unrelated shows of the same year: only a
         // candidate whose own name starts with that shortened title may stand in.
         val prefix = requirePrefix?.let(::normalized)
+        // A title with no Latin letters or digits matches nothing, and a same-year guess would be
+        // another show's banner.
+        if (wanted.isEmpty() || prefix?.isEmpty() == true) return null
         val related =
             if (prefix.isNullOrEmpty()) candidates
             else candidates.filter { candidate -> names(candidate).any { it.startsWith(prefix) } }

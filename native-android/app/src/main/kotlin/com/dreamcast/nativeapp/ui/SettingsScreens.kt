@@ -10,6 +10,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.unit.dp
 import com.dreamcast.nativeapp.*
@@ -40,13 +42,20 @@ internal fun Settings(model: AppViewModel) {
             "rose" -> "Розовый"
             else -> "Системный"
         }
+    // The button the screen was left from (Профиль, Кэш, О приложении…) gets the focus back on
+    // return; the first visit starts on the first button.
+    var focused by rememberSaveable { mutableStateOf("profile") }
+    @Composable
+    fun Item(key: String, label: String, icon: Int, enabled: Boolean = true, onClick: () -> Unit) =
+        AboutAction(label, icon, enabled, focused == key, { focused = key }, onClick)
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(18.dp),
         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
     ) {
         item {
             AboutPanel("Профиль") {
-                AboutAction(
+                Item(
+                    "profile",
                     "Профиль: ${model.ui.profile.ifBlank { "Не задан" }}",
                     R.drawable.ic_about_groups,
                 ) {
@@ -60,15 +69,18 @@ internal fun Settings(model: AppViewModel) {
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    AboutAction("Тема: $themeLabel", R.drawable.ic_nav_settings) {
+                    Item("theme", "Тема: $themeLabel", R.drawable.ic_nav_settings) {
                         dialog = "theme"
                     }
-                    AboutAction("Акцент: $accentLabel", R.drawable.ic_about_heart) {
+                    Item("accent", "Акцент: $accentLabel", R.drawable.ic_about_heart) {
                         dialog = "accent"
                     }
-                    AboutAction(
+                    // System colours apply only to the system accent on Android 12 and later.
+                    Item(
+                        "dynamic",
                         "Цвета системы: ${if (model.ui.dynamicColor) "включены" else "выключены"}",
                         R.drawable.ic_about_tv,
+                        enabled = android.os.Build.VERSION.SDK_INT >= 31 && model.ui.accent == "system",
                     ) {
                         model.mutateLocal(UiSection.SETTINGS) {
                             put("settings.dynamic_color", !boolean("settings.dynamic_color", true))
@@ -76,7 +88,8 @@ internal fun Settings(model: AppViewModel) {
                     }
                     // The release screen background. The poster colour fill sends nothing to
                     // AniList.
-                    AboutAction(
+                    Item(
+                        "banners",
                         "Фон релиза: ${if (model.ui.releaseBanners) "баннер тайтла" else "заливка цветами обложки"}",
                         R.drawable.ic_about_document,
                     ) {
@@ -89,7 +102,8 @@ internal fun Settings(model: AppViewModel) {
         }
         item {
             AboutPanel("Воспроизведение") {
-                AboutAction(
+                Item(
+                    "player",
                     "Поток по умолчанию: ${if (model.ui.streamTechnology == "none") "выбирать вручную" else model.ui.streamTechnology.uppercase()}",
                     R.drawable.ic_about_play,
                 ) {
@@ -103,16 +117,17 @@ internal fun Settings(model: AppViewModel) {
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    AboutAction("Кэш", R.drawable.ic_about_document) {
+                    Item("cache", "Кэш", R.drawable.ic_about_document) {
                         model.navigate(Route("cache"))
                     }
-                    AboutAction("О приложении", R.drawable.ic_about_tv) {
+                    Item("about", "О приложении", R.drawable.ic_about_tv) {
                         model.navigate(Route("about"))
                     }
-                    AboutAction("Проверить обновления", R.drawable.ic_about_send) {
+                    Item("updates", "Проверить обновления", R.drawable.ic_about_send) {
                         model.updates.checkManually()
                     }
-                    AboutAction(
+                    Item(
+                        "autocheck",
                         "Автопроверка обновлений: ${if (model.updates.autoCheck) "включена" else "выключена"}",
                         R.drawable.ic_nav_notifications,
                     ) {
@@ -124,8 +139,12 @@ internal fun Settings(model: AppViewModel) {
     }
     when (dialog) {
         "theme" ->
-            ChoiceDialog("Тема", listOf("Системная", "Светлая", "Тёмная"), { dialog = "" }) { index
-                ->
+            ChoiceDialog(
+                "Тема",
+                listOf("Системная", "Светлая", "Тёмная"),
+                { dialog = "" },
+                selected = listOf("system", "light").indexOf(model.ui.theme).let { if (it < 0) 2 else it },
+            ) { index ->
                 model.mutateLocal(UiSection.SETTINGS) {
                     put("settings.theme_mode", listOf("system", "light", "dark")[index])
                 }
@@ -136,6 +155,7 @@ internal fun Settings(model: AppViewModel) {
                 "Акцент",
                 listOf("Системный", "Синий", "Зелёный", "Фиолетовый", "Розовый"),
                 { dialog = "" },
+                selected = listOf("blue", "green", "violet", "rose").indexOf(model.ui.accent) + 1,
             ) { index ->
                 model.mutateLocal(UiSection.SETTINGS) {
                     put(
@@ -150,6 +170,7 @@ internal fun Settings(model: AppViewModel) {
                 "Поток по умолчанию",
                 listOf("Выбирать вручную", "HLS", "DASH"),
                 { dialog = "" },
+                selected = listOf("none", "hls", "dash").indexOf(model.ui.streamTechnology),
             ) { index ->
                 model.mutateLocal(UiSection.SETTINGS) {
                     put("player.preferred_stream_technology", listOf("none", "hls", "dash")[index])
@@ -167,6 +188,11 @@ internal fun Profile(model: AppViewModel) {
     var saved by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Локальный профиль")
+        // Without a profile the name field takes the focus (and opens the keyboard); with one,
+        // "Сохранить" does, so just looking at the profile does not open the keyboard.
+        val field = remember { FocusRequester() }
+        val hasProfile = model.ui.profile.isNotBlank()
+        LaunchedEffect(Unit) { if (!hasProfile) field.requestFocus() }
         OutlinedTextField(
             name,
             {
@@ -178,8 +204,9 @@ internal fun Profile(model: AppViewModel) {
             },
             label = { Text("Имя") },
             singleLine = true,
+            modifier = Modifier.focusRequester(field),
         )
-        Action("Сохранить", enabled = name.trim().isNotEmpty()) {
+        Action("Сохранить", enabled = name.trim().isNotEmpty(), autofocus = hasProfile) {
             val updatedName = name
             model.mutateLocal(
                 UiSection.PROFILE,
@@ -206,7 +233,7 @@ internal fun Cache(model: AppViewModel) {
         Text(
             "Кэш очищается автоматически при заполнении. Библиотека и история просмотра сохраняются."
         )
-        Action("Срок хранения") { retentionDialog = true }
+        Action("Срок хранения", autofocus = true) { retentionDialog = true }
         Action("Очистить просроченные") { model.mutateLocal(UiSection.CACHE) { clearExpired() } }
         Action("Очистить весь кэш") { clearDialog = true }
     }
@@ -215,6 +242,7 @@ internal fun Cache(model: AppViewModel) {
             "Срок хранения",
             listOf("8 часов", "12 часов", "1 день", "3 дня", "7 дней", "30 дней", "Бессрочно"),
             { retentionDialog = false },
+            selected = listOf(8L, 12L, 24L, 72L, 168L, 720L, 0L).indexOf(model.ui.retentionHours),
         ) { index ->
             model.mutateLocal(UiSection.CACHE) {
                 retention(listOf(8L, 12L, 24L, 72L, 168L, 720L, 0L)[index])
@@ -238,8 +266,11 @@ internal fun Cache(model: AppViewModel) {
 internal fun Notifications(model: AppViewModel) {
     val entries = model.ui.notifications
     var confirmClear by rememberSaveable { mutableStateOf(false) }
+    // The last focused card, restored when returning from its release.
+    var focused by rememberSaveable { mutableStateOf("") }
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Action("Прочитать все") {
+        // Before any card had focus, the screen starts on its first button.
+        Action("Прочитать все", autofocus = focused.isEmpty()) {
             model.mutateLocal(UiSection.NOTIFICATIONS) {
                 entries.forEach { entry ->
                     put(
@@ -269,8 +300,6 @@ internal fun Notifications(model: AppViewModel) {
     Spacer(Modifier.height(16.dp))
     val shown = entries.filter { it.release != null }
     if (shown.isEmpty()) Text("Уведомлений пока нет")
-    // The last focused card, restored when returning from its release.
-    var focused by rememberSaveable { mutableStateOf("") }
     // Poster cards as in the library; an unread notification carries the "new episode" mark.
     LazyVerticalGrid(
         columns = GridCells.Adaptive(160.dp),

@@ -29,7 +29,9 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.dreamcast.nativeapp.*
 import com.dreamcast.nativeapp.data.*
 import kotlinx.coroutines.delay
@@ -59,6 +61,7 @@ internal fun Catalog(model: AppViewModel) {
             ?.filter { it.id in selected }
             ?.joinToString(", ") { it.name }
             .orEmpty()
+    val yearFocus = remember { FocusRequester() }
     Row(
         Modifier.onFocusChanged { if (it.hasFocus) cardFocused = false },
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -66,6 +69,7 @@ internal fun Catalog(model: AppViewModel) {
     ) {
         Action(
             "Год: ${if(year==0)"любой" else year}",
+            Modifier.focusRequester(yearFocus),
             enabled = options.value != null,
             autofocus = !cardFocused,
         ) {
@@ -77,9 +81,12 @@ internal fun Catalog(model: AppViewModel) {
         ) {
             genreDialog = true
         }
-        Action("Показать все") {
+        // Without filters there is nothing to reset. The button turns off after a reset, so the
+        // focus moves to "Год" instead of being lost.
+        Action("Показать все", enabled = year != 0 || selected.isNotEmpty()) {
             year = 0
             genres = ""
+            runCatching { yearFocus.requestFocus() }
         }
     }
     if (options.loading) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
@@ -93,6 +100,7 @@ internal fun Catalog(model: AppViewModel) {
                 "Год выпуска",
                 listOf("Любой год") + data.years.map(Int::toString),
                 { yearDialog = false },
+                selected = if (year == 0) 0 else data.years.indexOf(year).takeIf { it >= 0 }?.plus(1) ?: -1,
             ) {
                 year = if (it == 0) 0 else data.years[it - 1]
                 yearDialog = false
@@ -101,6 +109,9 @@ internal fun Catalog(model: AppViewModel) {
     if (genreDialog)
         options.value?.value?.let { data ->
             var draft by remember { mutableStateOf(selected) }
+            // The first genre gets the focus once: when the counts arrive later and hide empty
+            // genres, the focus stays where the user moved it.
+            var focusedOnOpen by remember { mutableStateOf(false) }
             AlertDialog(
                 onDismissRequest = { genreDialog = false },
                 title = { Text("Жанры") },
@@ -116,27 +127,31 @@ internal fun Catalog(model: AppViewModel) {
                             // Genres without releases are hidden unless already chosen.
                             val shown =
                                 data.genres.filter { (genreCounts[it.id] ?: 1) > 0 || it.id in draft }
+                            // One focus stop per genre, with the usual button focus; the first
+                            // genre takes the focus when the dialog opens.
                             items(shown, key = { it.id }) { genre ->
-                                Row(
-                                    Modifier.fillMaxWidth()
-                                        .clickable {
-                                            draft =
-                                                if (genre.id in draft) draft - genre.id
-                                                else draft + genre.id
-                                        }
-                                        .padding(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
+                                val focus = remember { FocusRequester() }
+                                if (!focusedOnOpen && genre.id == shown.first().id)
+                                    LaunchedEffect(Unit) {
+                                        focus.requestFocus()
+                                        focusedOnOpen = true
+                                    }
+                                GuiButton(
+                                    onClick = {
+                                        draft =
+                                            if (genre.id in draft) draft - genre.id
+                                            else draft + genre.id
+                                    },
+                                    modifier = Modifier.fillMaxWidth().focusRequester(focus),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                                 ) {
-                                    Checkbox(
-                                        checked = genre.id in draft,
-                                        onCheckedChange = { checked ->
-                                            draft =
-                                                if (checked) draft + genre.id else draft - genre.id
-                                        },
-                                    )
-                                    Text(
+                                    Checkbox(checked = genre.id in draft, onCheckedChange = null)
+                                    androidx.tv.material3.Text(
                                         genreCounts[genre.id]?.let { "${genre.name} ($it)" }
-                                            ?: genre.name
+                                            ?: genre.name,
+                                        fontSize = 16.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                     )
                                 }
                             }
@@ -162,6 +177,7 @@ internal fun Catalog(model: AppViewModel) {
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 internal fun Search(model: AppViewModel) {
     val inputFocus = remember { FocusRequester() }
+    val findFocus = remember { FocusRequester() }
     val resultsFocus = remember { FocusRequester() }
     // A result had focus last: returning from its release keeps focus there instead of
     // reopening the keyboard in the search field.
@@ -214,7 +230,7 @@ internal fun Search(model: AppViewModel) {
                     }
                 ),
         )
-        Action("Найти") {
+        Action("Найти", Modifier.focusRequester(findFocus)) {
             val search = query.trim()
             submitted = search
             if (search.isNotBlank()) model.mutateLocal(UiSection.SEARCH) { saveSearch(search) }
@@ -224,18 +240,35 @@ internal fun Search(model: AppViewModel) {
     Column(Modifier.fillMaxSize().focusRequester(resultsFocus).focusGroup()) {
         if (submitted.isBlank()) {
             val history = model.ui.searchHistory
+            // After "Удалить" the focus moves to the neighbouring query (or the search field)
+            // instead of being lost with the removed row.
+            val rows = remember { mutableMapOf<String, FocusRequester>() }
+            var focusNext by remember { mutableStateOf<String?>(null) }
+            LaunchedEffect(history, focusNext) {
+                val next = focusNext ?: return@LaunchedEffect
+                withFrameNanos {}
+                // The last query gone: "Найти", since focusing the field would open the keyboard.
+                if (next.isEmpty()) findFocus.requestFocus()
+                else if (next in history) rows[next]?.requestFocus()
+                focusNext = null
+            }
             LazyColumn(
                 contentPadding = PaddingValues(vertical = 6.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 item { Text("История поиска", style = MaterialTheme.typography.titleLarge) }
                 items(history, key = { it }) { item ->
+                    val requester = remember(item) { rows.getOrPut(item) { FocusRequester() } }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Action(item, Modifier.weight(1f)) {
+                        Action(item, Modifier.weight(1f).focusRequester(requester)) {
                             query = item
                             submitted = item
                         }
-                        Action("Удалить") { model.mutateLocal(UiSection.SEARCH) { removeSearch(item) } }
+                        Action("Удалить") {
+                            val index = history.indexOf(item)
+                            focusNext = history.getOrNull(index + 1) ?: history.getOrNull(index - 1) ?: ""
+                            model.mutateLocal(UiSection.SEARCH) { removeSearch(item) }
+                        }
                     }
                 }
             }
@@ -354,17 +387,30 @@ private fun ReleaseFeed(
 @Composable
 internal fun Library(model: AppViewModel) {
     var status by rememberSaveable { mutableStateOf("") }
-    // The last focused poster, restored when returning from its release.
+    // The last focused poster, restored when returning from its release; before any poster had
+    // focus, the chosen filter takes it when the screen opens.
     var focused by rememberSaveable { mutableIntStateOf(-1) }
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Action("Все") { status = "" }
-        LibraryStatus.entries.forEach { item -> Action(item.label) { status = item.name } }
-    }
-    Spacer(Modifier.height(16.dp))
     val entries =
         remember(model.ui.bookmarks, status) {
             model.ui.bookmarks.filter { status.isEmpty() || it.status.name == status }
         }
+    // No card to give the focus back to (none had it, or it left the library): the filter takes it.
+    val noCard = entries.none { it.release.id == focused }
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Action("Все", selected = status.isEmpty(), autofocus = noCard && status.isEmpty()) {
+            status = ""
+        }
+        LibraryStatus.entries.forEach { item ->
+            Action(
+                item.label,
+                selected = status == item.name,
+                autofocus = noCard && status == item.name,
+            ) {
+                status = item.name
+            }
+        }
+    }
+    Spacer(Modifier.height(16.dp))
     if (entries.isEmpty()) Text("В этой категории пока нет релизов")
     val marks = rememberPosterMarks(model.ui)
     LazyVerticalGrid(

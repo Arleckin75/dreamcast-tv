@@ -39,17 +39,21 @@ class DreamcastSiteSource(val client: SiteClient = SiteClient()) : DreamcastSour
             },
         )
 
-    override fun detail(release: Release) =
-        SourceRequest(
+    override fun detail(release: Release): SourceRequest<Detail> {
+        // The address found through the catalog, kept for the page when it has no canonical link.
+        var found: String? = null
+        return SourceRequest(
             fetch = {
                 try {
                     client.html(release.url)
                 } catch (missing: SiteClient.HttpFailure) {
                     // The site serves a release only at its full address with the title slug:
                     // watch history saved before 1.0.4 has the bare id, and a renamed release has
-                    // a stale slug. Find the current address through the catalog search.
+                    // a stale slug. Find the current address through the catalog search; if the
+                    // search itself fails, the 404 is the error to show.
                     if (missing.status != 404) throw missing
-                    client.html(findAddress(release) ?: throw missing)
+                    val address = runCatching { findAddress(release) }.getOrNull() ?: throw missing
+                    client.html(address).also { found = address }
                 }
             },
             parse = {
@@ -65,22 +69,39 @@ class DreamcastSiteSource(val client: SiteClient = SiteClient()) : DreamcastSour
                         json.getString("playerPayload"),
                         json.getString("playerScriptUrl"),
                     )
-                } else SiteParser.detail(it, release)
+                } else
+                    SiteParser.detail(
+                        it,
+                        // Only an address on the site itself is kept, as SiteClient fetched it.
+                        found
+                            ?.let { address -> absoluteUrl(address)?.takeIf { it.startsWith("$BASE_URL/") } }
+                            ?.let { release.copy(url = it) } ?: release,
+                    )
             },
         )
+    }
 
     /** The current page address of [release], found by its title in the catalog search. */
     private suspend fun findAddress(release: Release): String? {
         for (query in listOf(release.title, release.originalTitle).filter { it.isNotBlank() }) {
-            // The catalog gives the address relative to the site, as SiteClient expects it.
-            val found =
-                JSONObject(client.releases(query)).getJSONArray("releases").objects().firstOrNull {
-                    it.optInt("id") == release.id
-                }
-            val address = found?.text("url").orEmpty()
-            if (address.isNotBlank()) return address
+            // A common title matches more releases than one page holds: look a few pages deep.
+            for (page in 1..SEARCH_PAGES) {
+                val json = JSONObject(client.releases(query, page = page))
+                val releases = json.getJSONArray("releases").objects()
+                // The catalog gives the address relative to the site, as SiteClient expects it.
+                val address = releases.firstOrNull { it.optInt("id") == release.id }?.text("url").orEmpty()
+                if (address.isNotBlank()) return address
+                if (releases.size < SEARCH_PAGE_SIZE || page * SEARCH_PAGE_SIZE >= json.optInt("count")) break
+            }
         }
         return null
+    }
+
+    private companion object {
+        /** How many catalog search pages are checked for a stale address. */
+        const val SEARCH_PAGES = 3
+        /** Releases on one catalog page, as [SiteClient.releases] asks for them. */
+        const val SEARCH_PAGE_SIZE = 16
     }
 
     override fun episodes(detail: Detail, cache: TextCache) =
