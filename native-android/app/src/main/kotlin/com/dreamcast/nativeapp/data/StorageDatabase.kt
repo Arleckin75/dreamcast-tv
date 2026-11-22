@@ -13,7 +13,19 @@ internal fun openStorageDatabase(context: Context): SQLiteDatabase {
     database.rawQuery("PRAGMA busy_timeout=15000", null).use { it.moveToFirst() }
     database.enableWriteAheadLogging()
     SCHEMA.forEach(database::execSQL)
+    // Added in 1.0.4: the release page address, which the site needs in full (with the title
+    // slug). Older databases get the column here; the schema version stays as it is.
+    database.addColumnIfMissing("watch_entries", "release_url", "TEXT")
     return database
+}
+
+private fun SQLiteDatabase.addColumnIfMissing(table: String, column: String, type: String) {
+    val exists =
+        rawQuery("PRAGMA table_info($table)", null).use { cursor ->
+            generateSequence { if (cursor.moveToNext()) cursor.getString(1) else null }
+                .any { it == column }
+        }
+    if (!exists) execSQL("ALTER TABLE $table ADD COLUMN $column $type")
 }
 
 private val SCHEMA =

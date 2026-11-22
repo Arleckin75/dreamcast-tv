@@ -181,6 +181,26 @@ class StorageTest {
     }
 
     @Test
+    fun `continue watching keeps the full release page address`() {
+        val url = "$BASE_URL/home/release/91-pererozhdenie-diadi-isekai-ojisan"
+        storage.saveProgress(Release(91, "Перерождение Дяди", url = url), Episode("91-1", 91, 1, "Серия 1", ""), 1000, 100000)
+        storage.close()
+        storage = Storage(context)
+        assertEquals(url, storage.continueProgress().single().release.url)
+        assertEquals(url, storage.progress(91, "91-1")!!.release.url)
+    }
+
+    @Test
+    fun `an entry without an address takes the one stored for another episode`() {
+        val url = "$BASE_URL/home/release/91-pererozhdenie-diadi-isekai-ojisan"
+        // Saved without a page address, as entries from before 1.0.4 were.
+        storage.saveProgress(Release(91, "Перерождение Дяди"), Episode("91-1", 91, 1, "Серия 1", ""), 1000, 100000)
+        assertEquals("$BASE_URL/home/release/91", storage.continueProgress().single().release.url)
+        storage.saveProgress(Release(91, "Перерождение Дяди", url = url), Episode("91-2", 91, 2, "Серия 2", ""), 1000, 100000)
+        assertEquals(listOf(url, url), storage.releaseProgress(91).map { it.release.url })
+    }
+
+    @Test
     fun `progress survives reopen and watched threshold matches Flutter`() {
         val release = Release(9, "Релиз")
         val episode = Episode("9-1", 9, 1, "Серия 1", "")
@@ -216,6 +236,8 @@ class StorageTest {
         storage = Storage(context)
         assertEquals("До переноса", storage.profile())
         assertEquals(12345L, storage.progress(1, "old")!!.positionMs)
+        // The old entry has no page address yet and keeps the id-only default.
+        assertEquals("$BASE_URL/home/release/1", storage.continueProgress().single().release.url)
         storage.saveProfile("После переноса")
         assertEquals("После переноса", storage.profile())
         SQLiteDatabase.openDatabase(path.path, null, SQLiteDatabase.OPEN_READONLY).use {

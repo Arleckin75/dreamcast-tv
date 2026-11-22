@@ -10,7 +10,7 @@ internal class WatchHistoryStore(database: Lazy<SQLiteDatabase>) {
     fun progress(releaseId: Int, episodeId: String): WatchProgress? {
         val args = arrayOf(releaseId.toString(), episodeId)
         database
-            .rawQuery("SELECT $ENTRY_COLUMNS FROM watch_entries WHERE release_id=? AND episode_id=?", args)
+            .rawQuery("SELECT $ENTRY_COLUMNS FROM watch_entries w WHERE release_id=? AND episode_id=?", args)
             .use { if (it.moveToFirst()) return it.toProgress(releaseId, offset = 0) }
         // Older installs may have a position without a watch entry.
         return database
@@ -68,9 +68,16 @@ internal class WatchHistoryStore(database: Lazy<SQLiteDatabase>) {
             }
 
     /** Reads [ENTRY_COLUMNS] starting at column [offset]. */
-    private fun Cursor.toProgress(releaseId: Int, offset: Int): WatchProgress =
-        WatchProgress(
-            Release(releaseId, getString(offset + 1), posterUrl = getString(offset + 3).orEmpty()),
+    private fun Cursor.toProgress(releaseId: Int, offset: Int): WatchProgress {
+        val title = getString(offset + 1)
+        val poster = getString(offset + 3).orEmpty()
+        // Without a stored address the release keeps its id-only default, which the site answers
+        // with 404; entries saved since 1.0.4 carry the full address.
+        val release =
+            getString(offset + 9)?.let { Release(releaseId, title, url = it, posterUrl = poster) }
+                ?: Release(releaseId, title, posterUrl = poster)
+        return WatchProgress(
+            release,
             getString(offset),
             getString(offset + 2),
             getInt(offset + 4),
@@ -79,6 +86,7 @@ internal class WatchHistoryStore(database: Lazy<SQLiteDatabase>) {
             getInt(offset + 7) != 0,
             getLong(offset + 8) * 1000,
         )
+    }
 
     fun saveProgress(
         release: Release,
@@ -98,7 +106,10 @@ internal class WatchHistoryStore(database: Lazy<SQLiteDatabase>) {
                 arrayOf<Any?>(release.id.toString(), episode.id, pos, knownDuration, now),
             )
             execSQL(
-                "INSERT OR REPLACE INTO watch_entries VALUES(?,?,?,?,?,?,?,?,?,?)",
+                "INSERT OR REPLACE INTO watch_entries" +
+                    "(release_id,episode_id,release_title,episode_title,poster_url,episode_ordinal," +
+                    "position_ms,duration_ms,is_watched,updated_at,release_url)" +
+                    " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                 arrayOf<Any?>(
                     release.id.toString(),
                     episode.id,
@@ -110,14 +121,24 @@ internal class WatchHistoryStore(database: Lazy<SQLiteDatabase>) {
                     knownDuration,
                     if (watched) 1 else 0,
                     now,
+                    pageUrl(release),
                 ),
             )
         }
     }
 
     private companion object {
+        /**
+         * The last column is the newest address stored for the release in any of its episodes,
+         * so an entry saved before 1.0.4 gets one as soon as another episode is watched.
+         */
         const val ENTRY_COLUMNS =
-            "episode_id,release_title,episode_title,poster_url,episode_ordinal,position_ms,duration_ms,is_watched,updated_at"
+            "episode_id,release_title,episode_title,poster_url,episode_ordinal,position_ms,duration_ms,is_watched,updated_at," +
+                "(SELECT u.release_url FROM watch_entries u WHERE u.release_id=w.release_id AND u.release_url IS NOT NULL ORDER BY u.updated_at DESC,u.rowid DESC LIMIT 1)"
+
+        /** The full page address, or null for the id-only default the site does not serve. */
+        fun pageUrl(release: Release): String? =
+            release.url.takeIf { it.isNotBlank() && it != Release(release.id, "").url }
         const val WATCHED_FRACTION = 0.9
     }
 }
