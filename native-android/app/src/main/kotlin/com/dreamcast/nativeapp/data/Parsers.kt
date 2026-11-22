@@ -39,9 +39,20 @@ object SiteParser {
         val doc = Jsoup.parse(source)
         fun meta(key: String) =
             doc.selectFirst("meta[property='$key'],meta[name='$key']")?.attr("content").orEmpty()
-        val title =
+        val heading =
             doc.selectFirst("h3")?.text()?.takeIf { it.isNotBlank() }
                 ?: meta("og:title").ifBlank { doc.title() }
+        // The heading reads "Русское / Original"; a release opened from watch history or another
+        // app carries no original title or year, and the banner and details line need them.
+        val names = heading.split(" / ", limit = 2).map(String::trim)
+        val title = names.first()
+        fun item(label: String): String =
+            doc.select(".postItem")
+                .firstOrNull { it.selectFirst("span")?.text()?.trim() == "$label:" }
+                ?.text()
+                ?.removePrefix("$label:")
+                ?.trim()
+                .orEmpty()
         val payload =
             PLAYERJS_CALL
                 .find(source)
@@ -53,7 +64,18 @@ object SiteParser {
                 ?.attr("src") ?: error("Не найден скрипт PlayerJS")
         val release =
             seed.copy(
+                // The canonical address carries the current slug, which the site requires.
+                url =
+                    runCatching { absoluteUrl(doc.selectFirst("link[rel=canonical]")?.attr("href")) }
+                        .getOrNull()
+                        ?.takeIf { it.startsWith("$BASE_URL/home/release/${seed.id}-") }
+                        ?: seed.url,
                 title = seed.title.ifBlank { title },
+                originalTitle = seed.originalTitle.ifBlank { names.getOrNull(1).orEmpty() },
+                year = seed.year.takeIf { it > 0 } ?: item("Год").toIntOrNull() ?: 0,
+                season = seed.season.ifBlank { item("Сезон") },
+                studio = seed.studio.ifBlank { item("Студия") },
+                genres = seed.genres.ifBlank { item("Жанр").replace(",", ", ") },
                 description =
                     seed.description.ifBlank {
                         doc.selectFirst(".postDesc")?.text()
