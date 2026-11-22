@@ -156,6 +156,8 @@ private fun DreamAppContent(model: AppViewModel, activity: MainActivity) {
                     else route
                 val backdrop = remember(contentRoute.key) { PosterBackdropState() }
                 PosterBackdrop(backdrop, colors.background, dark)
+                val releaseBanner = remember(contentRoute.key) { mutableStateOf<String?>(null) }
+                ReleaseBanner(releaseBanner.value)
                 val saved = rememberSaveableStateHolder()
                 val retainedRoutes =
                     model.routes.map { it.key }.toSet() +
@@ -210,7 +212,10 @@ private fun DreamAppContent(model: AppViewModel, activity: MainActivity) {
                         Spacer(Modifier.height(18.dp))
                     }
                     saved.SaveableStateProvider(contentRoute.key) {
-                        CompositionLocalProvider(LocalPosterBackdrop provides backdrop) {
+                        CompositionLocalProvider(
+                            LocalPosterBackdrop provides backdrop,
+                            LocalReleaseBanner provides releaseBanner,
+                        ) {
                             when (contentRoute.name) {
                                 "home" -> Home(model)
                                 "catalog" -> Catalog(model)

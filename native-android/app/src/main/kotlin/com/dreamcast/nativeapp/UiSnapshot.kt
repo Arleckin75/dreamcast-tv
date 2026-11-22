@@ -23,6 +23,8 @@ data class UiSnapshot(
     val theme: String = "dark",
     val accent: String = "system",
     val dynamicColor: Boolean = true,
+    /** AniList banners on the release screen; off means the poster colour fill alone. */
+    val releaseBanners: Boolean = true,
     val streamTechnology: String = DEFAULT_STREAM_TECHNOLOGY,
     val profile: String = "",
     val retentionHours: Long = 8,
@@ -77,6 +79,7 @@ internal fun Storage.readUiSnapshot(
                 theme = string("settings.theme_mode", "dark"),
                 accent = string("settings.accent", "system"),
                 dynamicColor = boolean("settings.dynamic_color", true),
+                releaseBanners = boolean("settings.release_banners", true),
                 streamTechnology = string("player.preferred_stream_technology", DEFAULT_STREAM_TECHNOLOGY),
             )
     if (UiSection.PROFILE in sections) result = result.copy(profile = profile())

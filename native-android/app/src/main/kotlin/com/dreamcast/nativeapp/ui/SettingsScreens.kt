@@ -74,6 +74,16 @@ internal fun Settings(model: AppViewModel) {
                             put("settings.dynamic_color", !boolean("settings.dynamic_color", true))
                         }
                     }
+                    // The release screen background. The poster colour fill sends nothing to
+                    // AniList.
+                    AboutAction(
+                        "Фон релиза: ${if (model.ui.releaseBanners) "баннер тайтла" else "заливка цветами обложки"}",
+                        R.drawable.ic_about_document,
+                    ) {
+                        model.mutateLocal(UiSection.SETTINGS) {
+                            put("settings.release_banners", !boolean("settings.release_banners", true))
+                        }
+                    }
                 }
             }
         }
