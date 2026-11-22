@@ -221,21 +221,17 @@ internal fun Cache(model: AppViewModel) {
             }
             retentionDialog = false
         }
+    // "Отмена" comes first and takes the focus, so one extra OK does not wipe the cache.
     if (clearDialog)
-        AlertDialog(
-            onDismissRequest = { clearDialog = false },
-            title = { Text("Очистить кэш?") },
-            text = { Text("Библиотека и история просмотра сохранятся.") },
-            confirmButton = {
-                Action(
-                    "Очистить",
-                    onClick = {
-                        model.mutateLocal(UiSection.CACHE) { clearCache() }
-                        clearDialog = false
-                    },
-                )
-            },
-        )
+        ChoiceDialog(
+            "Очистить кэш?",
+            listOf("Отмена", "Очистить"),
+            onDismiss = { clearDialog = false },
+            header = { Text("Библиотека и история просмотра сохранятся.") },
+        ) { index ->
+            clearDialog = false
+            if (index == 1) model.mutateLocal(UiSection.CACHE) { clearCache() }
+        }
 }
 
 @Composable

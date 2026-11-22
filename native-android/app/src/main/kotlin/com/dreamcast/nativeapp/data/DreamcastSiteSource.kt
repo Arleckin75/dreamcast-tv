@@ -41,7 +41,17 @@ class DreamcastSiteSource(val client: SiteClient = SiteClient()) : DreamcastSour
 
     override fun detail(release: Release) =
         SourceRequest(
-            fetch = { client.html(release.url) },
+            fetch = {
+                try {
+                    client.html(release.url)
+                } catch (missing: SiteClient.HttpFailure) {
+                    // The site serves a release only at its full address with the title slug:
+                    // watch history saved before 1.0.4 has the bare id, and a renamed release has
+                    // a stale slug. Find the current address through the catalog search.
+                    if (missing.status != 404) throw missing
+                    client.html(findAddress(release) ?: throw missing)
+                }
+            },
             parse = {
                 if (it.isJson()) {
                     val json = JSONObject(it)
@@ -58,6 +68,20 @@ class DreamcastSiteSource(val client: SiteClient = SiteClient()) : DreamcastSour
                 } else SiteParser.detail(it, release)
             },
         )
+
+    /** The current page address of [release], found by its title in the catalog search. */
+    private suspend fun findAddress(release: Release): String? {
+        for (query in listOf(release.title, release.originalTitle).filter { it.isNotBlank() }) {
+            // The catalog gives the address relative to the site, as SiteClient expects it.
+            val found =
+                JSONObject(client.releases(query)).getJSONArray("releases").objects().firstOrNull {
+                    it.optInt("id") == release.id
+                }
+            val address = found?.text("url").orEmpty()
+            if (address.isNotBlank()) return address
+        }
+        return null
+    }
 
     override fun episodes(detail: Detail, cache: TextCache) =
         SourceRequest(

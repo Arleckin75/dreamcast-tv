@@ -1,7 +1,6 @@
 package com.dreamcast.nativeapp.data
 
 import java.io.IOException
-import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -21,8 +20,6 @@ object AniListBanners {
     /** What AniList answered for a release: [banner] is empty when it has none. */
     private data class Answer(val title: String, val year: Int, val banner: String, val checkedAt: Long)
 
-    private val answers = ConcurrentHashMap<Int, Answer>()
-
     /** How long a found banner is trusted before AniList is asked again. */
     private const val BANNER_RECHECK_MS = 7L * 24 * 60 * 60 * 1000
 
@@ -35,21 +32,21 @@ object AniListBanners {
     suspend fun find(storage: Storage, release: Release): String? {
         val title = release.originalTitle
         if (title.isBlank()) return null
-        // The answer from this run, else from an earlier one; one for another title or year (the
-        // site renamed the release) is not about this release any more.
+        // Answers live only in the response cache, so clearing the cache forgets them at once. One
+        // for another title or year (the site renamed the release) is not about this release.
         val known =
-            (answers[release.id] ?: withContext(Dispatchers.IO) { read(storage, release.id) })
+            withContext(Dispatchers.IO) { read(storage, release.id) }
                 ?.takeIf { it.title == title && it.year == release.year }
         val recheck = if (known?.banner.isNullOrEmpty()) NO_BANNER_RECHECK_MS else BANNER_RECHECK_MS
         if (known != null && System.currentTimeMillis() - known.checkedAt in 0 until recheck) {
-            answers[release.id] = known
             return known.banner.ifEmpty { null }
         }
         val result =
             withContext(Dispatchers.IO) {
                 runCatching {
+                    val short = shortTitle(title)
                     pick(search(title), title, release.year)
-                        ?: pick(search(shortTitle(title)), title, release.year)
+                        ?: pick(search(short), title, release.year, requirePrefix = short)
                 }
             }
         // A network or AniList error is not an answer: keep the previous one, if any, and ask
@@ -60,7 +57,6 @@ object AniListBanners {
                 return known?.banner?.ifEmpty { null }
             }
         val answer = Answer(title, release.year, url.orEmpty(), System.currentTimeMillis())
-        answers[release.id] = answer
         withContext(Dispatchers.IO) { write(storage, release.id, answer) }
         return url
     }
@@ -127,7 +123,12 @@ object AniListBanners {
      * with no year on AniList yet (an announced season without dates), then the first candidate
      * of the same year in AniList's own relevance order.
      */
-    internal fun pick(candidates: List<JSONObject>, title: String, year: Int): String? {
+    internal fun pick(
+        candidates: List<JSONObject>,
+        title: String,
+        year: Int,
+        requirePrefix: String? = null,
+    ): String? {
         fun yearOf(it: JSONObject) =
             it.optInt("seasonYear").takeIf { y -> y > 0 }
                 ?: it.optJSONObject("startDate")?.optInt("year")?.takeIf { y -> y > 0 }
@@ -143,12 +144,18 @@ object AniListBanners {
         fun yearGap(it: JSONObject) =
             if (year <= 0) 0 else yearOf(it)?.let { y -> kotlin.math.abs(y - year) } ?: Int.MAX_VALUE
         val wanted = normalized(title)
-        val exact = candidates.filter { wanted in names(it) }
+        // A search by a shortened title also finds unrelated shows of the same year: only a
+        // candidate whose own name starts with that shortened title may stand in.
+        val prefix = requirePrefix?.let(::normalized)
+        val related =
+            if (prefix.isNullOrEmpty()) candidates
+            else candidates.filter { candidate -> names(candidate).any { it.startsWith(prefix) } }
+        val exact = related.filter { wanted in names(it) }
         val chosen =
             exact.firstOrNull { yearGap(it) == 0 }
                 ?: exact.firstOrNull { yearGap(it) == 1 }
                 ?: exact.firstOrNull { yearOf(it) == null }
-                ?: candidates.firstOrNull { yearGap(it) == 0 }
+                ?: related.firstOrNull { yearGap(it) == 0 }
         return chosen?.text("bannerImage")?.ifBlank { null }
     }
 

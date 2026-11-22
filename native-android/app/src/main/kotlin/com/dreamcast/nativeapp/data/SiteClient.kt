@@ -41,7 +41,7 @@ class SiteClient(
     private val site =
         requireNotNull(baseUrl.toHttpUrlOrNull()) { "Недопустимый адрес сайта: $baseUrl" }
 
-    private class HttpFailure(val status: Int) : IOException("Ошибка сервера: $status")
+    internal class HttpFailure(val status: Int) : IOException("Ошибка сервера: $status")
 
     val headers =
         mapOf(

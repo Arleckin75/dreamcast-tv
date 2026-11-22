@@ -69,4 +69,20 @@ class AniListBannersTest {
         val candidates = listOf(media("Something Else", null, "s.jpg"))
         assertNull(AniListBanners.pick(candidates, "Ao no Hako 3", 2026))
     }
+
+    @Test
+    fun `short title search does not take an unrelated show of the same year`() {
+        val candidates = listOf(media("Mahou Shoujo Something", 2026, "wrong.jpg"))
+        assertNull(AniListBanners.pick(candidates, "Kabushikigaisha Magi-Lumiere 2nd Season", 2026, requirePrefix = "Kabushikigaisha Magi"))
+    }
+
+    @Test
+    fun `short title search takes a show whose name starts with the short title`() {
+        val candidates =
+            listOf(
+                media("Mahou Shoujo Something", 2026, "wrong.jpg"),
+                media("Kabushikigaisha Magi-Lumiere Season 2", 2026, "right.jpg"),
+            )
+        assertEquals("right.jpg", AniListBanners.pick(candidates, "Kabushikigaisha Magi-Lumiere 2nd Season", 2026, requirePrefix = "Kabushikigaisha Magi"))
+    }
 }

@@ -257,7 +257,11 @@ class MainActivity : ComponentActivity() {
     private fun consumeIntent(intent: Intent) {
         intent.getStringExtra("release")?.let { text ->
             runCatching {
-                val release = Release.fromJson(JSONObject(text))
+                // Any app can start this activity: keep only what identifies the release. The
+                // poster, original title and the rest come from the site page, so another app
+                // cannot make us load its image or send its text to AniList.
+                val sent = Release.fromJson(JSONObject(text))
+                val release = Release(sent.id, sent.title, url = sent.url)
                 intent.getStringExtra("notificationId")?.let { id ->
                     val record = model.storage.string("notifications.history.item.$id")
                     if (record.isNotBlank())
