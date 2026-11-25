@@ -2,7 +2,6 @@ package com.dreamcast.nativeapp.update
 
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
@@ -90,23 +89,17 @@ class UpdateInstaller(
             continuation.resume(result)
         }
 
-    /** False on Android 8+ until the user allows this app to install packages. */
-    fun canInstall(): Boolean =
-        Build.VERSION.SDK_INT < 26 || context.packageManager.canRequestPackageInstalls()
+    /** False until the user allows this app to install packages. */
+    fun canInstall(): Boolean = context.packageManager.canRequestPackageInstalls()
 
-    /** The system screen that allows this app to install packages; null before Android 8. */
-    fun installPermissionIntent(): Intent? =
-        if (Build.VERSION.SDK_INT < 26) null
-        else
-            Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, "package:${context.packageName}".toUri())
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    /** The system screen that allows this app to install packages. */
+    fun installPermissionIntent(): Intent =
+        Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, "package:${context.packageName}".toUri())
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
     /** Intent that shows the system installer for [apk]. */
     fun installIntent(apk: File): Intent {
-        val uri =
-            if (Build.VERSION.SDK_INT >= 24)
-                FileProvider.getUriForFile(context, "${context.packageName}.updates", apk)
-            else Uri.fromFile(apk)
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.updates", apk)
         @Suppress("DEPRECATION")
         return Intent(Intent.ACTION_INSTALL_PACKAGE)
             .setDataAndType(uri, "application/vnd.android.package-archive")

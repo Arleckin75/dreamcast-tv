@@ -6,6 +6,9 @@ import org.json.JSONObject
 
 const val BASE_URL = "https://dreamerscast.com"
 
+/** Releases on one catalog page: the request, the cache keys and the address search use it. */
+const val CATALOG_PAGE_SIZE = 16
+
 fun absoluteUrl(value: String?): String? =
     value
         ?.trim()

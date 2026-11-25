@@ -142,7 +142,17 @@ internal fun Home(model: AppViewModel) {
                                 else 0f,
                             caption = "Серия ${item.ordinal}",
                         ) {
-                            model.navigate(Route("episodes", item.release, item.episodeId))
+                            // The card starts its episode straight away; only if that fails does
+                            // the episode list open, to pick another one.
+                            model.prepare(
+                                item.release,
+                                item.episodeId,
+                                // Only while home is still shown: not over a screen opened since.
+                                onFailure = {
+                                    if (model.route.name == "home")
+                                        model.navigate(Route("episodes", item.release))
+                                },
+                            )
                         }
                     }
                 }

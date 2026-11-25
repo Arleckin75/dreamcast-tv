@@ -48,7 +48,7 @@ jobs:
           packages: platform-tools
       - uses: gradle/actions/setup-gradle@v4
       - name: Install compile SDK
-        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+        run: sdkmanager 'platforms;android-37.1' 'build-tools;36.0.0'
       - name: Install pinned Android NDK
         run: bash scripts/install_android_ndk.sh
       - name: Prepare dav1d ARM decoder

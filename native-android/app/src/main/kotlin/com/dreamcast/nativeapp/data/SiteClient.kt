@@ -125,7 +125,7 @@ class SiteClient(
                 .add("search", query)
                 .add("status", "")
                 .add("pageNumber", page.toString())
-                .add("pageSize", "16")
+                .add("pageSize", CATALOG_PAGE_SIZE.toString())
         filter.year?.let { form.add("dateissue[]", it.toString()) }
         filter.genres.sorted().forEach { form.add("genres[]", it) }
         return execute(request("/").post(form.build()).build())

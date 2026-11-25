@@ -39,7 +39,6 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.dreamcast.nativeapp.*
 import com.dreamcast.nativeapp.data.*
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @Composable
@@ -193,26 +192,13 @@ private fun EpisodeAction(
 }
 
 @Composable
-internal fun Episodes(model: AppViewModel, activity: MainActivity, release: Release) {
+internal fun Episodes(model: AppViewModel, release: Release) {
     var retry by remember { mutableIntStateOf(0) }
     val data =
         resource("${release.id}:$retry") {
             val detail = model.repository.detail(release).value
             model.repository.episodes(detail)
         }
-    val resumeEpisode = model.route.argument
-    LaunchedEffect(data.value) {
-        if (
-            resumeEpisode.isNotBlank() && data.value?.value?.any { it.id == resumeEpisode } == true
-        ) {
-            model.prepare(activity, release, resumeEpisode)
-            // "Continue watching" opens the episode straight away: once it has started, the list
-            // is not needed, so leaving the player returns to the screen the card was on. If it
-            // could not start, the list stays for choosing another episode.
-            snapshotFlow { model.preparing }.first { !it }
-            if (model.playbackError == null && model.route.name == "episodes") model.back()
-        }
-    }
     val progress = model.ui.progressByRelease[release.id].orEmpty()
     val episodes = data.value?.value.orEmpty()
     // Focus starts on the episode to watch next, scrolled into view, not on the first one.
@@ -248,13 +234,13 @@ internal fun Episodes(model: AppViewModel, activity: MainActivity, release: Rele
                     primary = true,
                     autofocus = episode.id == start,
                 ) {
-                    model.prepare(activity, release, episode.id)
+                    model.prepare(release, episode.id)
                 }
                 if (watched != null && watched.positionMs > 0)
                     EpisodeAction("С начала", Modifier.width(100.dp)) {
                         model.mutateLocal(
                             UiSection.PROGRESS,
-                            after = { model.prepare(activity, release, episode.id) },
+                            after = { model.prepare(release, episode.id) },
                         ) {
                             saveProgress(release, episode, 0, watched.durationMs)
                         }
@@ -269,12 +255,12 @@ internal fun Episodes(model: AppViewModel, activity: MainActivity, release: Rele
  * it; the first episode when nothing has been watched yet.
  */
 internal fun startEpisode(episodes: List<Episode>, progress: Map<String, WatchProgress>): String? {
-    val last =
-        episodes.withIndex().filter { progress[it.value.id] != null }.maxByOrNull {
-            progress.getValue(it.value.id).updatedAt
-        } ?: return episodes.firstOrNull()?.id
-    if (progress.getValue(last.value.id).watched == false) return last.value.id
-    return (episodes.getOrNull(last.index + 1) ?: last.value).id
+    val (index, watched) =
+        episodes
+            .mapIndexedNotNull { i, episode -> progress[episode.id]?.let { i to it } }
+            .maxByOrNull { it.second.updatedAt } ?: return episodes.firstOrNull()?.id
+    if (!watched.watched) return episodes[index].id
+    return (episodes.getOrNull(index + 1) ?: episodes[index]).id
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -285,8 +271,10 @@ internal fun Schedule(model: AppViewModel) {
     val days = data.value?.value.orEmpty()
     // Start on today (or the next day with releases), as the home screen does.
     val firstDayIndex =
-        nearestScheduleDay(days, java.time.LocalDate.now().dayOfWeek)?.let { days.indexOf(it.first) }
-            ?: days.indexOfFirst { it.releases.isNotEmpty() }
+        remember(days) {
+            nearestScheduleDay(days, java.time.LocalDate.now().dayOfWeek)?.let { days.indexOf(it.first) }
+                ?: -1
+        }
     val firstRelease = days.getOrNull(firstDayIndex)?.releases?.firstOrNull()
     val listState = rememberLazyListState()
     // The first visit focuses the first release of the first day with releases; after that the

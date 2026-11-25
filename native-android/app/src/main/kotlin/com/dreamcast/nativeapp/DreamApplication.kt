@@ -13,6 +13,7 @@ import com.dreamcast.nativeapp.data.Repository
 import com.dreamcast.nativeapp.data.Storage
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.*
+import androidx.core.content.edit
 
 class DreamApplication : Application(), coil.ImageLoaderFactory {
     /**
@@ -116,8 +117,7 @@ class DreamApplication : Application(), coil.ImageLoaderFactory {
 private fun Context.removeVlcProgressFile() {
     val name = "dream_cast_vlc_progress"
     if (!java.io.File(applicationInfo.dataDir, "shared_prefs/$name.xml").exists()) return
-    if (android.os.Build.VERSION.SDK_INT >= 24) deleteSharedPreferences(name)
-    else getSharedPreferences(name, Context.MODE_PRIVATE).edit().clear().apply()
+    deleteSharedPreferences(name)
 }
 
 /** Posters are ~50–150 KB each: room for a few thousand covers on small TV storage. */

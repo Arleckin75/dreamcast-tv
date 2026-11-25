@@ -1,10 +1,8 @@
 import java.util.Properties
 import java.io.File
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
@@ -47,10 +45,11 @@ val appVersionCode = releaseVersionPattern.find(appVersionName)?.destructured
 android {
     namespace = "com.dreamcast.nativeapp"
     ndkVersion = "28.2.13676358"
-    compileSdk = 36
+    // API 37.1: the Compose libraries ask for at least this minor release.
+    compileSdk { version = release(37) { minorApiLevel = 1 } }
     defaultConfig {
         applicationId = "com.dreamcast.app"
-        minSdk = 23
+        minSdk = 28
         targetSdk = 36
         versionCode = appVersionCode
         versionName = appVersionName
@@ -112,8 +111,6 @@ android {
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }
 
-kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
-
 // Resolve the API 28 test runtime and Robolectric's API 35 resource runtime
 // through Gradle's cache, rather than Robolectric's separate HTTP fetcher.
 val robolectricAndroid by configurations.creating {
@@ -141,20 +138,20 @@ tasks.withType<Test>().configureEach {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
-    implementation(platform("androidx.compose:compose-bom:2026.06.01"))
+    implementation(platform("androidx.compose:compose-bom:2026.11.01"))
     implementation("androidx.activity:activity-compose:1.13.0")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.1")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.1")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.tv:tv-material:1.1.0")
-    implementation("androidx.work:work-runtime-ktx:2.11.2")
-    implementation("androidx.core:core-ktx:1.18.0")
+    implementation("androidx.work:work-runtime-ktx:2.12.0")
+    implementation("androidx.core:core-ktx:1.19.1")
     // Installs src/main/baseline-prof.txt on sideloaded installs, where no app store does it.
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
-    implementation("com.squareup.okhttp3:okhttp:5.4.0")
-    implementation("org.jsoup:jsoup:1.23.2")
+    implementation("com.squareup.okhttp3:okhttp:5.5.1")
+    implementation("org.jsoup:jsoup:1.24.1")
     constraints {
         implementation("com.google.guava:guava:33.7.2-android") {
             because("Fix GHSA-xxph-c9ww-hj94 in the transitive Android Guava dependency")
@@ -169,14 +166,14 @@ dependencies {
     implementation("androidx.media3:media3-inspector:1.11.1")
     implementation(project(":dav1d"))
     testImplementation("junit:junit:4.13.2")
-    testImplementation("org.json:json:20240303")
-    testImplementation("com.squareup.okhttp3:mockwebserver:5.4.0")
-    testImplementation("org.robolectric:robolectric:4.17")
-    testImplementation("androidx.work:work-testing:2.11.2")
-    androidTestImplementation(platform("androidx.compose:compose-bom:2026.06.01"))
+    testImplementation("org.json:json:20260814")
+    testImplementation("com.squareup.okhttp3:mockwebserver:5.5.1")
+    testImplementation("org.robolectric:robolectric:4.18.1")
+    testImplementation("androidx.work:work-testing:2.12.0")
+    androidTestImplementation(platform("androidx.compose:compose-bom:2026.11.01"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
-    androidTestImplementation("com.squareup.okhttp3:mockwebserver:5.4.0")
+    androidTestImplementation("com.squareup.okhttp3:mockwebserver:5.5.1")
 }

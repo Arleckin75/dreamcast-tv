@@ -672,7 +672,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun pip() {
-        if (Build.VERSION.SDK_INT >= 26 && player?.isPlaying == true)
+        if (player?.isPlaying == true)
             runCatching {
                 enterPictureInPictureMode(
                     PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build()
@@ -743,7 +743,7 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
-    private fun inPip() = Build.VERSION.SDK_INT >= 24 && isInPictureInPictureMode
+    private fun inPip() = isInPictureInPictureMode
 
     override fun onStart() {
         super.onStart()

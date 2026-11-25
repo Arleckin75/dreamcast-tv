@@ -67,18 +67,18 @@ internal fun <T> resource(key: Any, loader: suspend ((T) -> Unit) -> T): Load<T>
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun DreamApp(model: AppViewModel, activity: MainActivity) {
+fun DreamApp(model: AppViewModel) {
     // Keep focused items stationary until their reserved bounds leave the viewport.
     // The margin covers the focus scale (4%) and the antialiasing edge of focused buttons.
     val density = androidx.compose.ui.platform.LocalDensity.current
     val scrollSpec = remember(density) { VisibleItemScrollSpec(with(density) { 6.dp.toPx() }) }
     CompositionLocalProvider(LocalBringIntoViewSpec provides scrollSpec) {
-        DreamAppContent(model, activity)
+        DreamAppContent(model)
     }
 }
 
 @Composable
-private fun DreamAppContent(model: AppViewModel, activity: MainActivity) {
+private fun DreamAppContent(model: AppViewModel) {
     LaunchedEffect(Unit) {
         withFrameNanos {}
         NativePerformance.firstFrame()
@@ -243,7 +243,7 @@ private fun DreamAppContent(model: AppViewModel, activity: MainActivity) {
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
                                 )
-                                Episodes(model, activity, route.release)
+                                Episodes(model, route.release)
                             }
                         },
                         confirmButton = { Action("Закрыть") { model.back() } },
@@ -293,11 +293,11 @@ private fun DreamAppContent(model: AppViewModel, activity: MainActivity) {
                             model.pendingStreams = null
                             model.mutateLocal(
                                 UiSection.SETTINGS,
-                                after = { activity.launchPlayback(pair.first, pair.second, stream) },
+                                after = { model.launchPlayback(pair.first, pair.second, stream) },
                             ) {
                                 put("player.preferred_stream_technology", stream.type)
                             }
-                        } else activity.launchPlayback(pair.first, pair.second, stream)
+                        } else model.launchPlayback(pair.first, pair.second, stream)
                     }
                 }
             }

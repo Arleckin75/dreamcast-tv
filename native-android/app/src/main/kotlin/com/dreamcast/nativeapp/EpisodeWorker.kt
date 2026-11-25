@@ -127,16 +127,11 @@ class EpisodeWorker(context: Context, parameters: WorkerParameters) :
 
     private fun notify(release: Release, id: String, message: String) {
         val context = applicationContext
-        if (Build.VERSION.SDK_INT >= 26)
-            context
-                .getSystemService(NotificationManager::class.java)
-                .createNotificationChannel(
-                    NotificationChannel(
-                        "episodes",
-                        "Новые серии",
-                        NotificationManager.IMPORTANCE_DEFAULT,
-                    )
-                )
+        context
+            .getSystemService(NotificationManager::class.java)
+            .createNotificationChannel(
+                NotificationChannel("episodes", "Новые серии", NotificationManager.IMPORTANCE_DEFAULT)
+            )
         if (
             Build.VERSION.SDK_INT >= 33 &&
                 ContextCompat.checkSelfPermission(

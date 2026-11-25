@@ -202,6 +202,27 @@ internal fun ChoiceDialog(
     )
 }
 
+/**
+ * [ChoiceDialog] over values: each option is a value and its label, [selected] is marked and
+ * focused, and the chosen value is passed back, so callers keep no index arithmetic.
+ */
+@Composable
+internal fun <T> ChoiceDialog(
+    title: String,
+    options: List<Pair<T, String>>,
+    selected: T?,
+    onDismiss: () -> Unit,
+    onSelect: (T) -> Unit,
+) =
+    ChoiceDialog(
+        title,
+        options.map { it.second },
+        onDismiss,
+        selected = options.indexOfFirst { it.first == selected },
+    ) {
+        onSelect(options[it].first)
+    }
+
 @Composable
 internal fun Poster(
     release: Release,
