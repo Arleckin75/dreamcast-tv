@@ -12,10 +12,13 @@ val verifyDav1d by tasks.registering {
 
 android {
     namespace = "androidx.media3.decoder.av1"
-    compileSdk = 36
+    // Upstream Media3 sources are Java only: no Kotlin compilation (AGP 9 built-in Kotlin).
+    enableKotlin = false
+    // API 37.1: the Compose libraries ask for at least this minor release.
+    compileSdk { version = release(37) { minorApiLevel = 1 } }
     ndkVersion = "28.2.13676358"
     defaultConfig {
-        minSdk = 23
+        minSdk = 28
         ndk { abiFilters += setOf("armeabi-v7a", "arm64-v8a") }
         externalNativeBuild { cmake {
             targets += "dav1dJNI"

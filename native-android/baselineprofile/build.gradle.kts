@@ -2,12 +2,12 @@
 // Not part of the APK.
 plugins {
     id("com.android.test")
-    id("org.jetbrains.kotlin.android")
 }
 
 android {
     namespace = "com.dreamcast.baselineprofile"
-    compileSdk = 36
+    // API 37.1: the Compose libraries ask for at least this minor release.
+    compileSdk { version = release(37) { minorApiLevel = 1 } }
 
     defaultConfig {
         // BaselineProfileRule needs API 28+, and API 33+ without root.
@@ -34,8 +34,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 }
-
-kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
 
 androidComponents {
     beforeVariants(selector().all()) { it.enable = it.buildType == "profiling" }
