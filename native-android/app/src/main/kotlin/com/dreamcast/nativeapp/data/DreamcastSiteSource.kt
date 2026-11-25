@@ -91,7 +91,7 @@ class DreamcastSiteSource(val client: SiteClient = SiteClient()) : DreamcastSour
                 // The catalog gives the address relative to the site, as SiteClient expects it.
                 val address = releases.firstOrNull { it.optInt("id") == release.id }?.text("url").orEmpty()
                 if (address.isNotBlank()) return address
-                if (releases.size < SEARCH_PAGE_SIZE || page * SEARCH_PAGE_SIZE >= json.optInt("count")) break
+                if (releases.size < CATALOG_PAGE_SIZE || page * CATALOG_PAGE_SIZE >= json.optInt("count")) break
             }
         }
         return null
@@ -100,8 +100,6 @@ class DreamcastSiteSource(val client: SiteClient = SiteClient()) : DreamcastSour
     private companion object {
         /** How many catalog search pages are checked for a stale address. */
         const val SEARCH_PAGES = 3
-        /** Releases on one catalog page, as [SiteClient.releases] asks for them. */
-        const val SEARCH_PAGE_SIZE = 16
     }
 
     override fun episodes(detail: Detail, cache: TextCache) =

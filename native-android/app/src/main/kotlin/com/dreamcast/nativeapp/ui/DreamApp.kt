@@ -217,7 +217,7 @@ private fun DreamAppContent(model: AppViewModel, activity: MainActivity) {
                             LocalReleaseBanner provides releaseBanner,
                         ) {
                             when (contentRoute.name) {
-                                "home" -> Home(model)
+                                "home" -> Home(model, activity)
                                 "catalog" -> Catalog(model)
                                 "search" -> Search(model)
                                 "library" -> Library(model)

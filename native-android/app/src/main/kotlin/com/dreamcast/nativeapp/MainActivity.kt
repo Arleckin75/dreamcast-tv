@@ -27,6 +27,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import androidx.compose.runtime.mutableIntStateOf
 
 data class Route(val name: String, val release: Release? = null, val argument: String = "") {
     val key
@@ -37,10 +38,10 @@ data class Route(val name: String, val release: Release? = null, val argument: S
 }
 
 class FeedState {
-    var page by mutableStateOf(1)
-    var loadedPage by mutableStateOf(0)
+    var page by mutableIntStateOf(1)
+    var loadedPage by mutableIntStateOf(0)
     var items by mutableStateOf<List<Release>>(emptyList())
-    var total by mutableStateOf(0)
+    var total by mutableIntStateOf(0)
     var stale by mutableStateOf(false)
     var exhausted by mutableStateOf(false)
 
@@ -90,7 +91,6 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
 
     override fun onCleared() {
         watchedPreferences.unregisterOnSharedPreferenceChangeListener(preferenceListener)
-        super.onCleared()
     }
 
     private fun refreshLocalData(sections: Set<UiSection> = UiSection.entries.toSet()) {
@@ -138,7 +138,7 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
         }
     }
 
-    var revision by mutableStateOf(0)
+    var revision by mutableIntStateOf(0)
     var playbackError by mutableStateOf<String?>(null)
     var pendingStreams by mutableStateOf<Pair<Pair<Release, Episode>, List<VideoStream>>?>(null)
     var preparing by mutableStateOf(false)
@@ -194,6 +194,8 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
         release: Release,
         episodeId: String,
         preferredTechnology: String? = null,
+        /** Called after a failed start, on top of showing [playbackError]. */
+        onFailure: () -> Unit = {},
     ) {
         if (preparing) return
         preparing = true
@@ -218,6 +220,7 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
                 throw cancel
             } catch (error: Exception) {
                 playbackError = error.message ?: "Не удалось открыть серию"
+                onFailure()
             } finally {
                 preparing = false
             }

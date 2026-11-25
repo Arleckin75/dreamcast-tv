@@ -132,11 +132,11 @@ class Repository(val storage: Storage, val source: DreamcastSource = DreamcastSi
         val key =
             when {
                 normalized.isNotEmpty() ->
-                    "dreamcast:releases:search:$normalized:$page:16" +
+                    "dreamcast:releases:search:$normalized:$page:$CATALOG_PAGE_SIZE" +
                         if (filter == CatalogFilter()) "" else ":${filter.cacheKey}"
                 filter.year != null || filter.genres.isNotEmpty() ->
-                    "dreamcast:catalog:${filter.cacheKey}:$page:16"
-                else -> "dreamcast:releases:ongoing:$page:16"
+                    "dreamcast:catalog:${filter.cacheKey}:$page:$CATALOG_PAGE_SIZE"
+                else -> "dreamcast:releases:ongoing:$page:$CATALOG_PAGE_SIZE"
             }
         val data =
             cached(

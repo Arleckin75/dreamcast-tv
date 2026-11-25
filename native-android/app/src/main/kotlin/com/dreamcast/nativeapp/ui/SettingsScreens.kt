@@ -28,26 +28,19 @@ import kotlinx.coroutines.withContext
 @Composable
 internal fun Settings(model: AppViewModel) {
     var dialog by remember { mutableStateOf("") }
-    val themeLabel =
-        when (model.ui.theme) {
-            "system" -> "Системная"
-            "light" -> "Светлая"
-            else -> "Тёмная"
-        }
-    val accentLabel =
-        when (model.ui.accent) {
-            "blue" -> "Синий"
-            "green" -> "Зелёный"
-            "violet" -> "Фиолетовый"
-            "rose" -> "Розовый"
-            else -> "Системный"
-        }
+    // An unknown stored value reads as the default: the dark theme, the system accent.
+    val theme = THEMES.firstOrNull { it.first == model.ui.theme } ?: THEMES.last()
+    val accent = ACCENTS.firstOrNull { it.first == model.ui.accent } ?: ACCENTS.first()
     // The button the screen was left from (Профиль, Кэш, О приложении…) gets the focus back on
-    // return; the first visit starts on the first button.
+    // return; the first visit starts on the first button. Kept on press, not on every focus
+    // move, since only leaving the screen needs it.
     var focused by rememberSaveable { mutableStateOf("profile") }
     @Composable
     fun Item(key: String, label: String, icon: Int, enabled: Boolean = true, onClick: () -> Unit) =
-        AboutAction(label, icon, enabled, focused == key, { focused = key }, onClick)
+        AboutAction(label, icon, enabled, restoreFocus = focused == key) {
+            focused = key
+            onClick()
+        }
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(18.dp),
         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
@@ -69,10 +62,10 @@ internal fun Settings(model: AppViewModel) {
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Item("theme", "Тема: $themeLabel", R.drawable.ic_nav_settings) {
+                    Item("theme", "Тема: ${theme.second}", R.drawable.ic_nav_settings) {
                         dialog = "theme"
                     }
-                    Item("accent", "Акцент: $accentLabel", R.drawable.ic_about_heart) {
+                    Item("accent", "Акцент: ${accent.second}", R.drawable.ic_about_heart) {
                         dialog = "accent"
                     }
                     // System colours apply only to the system accent on Android 12 and later.
@@ -139,42 +132,19 @@ internal fun Settings(model: AppViewModel) {
     }
     when (dialog) {
         "theme" ->
-            ChoiceDialog(
-                "Тема",
-                listOf("Системная", "Светлая", "Тёмная"),
-                { dialog = "" },
-                selected = listOf("system", "light").indexOf(model.ui.theme).let { if (it < 0) 2 else it },
-            ) { index ->
-                model.mutateLocal(UiSection.SETTINGS) {
-                    put("settings.theme_mode", listOf("system", "light", "dark")[index])
-                }
+            ChoiceDialog("Тема", THEMES, theme.first, { dialog = "" }) { value ->
+                model.mutateLocal(UiSection.SETTINGS) { put("settings.theme_mode", value) }
                 dialog = ""
             }
         "accent" ->
-            ChoiceDialog(
-                "Акцент",
-                listOf("Системный", "Синий", "Зелёный", "Фиолетовый", "Розовый"),
-                { dialog = "" },
-                selected = listOf("blue", "green", "violet", "rose").indexOf(model.ui.accent) + 1,
-            ) { index ->
-                model.mutateLocal(UiSection.SETTINGS) {
-                    put(
-                        "settings.accent",
-                        listOf("system", "blue", "green", "violet", "rose")[index],
-                    )
-                }
+            ChoiceDialog("Акцент", ACCENTS, accent.first, { dialog = "" }) { value ->
+                model.mutateLocal(UiSection.SETTINGS) { put("settings.accent", value) }
                 dialog = ""
             }
         "player" ->
-            ChoiceDialog(
-                "Поток по умолчанию",
-                listOf("Выбирать вручную", "HLS", "DASH"),
-                { dialog = "" },
-                selected = listOf("none", "hls", "dash").indexOf(model.ui.streamTechnology),
-            ) { index ->
-                model.mutateLocal(UiSection.SETTINGS) {
-                    put("player.preferred_stream_technology", listOf("none", "hls", "dash")[index])
-                }
+            ChoiceDialog("Поток по умолчанию", STREAMS, model.ui.streamTechnology, { dialog = "" }) {
+                value ->
+                model.mutateLocal(UiSection.SETTINGS) { put("player.preferred_stream_technology", value) }
                 dialog = ""
             }
     }
@@ -238,15 +208,9 @@ internal fun Cache(model: AppViewModel) {
         Action("Очистить весь кэш") { clearDialog = true }
     }
     if (retentionDialog)
-        ChoiceDialog(
-            "Срок хранения",
-            listOf("8 часов", "12 часов", "1 день", "3 дня", "7 дней", "30 дней", "Бессрочно"),
-            { retentionDialog = false },
-            selected = listOf(8L, 12L, 24L, 72L, 168L, 720L, 0L).indexOf(model.ui.retentionHours),
-        ) { index ->
-            model.mutateLocal(UiSection.CACHE) {
-                retention(listOf(8L, 12L, 24L, 72L, 168L, 720L, 0L)[index])
-            }
+        ChoiceDialog("Срок хранения", RETENTION, model.ui.retentionHours, { retentionDialog = false }) {
+            hours ->
+            model.mutateLocal(UiSection.CACHE) { retention(hours) }
             retentionDialog = false
         }
     // "Отмена" comes first and takes the focus, so one extra OK does not wipe the cache.
@@ -329,6 +293,29 @@ internal fun Notifications(model: AppViewModel) {
         }
     }
 }
+
+/** Setting values with their labels, for the labels on the buttons and the choice dialogs. */
+private val THEMES = listOf("system" to "Системная", "light" to "Светлая", "dark" to "Тёмная")
+private val ACCENTS =
+    listOf(
+        "system" to "Системный",
+        "blue" to "Синий",
+        "green" to "Зелёный",
+        "violet" to "Фиолетовый",
+        "rose" to "Розовый",
+    )
+private val STREAMS = listOf("none" to "Выбирать вручную", "hls" to "HLS", "dash" to "DASH")
+/** Cache lifetime in hours; 0 keeps entries until the cache is full. */
+private val RETENTION =
+    listOf(
+        8L to "8 часов",
+        12L to "12 часов",
+        24L to "1 день",
+        72L to "3 дня",
+        168L to "7 дней",
+        720L to "30 дней",
+        0L to "Бессрочно",
+    )
 
 private val EPISODE_COUNT = Regex("""Доступно серий: (\d+) \(было (\d+)\)""")
 private val CAPTION_DATE = DateTimeFormatter.ofPattern("d MMM", Locale.forLanguageTag("ru"))

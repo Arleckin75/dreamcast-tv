@@ -4,11 +4,14 @@ import android.app.AlertDialog
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.*
-import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.text.TextUtils
 import android.view.*
 import android.widget.*
+import androidx.core.graphics.withRotation
+import androidx.core.graphics.withTranslation
+import androidx.core.view.isGone
+import androidx.core.graphics.drawable.toDrawable
 
 /** Remote-first watch overlay for the unified Media3 player. */
 internal class PlayerControls(
@@ -425,12 +428,10 @@ internal class PlayerControls(
         positionLabel.text = formatTime(targetMs)
         previewTime.text = formatTime(targetMs)
         if (frame != null) previewImage.setImageDrawable(frame)
-        previewImage.visibility =
-            if (hasPreviews && (frame != null || previewImage.drawable != null)) View.VISIBLE
-            else View.GONE
+        previewImage.isGone = !(hasPreviews && (frame != null || previewImage.drawable != null))
         scrubFraction = fraction
         // Stay invisible until placed, so it never flashes at a stale position.
-        if (preview.visibility == View.GONE) preview.visibility = View.INVISIBLE
+        if (preview.isGone) preview.visibility = View.INVISIBLE
         placePreview()
     }
 
@@ -641,7 +642,7 @@ internal fun showPlayerMenu(
     dialog.setOnDismissListener { onDismiss() }
     dialog.show()
     dialog.window?.apply {
-        setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        setBackgroundDrawable(Color.TRANSPARENT.toDrawable())
         setDimAmount(0.25f)
         addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         setLayout(dp(340), WindowManager.LayoutParams.MATCH_PARENT)
@@ -656,6 +657,23 @@ internal fun showPlayerMenu(
 /** Drawn vectors avoid font-dependent media glyphs. */
 private class TransportButton(context: Context, var kind: String) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    // Built once: onDraw runs on every focus change and progress tick.
+    private val playPath =
+        Path().apply {
+            moveTo(-8f, -12f)
+            lineTo(11f, 0f)
+            lineTo(-8f, 12f)
+            close()
+        }
+    private val rewindArrow = arrow(-13f)
+    private val forwardArrow = arrow(13f)
+
+    private fun arrow(x: Float) =
+        Path().apply {
+            moveTo(x, -16f)
+            lineTo(x, -5f)
+            lineTo(if (x < 0) -3f else 3f, -8f)
+        }
 
     init {
         isFocusable = true
@@ -665,82 +683,62 @@ private class TransportButton(context: Context, var kind: String) : View(context
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val size = minOf(width, height).toFloat()
-        canvas.save()
-        canvas.translate(width / 2f, height / 2f)
-        paint.style = Paint.Style.FILL
-        paint.color = if (hasFocus()) Color.WHITE else 0x66000000
-        canvas.drawCircle(0f, 0f, size * 0.46f, paint)
-        canvas.scale(size / 64f, size / 64f)
-        paint.color = if (hasFocus()) Color.BLACK else Color.WHITE
-        paint.strokeWidth = 2.7f
-        paint.strokeCap = Paint.Cap.ROUND
-        when (kind) {
-            "pause" -> {
-                canvas.drawRect(-9f, -12f, -3f, 12f, paint)
-                canvas.drawRect(3f, -12f, 9f, 12f, paint)
-            }
-            "play",
-            "next" -> {
-                canvas.drawPath(
-                    Path().apply {
-                        moveTo(-8f, -12f)
-                        lineTo(11f, 0f)
-                        lineTo(-8f, 12f)
-                        close()
-                    },
-                    paint,
-                )
-                if (kind == "next") canvas.drawRect(12f, -12f, 16f, 12f, paint)
-            }
-            "rewind",
-            "forward" -> {
-                paint.style = Paint.Style.STROKE
-                canvas.drawArc(
-                    -14f,
-                    -14f,
-                    14f,
-                    14f,
-                    if (kind == "rewind") 210f else -30f,
-                    290f,
-                    false,
-                    paint,
-                )
-                val x = if (kind == "rewind") -13f else 13f
-                canvas.drawPath(
-                    Path().apply {
-                        moveTo(x, -16f)
-                        lineTo(x, -5f)
-                        lineTo(if (x < 0) -3f else 3f, -8f)
-                    },
-                    paint,
-                )
-                paint.style = Paint.Style.FILL
-                paint.textSize = 13f
-                paint.textAlign = Paint.Align.CENTER
-                paint.typeface = Typeface.DEFAULT_BOLD
-                canvas.drawText("10", 0f, 6f, paint)
-            }
-            "captions" -> {
-                paint.style = Paint.Style.STROKE
-                canvas.drawRoundRect(-15f, -11f, 15f, 11f, 3f, 3f, paint)
-                paint.style = Paint.Style.FILL
-                paint.textSize = 13f
-                paint.textAlign = Paint.Align.CENTER
-                paint.typeface = Typeface.DEFAULT_BOLD
-                canvas.drawText("CC", 0f, 5f, paint)
-            }
-            "settings" -> {
-                paint.style = Paint.Style.STROKE
-                canvas.drawCircle(0f, 0f, 10f, paint)
-                canvas.drawCircle(0f, 0f, 3f, paint)
-                repeat(8) {
-                    canvas.save()
-                    canvas.rotate(it * 45f)
-                    canvas.drawLine(0f, -10f, 0f, -15f, paint)
-                    canvas.restore()
+        canvas.withTranslation(width / 2f, height / 2f) {
+            paint.style = Paint.Style.FILL
+            paint.color = if (hasFocus()) Color.WHITE else 0x66000000
+            canvas.drawCircle(0f, 0f, size * 0.46f, paint)
+            canvas.scale(size / 64f, size / 64f)
+            paint.color = if (hasFocus()) Color.BLACK else Color.WHITE
+            paint.strokeWidth = 2.7f
+            paint.strokeCap = Paint.Cap.ROUND
+            when (kind) {
+                "pause" -> {
+                    canvas.drawRect(-9f, -12f, -3f, 12f, paint)
+                    canvas.drawRect(3f, -12f, 9f, 12f, paint)
+                }
+                "play",
+                "next" -> {
+                    canvas.drawPath(playPath, paint)
+                    if (kind == "next") canvas.drawRect(12f, -12f, 16f, 12f, paint)
+                }
+                "rewind",
+                "forward" -> {
+                    paint.style = Paint.Style.STROKE
+                    canvas.drawArc(
+                        -14f,
+                        -14f,
+                        14f,
+                        14f,
+                        if (kind == "rewind") 210f else -30f,
+                        290f,
+                        false,
+                        paint,
+                    )
+                    canvas.drawPath(if (kind == "rewind") rewindArrow else forwardArrow, paint)
+                    paint.style = Paint.Style.FILL
+                    paint.textSize = 13f
+                    paint.textAlign = Paint.Align.CENTER
+                    paint.typeface = Typeface.DEFAULT_BOLD
+                    canvas.drawText("10", 0f, 6f, paint)
+                }
+                "captions" -> {
+                    paint.style = Paint.Style.STROKE
+                    canvas.drawRoundRect(-15f, -11f, 15f, 11f, 3f, 3f, paint)
+                    paint.style = Paint.Style.FILL
+                    paint.textSize = 13f
+                    paint.textAlign = Paint.Align.CENTER
+                    paint.typeface = Typeface.DEFAULT_BOLD
+                    canvas.drawText("CC", 0f, 5f, paint)
+                }
+                "settings" -> {
+                    paint.style = Paint.Style.STROKE
+                    canvas.drawCircle(0f, 0f, 10f, paint)
+                    canvas.drawCircle(0f, 0f, 3f, paint)
+                    repeat(8) {
+                        canvas.withRotation(it * 45f) { drawLine(0f, -10f, 0f, -15f, paint) }
+                    }
                 }
             }
         }
-        canvas.restore()
     }
 }

@@ -1,6 +1,5 @@
 package com.dreamcast.nativeapp.ui
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -39,7 +38,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 
 @Composable
 internal fun Catalog(model: AppViewModel) {
-    var year by rememberSaveable { mutableStateOf(0) }
+    var year by rememberSaveable { mutableIntStateOf(0) }
     var genres by rememberSaveable { mutableStateOf("") }
     var retry by remember { mutableIntStateOf(0) }
     val options = resource(retry) { publish -> model.repository.options(onStale = publish) }
@@ -98,11 +97,11 @@ internal fun Catalog(model: AppViewModel) {
         options.value?.value?.let { data ->
             ChoiceDialog(
                 "Год выпуска",
-                listOf("Любой год") + data.years.map(Int::toString),
+                listOf(0 to "Любой год") + data.years.map { it to it.toString() },
+                year,
                 { yearDialog = false },
-                selected = if (year == 0) 0 else data.years.indexOf(year).takeIf { it >= 0 }?.plus(1) ?: -1,
             ) {
-                year = if (it == 0) 0 else data.years[it - 1]
+                year = it
                 yearDialog = false
             }
         }
@@ -242,15 +241,14 @@ internal fun Search(model: AppViewModel) {
             val history = model.ui.searchHistory
             // After "Удалить" the focus moves to the neighbouring query (or the search field)
             // instead of being lost with the removed row.
-            val rows = remember { mutableMapOf<String, FocusRequester>() }
             var focusNext by remember { mutableStateOf<String?>(null) }
-            LaunchedEffect(history, focusNext) {
-                val next = focusNext ?: return@LaunchedEffect
-                withFrameNanos {}
+            LaunchedEffect(focusNext) {
                 // The last query gone: "Найти", since focusing the field would open the keyboard.
-                if (next.isEmpty()) findFocus.requestFocus()
-                else if (next in history) rows[next]?.requestFocus()
-                focusNext = null
+                if (focusNext == "") {
+                    withFrameNanos {}
+                    findFocus.requestFocus()
+                    focusNext = null
+                }
             }
             LazyColumn(
                 contentPadding = PaddingValues(vertical = 6.dp),
@@ -258,7 +256,14 @@ internal fun Search(model: AppViewModel) {
             ) {
                 item { Text("История поиска", style = MaterialTheme.typography.titleLarge) }
                 items(history, key = { it }) { item ->
-                    val requester = remember(item) { rows.getOrPut(item) { FocusRequester() } }
+                    val requester = remember { FocusRequester() }
+                    LaunchedEffect(focusNext) {
+                        if (focusNext == item) {
+                            withFrameNanos {}
+                            requester.requestFocus()
+                            focusNext = null
+                        }
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Action(item, Modifier.weight(1f).focusRequester(requester)) {
                             query = item
@@ -397,16 +402,10 @@ internal fun Library(model: AppViewModel) {
     // No card to give the focus back to (none had it, or it left the library): the filter takes it.
     val noCard = entries.none { it.release.id == focused }
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Action("Все", selected = status.isEmpty(), autofocus = noCard && status.isEmpty()) {
-            status = ""
-        }
-        LibraryStatus.entries.forEach { item ->
-            Action(
-                item.label,
-                selected = status == item.name,
-                autofocus = noCard && status == item.name,
-            ) {
-                status = item.name
+        (listOf("" to "Все") + LibraryStatus.entries.map { it.name to it.label }).forEach {
+            (value, label) ->
+            Action(label, selected = status == value, autofocus = noCard && status == value) {
+                status = value
             }
         }
     }

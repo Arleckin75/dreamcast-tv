@@ -32,7 +32,7 @@ import com.dreamcast.nativeapp.*
 import com.dreamcast.nativeapp.data.*
 
 @Composable
-internal fun Home(model: AppViewModel) {
+internal fun Home(model: AppViewModel, activity: MainActivity) {
     var retry by remember { mutableIntStateOf(0) }
     val data =
         resource(retry) { publish ->
@@ -142,7 +142,14 @@ internal fun Home(model: AppViewModel) {
                                 else 0f,
                             caption = "Серия ${item.ordinal}",
                         ) {
-                            model.navigate(Route("episodes", item.release, item.episodeId))
+                            // The card starts its episode straight away; only if that fails does
+                            // the episode list open, to pick another one.
+                            model.prepare(
+                                activity,
+                                item.release,
+                                item.episodeId,
+                                onFailure = { model.navigate(Route("episodes", item.release)) },
+                            )
                         }
                     }
                 }
