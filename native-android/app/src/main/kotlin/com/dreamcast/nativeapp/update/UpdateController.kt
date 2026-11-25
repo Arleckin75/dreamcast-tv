@@ -97,7 +97,7 @@ class UpdateController(
 
     /** Opens the system screen where the user allows installing from this app. */
     fun openInstallPermission() {
-        val intent = installer.installPermissionIntent() ?: return
+        val intent = installer.installPermissionIntent()
         runCatching { context.startActivity(intent) }
     }
 

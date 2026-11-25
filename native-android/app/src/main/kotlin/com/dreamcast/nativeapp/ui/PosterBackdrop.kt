@@ -26,6 +26,7 @@ import coil.request.SuccessResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import androidx.core.graphics.createBitmap
 
 internal data class SelectedPoster(
     val url: String,
@@ -146,8 +147,7 @@ internal fun PosterBackdrop(state: PosterBackdropState, base: Color, dark: Boole
 }
 
 private fun isHardwareBitmap(drawable: Drawable): Boolean =
-    Build.VERSION.SDK_INT >= 26 &&
-        (drawable as? BitmapDrawable)?.bitmap?.config == Bitmap.Config.HARDWARE
+    (drawable as? BitmapDrawable)?.bitmap?.config == Bitmap.Config.HARDWARE
 
 /**
  * A small software copy of the poster for colour sampling. Pixels of a HARDWARE bitmap cannot be
@@ -173,10 +173,10 @@ private const val PALETTE_SAMPLE = 48
 internal fun extractPosterPalette(drawable: Drawable): PosterPalette? {
     val original = (drawable as? BitmapDrawable)?.bitmap
     val readable =
-        if (Build.VERSION.SDK_INT >= 26 && original?.config == Bitmap.Config.HARDWARE)
+        if (original?.config == Bitmap.Config.HARDWARE)
             original.copy(Bitmap.Config.ARGB_8888, false)
         else original
-    val sample = Bitmap.createBitmap(48, 48, Bitmap.Config.ARGB_8888)
+    val sample = createBitmap(48, 48)
     try {
         val canvas = Canvas(sample)
         if (readable != null)
