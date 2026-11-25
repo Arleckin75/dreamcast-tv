@@ -21,6 +21,10 @@ import com.dreamcast.nativeapp.data.*
 import com.dreamcast.nativeapp.ui.DreamApp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.receiveAsFlow
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -29,12 +33,12 @@ import org.json.JSONArray
 import org.json.JSONObject
 import androidx.compose.runtime.mutableIntStateOf
 
-data class Route(val name: String, val release: Release? = null, val argument: String = "") {
+data class Route(val name: String, val release: Release? = null) {
     val key
-        get() = "$name:${release?.id ?: 0}:$argument"
+        get() = "$name:${release?.id ?: 0}"
 
-    fun json() =
-        JSONObject().put("name", name).put("release", release?.json()).put("argument", argument)
+    // Navigation saved by 1.0.6 and earlier also has an "argument" field; it is ignored.
+    fun json() = JSONObject().put("name", name).put("release", release?.json())
 }
 
 class FeedState {
@@ -179,18 +183,56 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
                 JSONArray(text)
                     .objects()
                     .map {
-                        Route(
-                            it.getString("name"),
-                            it.optJSONObject("release")?.let(Release::fromJson),
-                            it.text("argument"),
-                        )
+                        Route(it.getString("name"), it.optJSONObject("release")?.let(Release::fromJson))
                     }
                     .ifEmpty { listOf(Route("home")) }
         }
     }
 
+    /** A player start for the screen that is open when it arrives (it may have been recreated). */
+    class PlaybackLaunch(
+        val release: Release,
+        val episode: Episode,
+        val stream: VideoStream,
+        val onFailure: () -> Unit,
+    )
+
+    private val launchRequests = Channel<PlaybackLaunch>(Channel.BUFFERED)
+    /** Collected by the open [MainActivity], which starts the player. */
+    val playbackLaunches = launchRequests.receiveAsFlow()
+    private var launching = false
+
+    /**
+     * Starts [episode] once saved progress is written. The player is opened by whichever
+     * [MainActivity] is open then, never by one that was destroyed in the meantime.
+     */
+    fun launchPlayback(
+        release: Release,
+        episode: Episode,
+        stream: VideoStream,
+        /** Called when the player could not be opened, on top of showing the error. */
+        onFailure: () -> Unit = {},
+    ) {
+        pendingStreams = null
+        if (launching) return
+        launching = true
+        viewModelScope.launch {
+            try {
+                application.awaitStorageReady()
+                application.progressWriter.awaitPending()
+                launchRequests.send(PlaybackLaunch(release, episode, stream, onFailure))
+            } catch (cancel: kotlinx.coroutines.CancellationException) {
+                throw cancel
+            } catch (error: Exception) {
+                playbackError = error.message ?: "Не удалось открыть плеер"
+                onFailure()
+            } finally {
+                launching = false
+            }
+        }
+    }
+
     fun prepare(
-        activity: MainActivity,
         release: Release,
         episodeId: String,
         preferredTechnology: String? = null,
@@ -211,10 +253,11 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
                         ?: storage.string("player.preferred_stream_technology", DEFAULT_STREAM_TECHNOLOGY)
                 if (technology == "none") pendingStreams = (playbackRelease to episode) to streams
                 else
-                    activity.launchPlayback(
+                    launchPlayback(
                         playbackRelease,
                         episode,
                         streams.firstOrNull { it.type == technology } ?: streams.first(),
+                        onFailure,
                     )
             } catch (cancel: kotlinx.coroutines.CancellationException) {
                 throw cancel
@@ -229,7 +272,6 @@ class AppViewModel(app: android.app.Application) : AndroidViewModel(app) {
 }
 
 class MainActivity : ComponentActivity() {
-    private var playbackLaunch: Job? = null
     val model: AppViewModel by viewModels()
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -248,7 +290,20 @@ class MainActivity : ComponentActivity() {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 51)
             model.storage.put("native.notification_permission_requested", true)
         }
-        setContent { DreamApp(model, this) }
+        setContent { DreamApp(model) }
+        // Player starts come from the view model, so a recreated activity still receives them.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                model.playbackLaunches.collect { launch ->
+                    try {
+                        PlayerLauncher.launch(this@MainActivity, launch.release, launch.episode, launch.stream)
+                    } catch (error: Exception) {
+                        model.playbackError = error.message ?: "Не удалось открыть плеер"
+                        launch.onFailure()
+                    }
+                }
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -292,23 +347,6 @@ class MainActivity : ComponentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("navigation", model.saveNavigation())
         super.onSaveInstanceState(outState)
-    }
-
-    fun launchPlayback(release: Release, episode: Episode, stream: VideoStream) {
-        if (playbackLaunch?.isActive == true) return
-        model.pendingStreams = null
-        playbackLaunch =
-            lifecycleScope.launch {
-                try {
-                    model.application.awaitStorageReady()
-                    model.application.progressWriter.awaitPending()
-                    PlayerLauncher.launch(this@MainActivity, release, episode, stream)
-                } catch (cancel: kotlinx.coroutines.CancellationException) {
-                    throw cancel
-                } catch (error: Exception) {
-                    model.playbackError = error.message ?: "Не удалось открыть плеер"
-                }
-            }
     }
 
 }

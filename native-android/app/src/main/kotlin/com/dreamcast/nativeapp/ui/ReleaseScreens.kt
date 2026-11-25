@@ -192,7 +192,7 @@ private fun EpisodeAction(
 }
 
 @Composable
-internal fun Episodes(model: AppViewModel, activity: MainActivity, release: Release) {
+internal fun Episodes(model: AppViewModel, release: Release) {
     var retry by remember { mutableIntStateOf(0) }
     val data =
         resource("${release.id}:$retry") {
@@ -234,13 +234,13 @@ internal fun Episodes(model: AppViewModel, activity: MainActivity, release: Rele
                     primary = true,
                     autofocus = episode.id == start,
                 ) {
-                    model.prepare(activity, release, episode.id)
+                    model.prepare(release, episode.id)
                 }
                 if (watched != null && watched.positionMs > 0)
                     EpisodeAction("С начала", Modifier.width(100.dp)) {
                         model.mutateLocal(
                             UiSection.PROGRESS,
-                            after = { model.prepare(activity, release, episode.id) },
+                            after = { model.prepare(release, episode.id) },
                         ) {
                             saveProgress(release, episode, 0, watched.durationMs)
                         }
